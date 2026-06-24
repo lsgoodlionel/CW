@@ -52,15 +52,39 @@ docker compose up -d --build
 # 访问 http://localhost:8080
 ```
 
-## Ubuntu 一键部署
+## Ubuntu 云端一键下载并部署(推荐)
+
+在全新的 Ubuntu 云服务器上,**只需一行命令**即可自动完成「安装 Docker/git → 从 GitHub 下载代码 → 构建启动」:
 
 ```bash
-# 服务器已装 Docker;未装可执行: curl -fsSL https://get.docker.com | sh
+curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | bash
+```
+
+自定义端口/安装目录(可选):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | HTTP_PORT=80 APP_DIR=/opt/cw bash
+```
+
+`install.sh` 会自动:
+1. 安装 `git` 与 `Docker`(含 compose 插件,若尚未安装)
+2. 克隆本仓库到 `~/CW`(或 `APP_DIR`)
+3. 生成 `.env`(随机数据库密码)并调用 `deploy.sh` 构建启动
+4. 健康检查;**再次运行同一命令即可拉取最新代码并自动更新**
+
+部署完成后访问 `http://<服务器IP>:<端口>`(默认 8080)。
+
+> 非 root 用户需具备 `sudo`;脚本会按需提权安装系统依赖。
+
+## 已克隆代码后的本地部署
+
+若已 `git clone` 仓库到本地,在仓库目录执行:
+
+```bash
 ./deploy.sh
 ```
 
 脚本会自动:检查 Docker → 生成 `.env`(随机数据库密码)→ 构建启动 → 健康检查。
-访问 `http://<服务器IP>:8080`。
 
 > 生产建议:在前置反向代理(如 Nginx/Caddy)上配置 HTTPS 与域名,并在 `.env` 收紧 `CORS_ORIGINS`。
 
