@@ -1,0 +1,208 @@
+"""整站数据一键导入/导出。
+
+导出:打包为 zip —— `data.json`(企业信息/科目/凭证/分录/附件元数据)
+     + `attachments/<stored_name>` 附件文件。
+导入:读取 zip 快照,**整体替换**现有数据(事务保护)。
+"""
+import io
+import json
+import uuid
+import zipfile
+from datetime import datetime, date
+from decimal import Decimal
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse
+from sqlalchemy import select, delete
+from sqlalchemy.orm import Session, selectinload
+
+from ..database import get_db
+from ..config import settings
+from .. import models
+
+router = APIRouter(prefix="/api/data", tags=["data"])
+
+EXPORT_VERSION = 1
+
+
+def _company_dict(c: models.CompanyInfo | None) -> dict:
+    if c is None:
+        return {}
+    return {
+        "name": c.name, "legal_person": c.legal_person, "accountant": c.accountant,
+        "auditor": c.auditor, "bookkeeper": c.bookkeeper, "recorder": c.recorder,
+    }
+
+
+@router.get("/export")
+def export_data(db: Session = Depends(get_db)):
+    """导出整站数据为 zip 备份文件。"""
+    company = db.get(models.CompanyInfo, 1)
+    accounts = db.scalars(select(models.Account).order_by(models.Account.code)).all()
+    account_code = {a.id: a.code for a in accounts}
+
+    vouchers = db.scalars(
+        select(models.Voucher).order_by(models.Voucher.id).options(
+            selectinload(models.Voucher.entries),
+            selectinload(models.Voucher.attachments),
+        )
+    ).all()
+
+    payload = {
+        "version": EXPORT_VERSION,
+        "exported_at": datetime.now().isoformat(),
+        "company": _company_dict(company),
+        "accounts": [
+            {"code": a.code, "name": a.name, "category": a.category,
+             "direction": a.direction, "is_active": a.is_active}
+            for a in accounts
+        ],
+        "vouchers": [],
+    }
+
+    # 收集附件文件名(zip 内路径)
+    file_map: list[tuple[str, Path]] = []
+    for v in vouchers:
+        attachments = []
+        for att in v.attachments:
+            src = Path(att.stored_path)
+            arc_name = f"attachments/{att.id}_{Path(att.stored_path).name}"
+            attachments.append({
+                "kind": att.kind, "original_name": att.original_name,
+                "mime_type": att.mime_type, "size_bytes": att.size_bytes,
+                "archive_name": arc_name,
+            })
+            if src.exists():
+                file_map.append((arc_name, src))
+        payload["vouchers"].append({
+            "voucher_no": v.voucher_no,
+            "voucher_date": v.voucher_date.isoformat(),
+            "note": v.note, "status": v.status,
+            "entries": [
+                {"line_no": e.line_no, "summary": e.summary,
+                 "account_code": account_code.get(e.account_id, ""),
+                 "sub_account": e.sub_account,
+                 "debit": str(e.debit), "credit": str(e.credit)}
+                for e in v.entries
+            ],
+            "attachments": attachments,
+        })
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("data.json", json.dumps(payload, ensure_ascii=False, indent=2))
+        for arc_name, src in file_map:
+            zf.write(src, arc_name)
+    buffer.seek(0)
+
+    filename = f"finance-backup-{datetime.now():%Y%m%d-%H%M%S}.zip"
+    return StreamingResponse(
+        buffer, media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/import")
+async def import_data(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """从 zip 备份恢复整站数据(整体替换现有数据)。"""
+    raw = await file.read()
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(raw))
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="不是有效的 zip 备份文件")
+
+    if "data.json" not in zf.namelist():
+        raise HTTPException(status_code=400, detail="备份缺少 data.json")
+    try:
+        payload = json.loads(zf.read("data.json").decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="data.json 解析失败")
+
+    if payload.get("version") != EXPORT_VERSION:
+        raise HTTPException(status_code=400, detail="备份版本不兼容")
+
+    counts = _restore(db, zf, payload)
+    return {"success": True, **counts}
+
+
+def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
+    """在单个事务内清空并重建全部数据。附件文件落盘后再提交元数据。"""
+    # 1. 清空(附件文件单独处理)
+    db.execute(delete(models.VoucherEntry))
+    db.execute(delete(models.Attachment))
+    db.execute(delete(models.Voucher))
+    db.execute(delete(models.Account))
+
+    # 2. 企业信息
+    company = db.get(models.CompanyInfo, 1)
+    if company is None:
+        company = models.CompanyInfo(id=1)
+        db.add(company)
+    for key, value in (payload.get("company") or {}).items():
+        if hasattr(company, key):
+            setattr(company, key, value)
+
+    # 3. 科目
+    code_to_account: dict[str, models.Account] = {}
+    for a in payload.get("accounts", []):
+        acc = models.Account(
+            code=a["code"], name=a["name"], category=a["category"],
+            direction=a["direction"], is_active=a.get("is_active", True),
+        )
+        db.add(acc)
+        code_to_account[a["code"]] = acc
+    db.flush()  # 取得科目 id
+
+    # 4. 凭证 + 分录 + 附件
+    upload_root = Path(settings.upload_dir)
+    voucher_count = attachment_count = 0
+    for v in payload.get("vouchers", []):
+        voucher = models.Voucher(
+            voucher_no=v["voucher_no"],
+            voucher_date=date.fromisoformat(v["voucher_date"]),
+            note=v.get("note", ""), status=v.get("status", "posted"),
+            total_debit=Decimal("0"), total_credit=Decimal("0"),
+        )
+        total_debit = total_credit = Decimal("0")
+        for e in v.get("entries", []):
+            acc = code_to_account.get(e["account_code"])
+            if acc is None:
+                continue
+            debit = Decimal(str(e.get("debit", "0")))
+            credit = Decimal(str(e.get("credit", "0")))
+            total_debit += debit
+            total_credit += credit
+            voucher.entries.append(models.VoucherEntry(
+                line_no=e.get("line_no", 1), summary=e.get("summary", ""),
+                account=acc, sub_account=e.get("sub_account", ""),
+                debit=debit, credit=credit,
+            ))
+        voucher.total_debit = total_debit
+        voucher.total_credit = total_credit
+        db.add(voucher)
+        db.flush()  # 取得 voucher.id 用于附件目录
+
+        for att in v.get("attachments", []):
+            arc = att.get("archive_name")
+            if not arc or arc not in zf.namelist():
+                continue
+            sub_dir = upload_root / str(voucher.id)
+            sub_dir.mkdir(parents=True, exist_ok=True)
+            suffix = Path(att["original_name"]).suffix
+            stored = sub_dir / f"{uuid.uuid4().hex}{suffix}"
+            stored.write_bytes(zf.read(arc))
+            db.add(models.Attachment(
+                voucher_id=voucher.id, kind=att.get("kind", "other"),
+                original_name=att["original_name"], stored_path=str(stored),
+                mime_type=att.get("mime_type", ""), size_bytes=att.get("size_bytes", 0),
+            ))
+            attachment_count += 1
+        voucher_count += 1
+
+    db.commit()
+    return {
+        "accounts": len(code_to_account),
+        "vouchers": voucher_count,
+        "attachments": attachment_count,
+    }

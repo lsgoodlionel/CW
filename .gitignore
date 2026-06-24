@@ -1,0 +1,16 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+*.db
+backend/uploads/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# 环境
+.env
+
+# 系统
+.DS_Store
