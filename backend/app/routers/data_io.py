@@ -97,10 +97,26 @@ def export_data(db: Session = Depends(get_db)):
     buffer.seek(0)
 
     filename = f"finance-backup-{datetime.now():%Y%m%d-%H%M%S}.zip"
+    # 用 octet-stream 而非 application/zip,避免 Safari「下载后打开安全文件」自动解压成文件夹
     return StreamingResponse(
-        buffer, media_type="application/zip",
+        buffer, media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _find_member(zf: zipfile.ZipFile, target: str) -> str | None:
+    """在 zip 中定位条目,容忍外层多套一层目录及 macOS 压缩噪声。
+
+    例如手工压缩文件夹后,`data.json` 可能变成 `finance-backup-x/data.json`。
+    """
+    names = [n for n in zf.namelist() if "__MACOSX" not in n and not n.endswith("/")]
+    if target in names:
+        return target
+    suffix = "/" + target
+    candidates = [n for n in names if n.endswith(suffix)]
+    if candidates:
+        return min(candidates, key=len)  # 取层级最浅的
+    return None
 
 
 @router.post("/import")
@@ -110,12 +126,17 @@ async def import_data(file: UploadFile = File(...), db: Session = Depends(get_db
     try:
         zf = zipfile.ZipFile(io.BytesIO(raw))
     except zipfile.BadZipFile:
-        raise HTTPException(status_code=400, detail="不是有效的 zip 备份文件")
+        raise HTTPException(status_code=400, detail="不是有效的 zip 备份文件,请直接上传导出的 zip,勿先解压再压缩")
 
-    if "data.json" not in zf.namelist():
-        raise HTTPException(status_code=400, detail="备份缺少 data.json")
+    data_member = _find_member(zf, "data.json")
+    if data_member is None:
+        raise HTTPException(
+            status_code=400,
+            detail="备份缺少 data.json。请上传导出得到的原始 zip(若被系统自动解压成文件夹,"
+                   "请把文件夹里的文件直接打包,或重新导出)。",
+        )
     try:
-        payload = json.loads(zf.read("data.json").decode("utf-8"))
+        payload = json.loads(zf.read(data_member).decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
         raise HTTPException(status_code=400, detail="data.json 解析失败")
 
@@ -185,13 +206,17 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
 
         for att in v.get("attachments", []):
             arc = att.get("archive_name")
-            if not arc or arc not in zf.namelist():
+            if not arc:
+                continue
+            # 容忍外层多套一层目录:精确匹配不到时按文件名后缀定位
+            member = arc if arc in zf.namelist() else _find_member(zf, arc)
+            if member is None:
                 continue
             sub_dir = upload_root / str(voucher.id)
             sub_dir.mkdir(parents=True, exist_ok=True)
             suffix = Path(att["original_name"]).suffix
             stored = sub_dir / f"{uuid.uuid4().hex}{suffix}"
-            stored.write_bytes(zf.read(arc))
+            stored.write_bytes(zf.read(member))
             db.add(models.Attachment(
                 voucher_id=voucher.id, kind=att.get("kind", "other"),
                 original_name=att["original_name"], stored_path=str(stored),
