@@ -12,5 +12,8 @@ frontend/dist/
 # 环境
 .env
 
+# 升级前自动备份
+backups/
+
 # 系统
 .DS_Store
