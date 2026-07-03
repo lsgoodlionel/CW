@@ -78,19 +78,26 @@ curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | H
 
 ## 一键升级到最新版本
 
-在已部署的仓库目录下执行:
+在已部署的 Ubuntu 服务器上,**任意目录直接执行一行命令**即可升级(无需进入安装目录):
 
 ```bash
-./upgrade.sh
+curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/upgrade.sh | bash
 ```
 
-`upgrade.sh` 会自动:
-1. **升级前自动备份**当前数据到 `backups/finance-backup-<时间>.zip`
+脚本会**自动定位**已部署目录(通过运行中的 Docker 栈 / 常见路径 / 仓库搜索),然后:
+1. **升级前自动备份**当前数据到 `<部署目录>/backups/finance-backup-<时间>.zip`
 2. 从 GitHub 拉取最新代码(已是最新则直接退出)
 3. 重建镜像并重启(`docker compose up -d --build`,**保留数据卷,数据不丢失**)
 4. 健康检查,并打印本次更新的提交内容
 
-> 通过 `install.sh` 一键安装的服务器,也可重新执行安装命令达到同样的升级效果。
+若自动定位失败(如安装在非常见路径),显式指定目录:
+
+```bash
+APP_DIR=/opt/cw bash -c "$(curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/upgrade.sh)"
+```
+
+也可在仓库目录内直接运行 `./upgrade.sh`。
+
 > 升级仅重建容器、保留数据卷;只有显式 `docker compose down -v` 才会清空数据。
 
 ## 已克隆代码后的本地部署
