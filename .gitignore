@@ -17,3 +17,6 @@ backups/
 
 # 系统
 .DS_Store
+
+# 无关文件
+wallpaper/
