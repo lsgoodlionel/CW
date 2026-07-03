@@ -4,17 +4,71 @@
 """
 from datetime import date
 from decimal import Decimal
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from .. import models
+from .. import models, reports_cn, report_excel
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 ZERO = Decimal("0")
+REPORT_TYPES = {"month", "quarter", "year"}
+
+
+def _resolve_period(report_type: str, year: int, month: int | None,
+                    quarter: int | None) -> reports_cn.Period:
+    if report_type not in REPORT_TYPES:
+        raise HTTPException(status_code=400, detail="report_type 必须是 month/quarter/year")
+    if report_type == "month" and not (month and 1 <= month <= 12):
+        raise HTTPException(status_code=400, detail="月报需提供 1-12 的 month")
+    if report_type == "quarter" and not (quarter and 1 <= quarter <= 4):
+        raise HTTPException(status_code=400, detail="季报需提供 1-4 的 quarter")
+    return reports_cn.build_period(report_type, year, month, quarter)
+
+
+@router.get("/official")
+def official_reports(
+    report_type: str = Query("month"),
+    year: int = Query(...),
+    month: int | None = None,
+    quarter: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """三张官方报表(会小企01/02/03)的结构化数据,供页面展示。"""
+    period = _resolve_period(report_type, year, month, quarter)
+    return {
+        "period": {"label": period.label, "report_type": period.report_type,
+                   "start": period.cur_start.isoformat(),
+                   "end": period.cur_end.isoformat()},
+        "balance_sheet": reports_cn.balance_sheet(db, period),
+        "income": reports_cn.income_statement(db, period),
+        "cashflow": reports_cn.cashflow_statement(db, period),
+    }
+
+
+@router.get("/export-excel")
+def export_excel(
+    report_type: str = Query("month"),
+    year: int = Query(...),
+    month: int | None = None,
+    quarter: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """按会小企模板一键导出年报/季报/月报 Excel。"""
+    period = _resolve_period(report_type, year, month, quarter)
+    content = report_excel.build_report_workbook(db, period)
+    fname = f"财务报表-{period.label}.xlsx"
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition":
+                 f"attachment; filename*=UTF-8''{quote(fname)}"},
+    )
 
 
 def _sum_by_account(db: Session, start: date | None, end: date | None):
