@@ -20,3 +20,5 @@ backups/
 
 # 无关文件
 wallpaper/
+frontend/tsconfig.tsbuildinfo
+*.tsbuildinfo
