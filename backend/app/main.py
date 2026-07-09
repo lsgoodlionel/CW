@@ -7,7 +7,10 @@ from fastapi.responses import JSONResponse
 
 from .config import settings
 from .init_db import init_db
-from .routers import company, accounts, vouchers, attachments, reports, data_io
+from .oplog import OperationLogMiddleware
+from .routers import (
+    company, accounts, vouchers, attachments, reports, data_io, ledgers, logs,
+)
 
 
 @asynccontextmanager
@@ -28,6 +31,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# 操作日志中间件(记录数据变更与导入导出/下载行为)
+app.add_middleware(OperationLogMiddleware)
 
 
 @app.get("/api/health", tags=["system"])
@@ -41,3 +46,5 @@ app.include_router(vouchers.router)
 app.include_router(attachments.router)
 app.include_router(reports.router)
 app.include_router(data_io.router)
+app.include_router(ledgers.router)
+app.include_router(logs.router)

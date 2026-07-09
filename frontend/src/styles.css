@@ -17,3 +17,5 @@ body {
 .balance-ok { color: #389e0d; font-weight: 600; }
 .balance-bad { color: #cf1322; font-weight: 600; }
 .report-amount { font-variant-numeric: tabular-nums; }
+.ledger-sum-row { background: #fff7e6; }
+.ledger-sum-row td { font-weight: 600; }

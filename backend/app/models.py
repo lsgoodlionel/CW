@@ -100,3 +100,23 @@ class Attachment(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     voucher: Mapped["Voucher"] = relationship(back_populates="attachments")
+
+
+class OperationLog(Base):
+    """操作日志:记录全系统数据变更与导入导出/下载行为。"""
+    __tablename__ = "operation_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+    # voucher/account/attachment/company/report/ledger/data/other
+    action_type: Mapped[str] = mapped_column(String(20), index=True)
+    action: Mapped[str] = mapped_column(String(100))       # 中文行为描述
+    method: Mapped[str] = mapped_column(String(10))
+    path: Mapped[str] = mapped_column(String(300))
+    entity_id: Mapped[str] = mapped_column(String(40), default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    status_code: Mapped[int] = mapped_column(Integer, default=0)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    ip: Mapped[str] = mapped_column(String(50), default="")
