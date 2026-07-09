@@ -246,6 +246,16 @@ APP_DIR=/opt/cw bash -c "$(curl -fsSL https://raw.githubusercontent.com/lsgoodli
 
 也可在仓库目录内运行 `./upgrade.sh`。数据库表结构变更在启动时自动建表。
 
+**升级后界面没显示新功能?** 多为容器未重建或浏览器缓存,依次尝试:
+
+```bash
+# 1) 强制重建容器(即使代码已是最新)
+curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/upgrade.sh | FORCE=1 bash
+# 2) 浏览器强制刷新:Ctrl+Shift+R(Mac 为 Cmd+Shift+R),或用无痕窗口
+```
+
+验证后端是否已更新:`curl -s localhost:8080/api/ledgers/types` 有 JSON 输出即为新版。
+
 ---
 
 ## 数据备份与持久化

@@ -115,12 +115,19 @@ fi
 AFTER=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 if [ "$BEFORE" = "$AFTER" ]; then
-  info "当前已是最新版本(${AFTER}),无需升级。"
-  exit 0
+  if [ "${FORCE:-}" = "1" ]; then
+    warn "代码已是最新(${AFTER}),但按 FORCE=1 强制重建容器..."
+  else
+    info "当前已是最新版本(${AFTER})。"
+    info "若界面未显示新功能(容器可能未重建),请强制重建:FORCE=1 重新执行本命令,"
+    info "并在浏览器按 Ctrl+Shift+R 强制刷新清除缓存。"
+    exit 0
+  fi
+else
+  info "版本更新:${BEFORE} → ${AFTER}"
+  echo "本次更新内容:"
+  git log --oneline "${BEFORE}..${AFTER}" 2>/dev/null | sed 's/^/  • /' || true
 fi
-info "版本更新:${BEFORE} → ${AFTER}"
-echo "本次更新内容:"
-git log --oneline "${BEFORE}..${AFTER}" 2>/dev/null | sed 's/^/  • /' || true
 
 # 4. 重建并重启(复用 deploy.sh,保留数据卷)
 chmod +x deploy.sh
