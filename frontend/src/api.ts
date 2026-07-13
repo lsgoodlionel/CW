@@ -57,11 +57,51 @@ export interface VoucherListItem {
   voucher_no: string
   voucher_date: string
   note: string
+  customer_id: number | null
+  customer_name: string
   total_debit: number
   total_credit: number
   status: string
   entry_count: number
   attachment_count: number
+  link_count: number
+}
+
+export interface Customer {
+  id: number
+  name: string
+  short_name: string
+  tax_number: string
+  address: string
+  phone: string
+  bank_name: string
+  bank_account: string
+  contact_person: string
+  contact_phone: string
+  email: string
+  note: string
+  is_active: boolean
+  created_at: string
+}
+
+export interface LinkedVoucher {
+  link_id: number
+  relation_type: string
+  note: string
+  direction: 'in' | 'out'
+  voucher_id: number
+  voucher_no: string
+  voucher_date: string
+  voucher_note: string
+  total_debit: number
+}
+
+export const RELATION_LABEL: Record<string, string> = {
+  advance: '预收款',
+  on_account: '挂账',
+  write_off: '核销',
+  receivable: '应收款',
+  other: '其他',
 }
 
 export interface VoucherDetail {
@@ -69,12 +109,15 @@ export interface VoucherDetail {
   voucher_no: string
   voucher_date: string
   note: string
+  customer_id: number | null
+  customer: { id: number; name: string; short_name: string } | null
   total_debit: number
   total_credit: number
   status: string
   created_at: string
   entries: Entry[]
   attachments: Attachment[]
+  links: LinkedVoucher[]
 }
 
 export interface Company {

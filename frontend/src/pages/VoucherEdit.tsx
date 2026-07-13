@@ -6,8 +6,12 @@ import {
 import { DeleteOutlined, PlusOutlined, UploadOutlined, SaveOutlined, EyeOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { http, Account, Entry, Attachment, VoucherDetail, CATEGORY_LABEL } from '../api'
+import {
+  http, Account, Entry, Attachment, VoucherDetail, Customer, LinkedVoucher,
+  CATEGORY_LABEL,
+} from '../api'
 import AttachmentPreview from '../components/AttachmentPreview'
+import VoucherLinks from '../components/VoucherLinks'
 
 const { Text } = Typography
 const emptyEntry = (): Entry => ({ summary: '', account_id: 0, sub_account: '', debit: 0, credit: 0 })
@@ -21,8 +25,10 @@ export default function VoucherEdit() {
   const navigate = useNavigate()
   const [form] = Form.useForm()
   const [accounts, setAccounts] = useState<Account[]>([])
+  const [customers, setCustomers] = useState<Customer[]>([])
   const [entries, setEntries] = useState<Entry[]>([emptyEntry(), emptyEntry()])
   const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [links, setLinks] = useState<LinkedVoucher[]>([])
   const [saving, setSaving] = useState(false)
   const [uploadKind, setUploadKind] = useState('invoice')
   const [previewing, setPreviewing] = useState<Attachment | null>(null)
@@ -30,15 +36,21 @@ export default function VoucherEdit() {
   useEffect(() => {
     http.get<Account[]>('/accounts', { params: { active_only: true } })
       .then((r) => setAccounts(r.data))
+    http.get<Customer[]>('/customers', { params: { active_only: true } })
+      .then((r) => setCustomers(r.data))
   }, [])
 
   useEffect(() => {
     if (!isEdit) return
     http.get<VoucherDetail>(`/vouchers/${id}`).then((r) => {
       const v = r.data
-      form.setFieldsValue({ voucher_date: dayjs(v.voucher_date), note: v.note, voucher_no: v.voucher_no })
+      form.setFieldsValue({
+        voucher_date: dayjs(v.voucher_date), note: v.note,
+        voucher_no: v.voucher_no, customer_id: v.customer_id ?? undefined,
+      })
       setEntries(v.entries.length ? v.entries : [emptyEntry(), emptyEntry()])
       setAttachments(v.attachments)
+      setLinks(v.links)
     })
   }, [id, isEdit, form])
 
@@ -117,6 +129,7 @@ export default function VoucherEdit() {
       voucher_no: values.voucher_no || '',
       voucher_date: values.voucher_date.format('YYYY-MM-DD'),
       note: values.note || '',
+      customer_id: values.customer_id ?? null,
       status: 'posted',
       entries: valid.map((e) => ({
         summary: e.summary, account_id: e.account_id, sub_account: e.sub_account,
@@ -169,6 +182,13 @@ export default function VoucherEdit() {
         </Form.Item>
         <Form.Item name="voucher_no" label="凭证号">
           <Input placeholder="留空自动生成" allowClear />
+        </Form.Item>
+        <Form.Item name="customer_id" label="客户">
+          <Select allowClear showSearch placeholder="关联客户(可选)" style={{ width: 220 }}
+            optionFilterProp="label"
+            options={customers.map((c) => ({
+              value: c.id, label: c.short_name ? `${c.name}(${c.short_name})` : c.name,
+            }))} />
         </Form.Item>
         <Form.Item name="note" label="摘要" style={{ flex: 1, minWidth: 200 }}>
           <Input placeholder="本张凭证摘要" allowClear />
@@ -249,6 +269,14 @@ export default function VoucherEdit() {
             ]} />
         </>
       )}
+
+      <Divider />
+      <h3>凭证关联(预收款 / 挂账 / 核销 / 应收款)</h3>
+      {!isEdit && <Text type="secondary">保存凭证后即可添加关联。</Text>}
+      {isEdit && (
+        <VoucherLinks voucherId={Number(id)} links={links} onChange={setLinks} />
+      )}
+
       <AttachmentPreview attachment={previewing} open={Boolean(previewing)}
         onClose={() => setPreviewing(null)} />
     </Card>

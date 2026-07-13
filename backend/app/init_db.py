@@ -1,4 +1,6 @@
-"""初始化:建表、预置科目与企业信息单例。幂等。"""
+"""初始化:建表、轻量迁移、预置科目与企业信息单例。幂等。"""
+from sqlalchemy import inspect, text
+
 from .database import Base, engine, SessionLocal
 from . import models
 from .seed_accounts import ACCOUNTS
@@ -6,6 +8,7 @@ from .seed_accounts import ACCOUNTS
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    _migrate(engine)
     db = SessionLocal()
     try:
         _seed_accounts(db)
@@ -13,6 +16,17 @@ def init_db() -> None:
         db.commit()
     finally:
         db.close()
+
+
+def _migrate(bind) -> None:
+    """为已存在的表补充新增列(create_all 不会 ALTER 现有表)。幂等。"""
+    inspector = inspect(bind)
+    if "vouchers" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("vouchers")}
+    if "customer_id" not in columns:
+        with bind.begin() as conn:
+            conn.execute(text("ALTER TABLE vouchers ADD COLUMN customer_id INTEGER"))
 
 
 def _seed_accounts(db) -> None:

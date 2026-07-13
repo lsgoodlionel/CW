@@ -114,11 +114,78 @@ class AttachmentOut(BaseModel):
     uploaded_at: datetime
 
 
+# ---------- 客户 ----------
+class CustomerBase(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    short_name: str = ""
+    tax_number: str = ""
+    address: str = ""
+    phone: str = ""
+    bank_name: str = ""
+    bank_account: str = ""
+    contact_person: str = ""
+    contact_phone: str = ""
+    email: str = ""
+    note: str = ""
+
+
+class CustomerCreate(CustomerBase):
+    pass
+
+
+class CustomerUpdate(CustomerBase):
+    is_active: bool | None = None
+
+
+class CustomerOut(CustomerBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    is_active: bool
+    created_at: datetime
+
+
+class CustomerBrief(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    short_name: str
+
+
+# ---------- 凭证关联 ----------
+RELATION_TYPES = {"advance", "on_account", "write_off", "receivable", "other"}
+
+
+class VoucherLinkCreate(BaseModel):
+    target_id: int
+    relation_type: str = "other"
+    note: str = ""
+
+    @field_validator("relation_type")
+    @classmethod
+    def _check_type(cls, v: str) -> str:
+        if v not in RELATION_TYPES:
+            raise ValueError(f"relation_type 必须是 {RELATION_TYPES} 之一")
+        return v
+
+
+class LinkedVoucher(BaseModel):
+    link_id: int
+    relation_type: str
+    note: str
+    direction: str  # out(本凭证指向对方) / in(对方指向本凭证)
+    voucher_id: int
+    voucher_no: str
+    voucher_date: date
+    voucher_note: str
+    total_debit: Decimal
+
+
 # ---------- 凭证 ----------
 class VoucherCreate(BaseModel):
     voucher_no: str = ""
     voucher_date: date
     note: str = ""
+    customer_id: int | None = None
     status: str = "posted"
     entries: list[EntryIn] = Field(min_length=1)
 
@@ -147,11 +214,14 @@ class VoucherListItem(BaseModel):
     voucher_no: str
     voucher_date: date
     note: str
+    customer_id: int | None = None
+    customer_name: str = ""
     total_debit: Decimal
     total_credit: Decimal
     status: str
     entry_count: int = 0
     attachment_count: int = 0
+    link_count: int = 0
 
 
 class VoucherDetail(BaseModel):
@@ -160,12 +230,15 @@ class VoucherDetail(BaseModel):
     voucher_no: str
     voucher_date: date
     note: str
+    customer_id: int | None = None
+    customer: CustomerBrief | None = None
     total_debit: Decimal
     total_credit: Decimal
     status: str
     created_at: datetime
     entries: list[EntryOut]
     attachments: list[AttachmentOut]
+    links: list[LinkedVoucher] = []
 
 
 class VoucherPage(BaseModel):

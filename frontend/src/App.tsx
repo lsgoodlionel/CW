@@ -7,12 +7,14 @@ import {
   SettingOutlined,
   BookOutlined,
   HistoryOutlined,
+  TeamOutlined,
 } from '@ant-design/icons'
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
 import VoucherList from './pages/VoucherList'
 import VoucherEdit from './pages/VoucherEdit'
 import Accounts from './pages/Accounts'
+import Customers from './pages/Customers'
 import Reports from './pages/Reports'
 import Ledgers from './pages/Ledgers'
 import Logs from './pages/Logs'
@@ -23,6 +25,7 @@ const { Sider, Header, Content } = Layout
 const MENU = [
   { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
   { key: '/vouchers', icon: <FileTextOutlined />, label: '记账凭证' },
+  { key: '/customers', icon: <TeamOutlined />, label: '客户管理' },
   { key: '/accounts', icon: <ProfileOutlined />, label: '会计科目' },
   { key: '/ledgers', icon: <BookOutlined />, label: '会计账簿' },
   { key: '/reports', icon: <BarChartOutlined />, label: '财务报表' },
@@ -60,6 +63,7 @@ export default function App() {
             <Route path="/vouchers" element={<VoucherList />} />
             <Route path="/vouchers/new" element={<VoucherEdit />} />
             <Route path="/vouchers/:id" element={<VoucherEdit />} />
+            <Route path="/customers" element={<Customers />} />
             <Route path="/accounts" element={<Accounts />} />
             <Route path="/ledgers" element={<Ledgers />} />
             <Route path="/reports" element={<Reports />} />

@@ -18,9 +18,14 @@ from . import models
 # (方法正则, 路径正则, 类型, 行为模板)  —— {id} 由第一个捕获组填充
 _RULES: list[tuple[str, str, str, str]] = [
     (r"POST", r"^/api/vouchers/(\d+)/attachments$", "attachment", "上传附件(凭证#{id})"),
+    (r"POST", r"^/api/vouchers/(\d+)/links$", "voucher", "添加凭证关联(凭证#{id})"),
+    (r"DELETE", r"^/api/vouchers/links/(\d+)$", "voucher", "删除凭证关联 #{id}"),
     (r"POST", r"^/api/vouchers$", "voucher", "新建凭证"),
     (r"PUT", r"^/api/vouchers/(\d+)$", "voucher", "修改凭证 #{id}"),
     (r"DELETE", r"^/api/vouchers/(\d+)$", "voucher", "删除凭证 #{id}"),
+    (r"POST", r"^/api/customers$", "customer", "新增客户"),
+    (r"PUT", r"^/api/customers/(\d+)$", "customer", "修改客户 #{id}"),
+    (r"DELETE", r"^/api/customers/(\d+)$", "customer", "删除/停用客户 #{id}"),
     (r"POST", r"^/api/accounts$", "account", "新增科目"),
     (r"PUT", r"^/api/accounts/(\d+)$", "account", "修改科目 #{id}"),
     (r"DELETE", r"^/api/accounts/(\d+)$", "account", "停用/删除科目 #{id}"),
@@ -35,8 +40,8 @@ _RULES: list[tuple[str, str, str, str]] = [
 
 ACTION_TYPES = {
     "voucher": "凭证", "account": "科目", "attachment": "附件",
-    "company": "企业信息", "report": "报表", "ledger": "账簿",
-    "data": "数据", "other": "其他",
+    "customer": "客户", "company": "企业信息", "report": "报表",
+    "ledger": "账簿", "data": "数据", "other": "其他",
 }
 
 

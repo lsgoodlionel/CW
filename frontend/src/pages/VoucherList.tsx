@@ -41,14 +41,22 @@ export default function VoucherList() {
     { title: '日期', dataIndex: 'voucher_date', width: 120 },
     { title: '摘要', dataIndex: 'note', ellipsis: true },
     {
-      title: '借/贷合计', dataIndex: 'total_debit', width: 140,
+      title: '客户', dataIndex: 'customer_name', width: 140, ellipsis: true,
+      render: (v: string) => v || '-',
+    },
+    {
+      title: '借/贷合计', dataIndex: 'total_debit', width: 130,
       render: (v: number) => `¥${v.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`,
     },
-    { title: '分录', dataIndex: 'entry_count', width: 70 },
+    { title: '分录', dataIndex: 'entry_count', width: 60 },
     {
-      title: '附件', dataIndex: 'attachment_count', width: 80,
+      title: '附件', dataIndex: 'attachment_count', width: 70,
       render: (n: number) => n > 0
         ? <Tag color="blue"><PaperClipOutlined /> {n}</Tag> : '-',
+    },
+    {
+      title: '关联', dataIndex: 'link_count', width: 70,
+      render: (n: number) => n > 0 ? <Tag color="purple">{n}</Tag> : '-',
     },
     {
       title: '操作', width: 140,

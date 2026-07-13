@@ -23,7 +23,8 @@ from .. import models
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-EXPORT_VERSION = 1
+EXPORT_VERSION = 2
+SUPPORTED_VERSIONS = {1, 2}  # 兼容早期备份(无客户/关联)
 
 
 def _company_dict(c: models.CompanyInfo | None) -> dict:
@@ -49,6 +50,9 @@ def export_data(db: Session = Depends(get_db)):
         )
     ).all()
 
+    customers = db.scalars(select(models.Customer).order_by(models.Customer.id)).all()
+    links = db.scalars(select(models.VoucherLink)).all()
+
     payload = {
         "version": EXPORT_VERSION,
         "exported_at": datetime.now().isoformat(),
@@ -57,6 +61,19 @@ def export_data(db: Session = Depends(get_db)):
             {"code": a.code, "name": a.name, "category": a.category,
              "direction": a.direction, "is_active": a.is_active}
             for a in accounts
+        ],
+        "customers": [
+            {"ref": c.id, "name": c.name, "short_name": c.short_name,
+             "tax_number": c.tax_number, "address": c.address, "phone": c.phone,
+             "bank_name": c.bank_name, "bank_account": c.bank_account,
+             "contact_person": c.contact_person, "contact_phone": c.contact_phone,
+             "email": c.email, "note": c.note, "is_active": c.is_active}
+            for c in customers
+        ],
+        "links": [
+            {"source_ref": link.source_id, "target_ref": link.target_id,
+             "relation_type": link.relation_type, "note": link.note}
+            for link in links
         ],
         "vouchers": [],
     }
@@ -76,9 +93,11 @@ def export_data(db: Session = Depends(get_db)):
             if src.exists():
                 file_map.append((arc_name, src))
         payload["vouchers"].append({
+            "ref": v.id,
             "voucher_no": v.voucher_no,
             "voucher_date": v.voucher_date.isoformat(),
             "note": v.note, "status": v.status,
+            "customer_ref": v.customer_id,
             "entries": [
                 {"line_no": e.line_no, "summary": e.summary,
                  "account_code": account_code.get(e.account_id, ""),
@@ -140,7 +159,7 @@ async def import_data(file: UploadFile = File(...), db: Session = Depends(get_db
     except (json.JSONDecodeError, UnicodeDecodeError):
         raise HTTPException(status_code=400, detail="data.json 解析失败")
 
-    if payload.get("version") != EXPORT_VERSION:
+    if payload.get("version") not in SUPPORTED_VERSIONS:
         raise HTTPException(status_code=400, detail="备份版本不兼容")
 
     counts = _restore(db, zf, payload)
@@ -150,10 +169,12 @@ async def import_data(file: UploadFile = File(...), db: Session = Depends(get_db
 def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     """在单个事务内清空并重建全部数据。附件文件落盘后再提交元数据。"""
     # 1. 清空(附件文件单独处理)
+    db.execute(delete(models.VoucherLink))
     db.execute(delete(models.VoucherEntry))
     db.execute(delete(models.Attachment))
     db.execute(delete(models.Voucher))
     db.execute(delete(models.Account))
+    db.execute(delete(models.Customer))
 
     # 2. 企业信息
     company = db.get(models.CompanyInfo, 1)
@@ -173,16 +194,28 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
         )
         db.add(acc)
         code_to_account[a["code"]] = acc
-    db.flush()  # 取得科目 id
+
+    # 3b. 客户(记录旧 ref → 新对象映射)
+    ref_to_customer: dict[int, models.Customer] = {}
+    for c in payload.get("customers", []):
+        fields = {k: v for k, v in c.items() if k != "ref"}
+        customer = models.Customer(**fields)
+        db.add(customer)
+        if c.get("ref") is not None:
+            ref_to_customer[c["ref"]] = customer
+    db.flush()  # 取得科目/客户 id
 
     # 4. 凭证 + 分录 + 附件
     upload_root = Path(settings.upload_dir)
     voucher_count = attachment_count = 0
+    ref_to_voucher: dict[int, models.Voucher] = {}
     for v in payload.get("vouchers", []):
+        cust = ref_to_customer.get(v.get("customer_ref"))
         voucher = models.Voucher(
             voucher_no=v["voucher_no"],
             voucher_date=date.fromisoformat(v["voucher_date"]),
             note=v.get("note", ""), status=v.get("status", "posted"),
+            customer_id=cust.id if cust else None,
             total_debit=Decimal("0"), total_credit=Decimal("0"),
         )
         total_debit = total_credit = Decimal("0")
@@ -224,10 +257,28 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
             ))
             attachment_count += 1
         voucher_count += 1
+        if v.get("ref") is not None:
+            ref_to_voucher[v["ref"]] = voucher
+
+    # 5. 凭证关联(按 ref 映射到新凭证)
+    link_count = 0
+    for link in payload.get("links", []):
+        src = ref_to_voucher.get(link.get("source_ref"))
+        tgt = ref_to_voucher.get(link.get("target_ref"))
+        if src is None or tgt is None:
+            continue
+        db.add(models.VoucherLink(
+            source_id=src.id, target_id=tgt.id,
+            relation_type=link.get("relation_type", "other"),
+            note=link.get("note", ""),
+        ))
+        link_count += 1
 
     db.commit()
     return {
         "accounts": len(code_to_account),
+        "customers": len(ref_to_customer),
         "vouchers": voucher_count,
         "attachments": attachment_count,
+        "links": link_count,
     }

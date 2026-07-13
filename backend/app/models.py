@@ -40,6 +40,26 @@ class Account(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class Customer(Base):
+    """企业客户/往来单位信息。"""
+    __tablename__ = "customers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), index=True)          # 名称
+    short_name: Mapped[str] = mapped_column(String(60), default="")     # 简称
+    tax_number: Mapped[str] = mapped_column(String(40), default="", index=True)  # 税号
+    address: Mapped[str] = mapped_column(String(200), default="")       # 开票地址
+    phone: Mapped[str] = mapped_column(String(50), default="")          # 开票电话
+    bank_name: Mapped[str] = mapped_column(String(120), default="")     # 开户行
+    bank_account: Mapped[str] = mapped_column(String(60), default="")   # 银行账号
+    contact_person: Mapped[str] = mapped_column(String(50), default="") # 联系人
+    contact_phone: Mapped[str] = mapped_column(String(50), default="")  # 联系电话
+    email: Mapped[str] = mapped_column(String(120), default="")
+    note: Mapped[str] = mapped_column(Text, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class Voucher(Base):
     """记账凭证。"""
     __tablename__ = "vouchers"
@@ -48,6 +68,9 @@ class Voucher(Base):
     voucher_no: Mapped[str] = mapped_column(String(40), index=True)
     voucher_date: Mapped[date] = mapped_column(Date, index=True)
     note: Mapped[str] = mapped_column(String(200), default="")
+    customer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     total_debit: Mapped[Decimal] = mapped_column(MONEY, default=0)
     total_credit: Mapped[Decimal] = mapped_column(MONEY, default=0)
     status: Mapped[str] = mapped_column(String(20), default="posted")  # draft / posted
@@ -56,6 +79,7 @@ class Voucher(Base):
         DateTime, server_default=func.now(), onupdate=func.now()
     )
 
+    customer: Mapped["Customer | None"] = relationship()
     entries: Mapped[list["VoucherEntry"]] = relationship(
         back_populates="voucher", cascade="all, delete-orphan",
         order_by="VoucherEntry.line_no",
@@ -100,6 +124,23 @@ class Attachment(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     voucher: Mapped["Voucher"] = relationship(back_populates="attachments")
+
+
+class VoucherLink(Base):
+    """凭证关联:预收款/挂账/核销/应收款等人工关联,用于展示相关凭证。"""
+    __tablename__ = "voucher_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_id: Mapped[int] = mapped_column(
+        ForeignKey("vouchers.id", ondelete="CASCADE"), index=True
+    )
+    target_id: Mapped[int] = mapped_column(
+        ForeignKey("vouchers.id", ondelete="CASCADE"), index=True
+    )
+    # advance(预收款) / on_account(挂账) / write_off(核销) / receivable(应收款) / other
+    relation_type: Mapped[str] = mapped_column(String(20), default="other")
+    note: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class OperationLog(Base):
