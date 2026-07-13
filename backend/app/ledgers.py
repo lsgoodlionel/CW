@@ -64,9 +64,13 @@ def row_cells(ledger_type: str, row: dict, sub_columns: list[str]) -> list:
 
 
 def attach_cells(data: dict) -> dict:
-    """为每个分组的行附加扁平化 cells,便于前端通用渲染。"""
-    sub_cols = data.get("sub_columns", [])
+    """为每个分组的行附加扁平化 cells,便于前端通用渲染。
+
+    多栏式明细账每组有各自的 sub_columns(明细科目列),按组取用。
+    """
+    default_sub = data.get("sub_columns", [])
     for group in data.get("groups", []):
+        sub_cols = group.get("sub_columns", default_sub)
         for row in group["rows"]:
             row["cells"] = row_cells(data["ledger_type"], row, sub_cols)
     return data
@@ -254,20 +258,49 @@ def _detail_three(db, base, period: Period, account_code):
 
 
 def _detail_multi(db, base, period: Period, account_code):
-    """多栏式明细账:某科目按明细科目横向展开借方。"""
+    """多栏式明细账:每个有发生的科目各自成账,按明细科目横向展开借方。
+
+    多栏式账本身是"一科目一账页",故未指定科目时对每个有发生的科目分别生成
+    一组(各组有各自的明细科目列),避免季度/年度只显示单一科目造成误解。
+    """
     start, end = period.cur_start, period.cur_end
     acc_names = _code_name_map(db)
-    # 默认选发生额最大的费用类科目(管理费用/销售费用),否则第一个有明细的科目
-    code = account_code or _pick_multi_default(db, start, end)
-    if not code:
-        base["columns"] = ["日期", "凭证字号", "摘要", "借方合计", "贷方金额", "余额"]
-        base["groups"] = []
-        base["sub_columns"] = []
-        return base
+    # 指定科目则只出该科目;否则纳入本期有明细科目拆分的科目(多栏式账的适用对象)
+    codes = [account_code] if account_code else _codes_with_subaccounts(db, start, end)
 
-    rows = _load_entries(db, start, end, [code])
-    sub_cols = sorted({(r[0].sub_account or "其他") for r in rows})
-    opening = _opening_balance(db, code, start - timedelta(days=1))
+    groups = []
+    for code in codes:
+        rows = _load_entries(db, start, end, [code])
+        opening = _opening_balance(db, code, start - timedelta(days=1))
+        if not rows and opening == 0:
+            continue
+        groups.append(_multi_group(code, acc_names.get(code, ""), rows, opening))
+
+    # 顶层 columns 仅作说明;各组携带自己的 columns / sub_columns
+    base["columns"] = ["日期", "凭证字号", "摘要", "借方合计", "…明细科目…", "贷方金额", "余额"]
+    base["per_group_columns"] = True
+    base["groups"] = groups
+    if not groups:
+        base["note"] = "本期没有带明细科目的科目;多栏式明细账适用于按明细科目核算的科目。"
+    return base
+
+
+def _codes_with_subaccounts(db: Session, start: date, end: date) -> list[str]:
+    """本期内使用了非空明细科目的科目编码(多栏式账适用对象),按编码排序。"""
+    codes = set(db.scalars(
+        select(models.Account.code)
+        .join(models.VoucherEntry, models.VoucherEntry.account_id == models.Account.id)
+        .join(models.Voucher, models.Voucher.id == models.VoucherEntry.voucher_id)
+        .where(models.Voucher.voucher_date >= start,
+               models.Voucher.voucher_date <= end,
+               models.VoucherEntry.sub_account != "")
+    ).all())
+    return sorted(codes)
+
+
+def _multi_group(code: str, name: str, rows, opening: Decimal) -> dict:
+    """构造单个科目的多栏式明细账分组(含自身的列定义)。"""
+    sub_cols = sorted({(e.sub_account or "其他") for e, v, a in rows})
     running = opening
     out_rows = []
     total_by_sub = {s: ZERO for s in sub_cols}
@@ -284,8 +317,7 @@ def _detail_multi(db, base, period: Period, account_code):
             "date": voucher.voucher_date.isoformat(),
             "voucher_no": voucher.voucher_no,
             "summary": entry.summary or voucher.note,
-            "debit": _f(debit), "credit": _f(credit),
-            "balance": _f(running),
+            "debit": _f(debit), "credit": _f(credit), "balance": _f(running),
             "subs": {s: _f(debit if s == sub else ZERO) for s in sub_cols},
             "is_summary": False,
         })
@@ -295,29 +327,12 @@ def _detail_multi(db, base, period: Period, account_code):
         "subs": {s: _f(total_by_sub.get(s, ZERO)) for s in sub_cols},
         "is_summary": True,
     })
-    base["columns"] = ["日期", "凭证字号", "摘要", "借方合计"] + sub_cols + ["贷方金额", "余额"]
-    base["sub_columns"] = sub_cols
-    base["groups"] = [{
-        "code": code, "name": acc_names.get(code, ""),
-        "title": f"{code} {acc_names.get(code, '')}",
+    return {
+        "code": code, "name": name, "title": f"{code} {name}",
         "opening": _f(opening), "closing": _f(running), "rows": out_rows,
-    }]
-    return base
-
-
-def _pick_multi_default(db, start, end) -> str | None:
-    for code in ("6602", "6601", "6603"):
-        if db.scalar(
-            select(func.count(models.VoucherEntry.id))
-            .join(models.Voucher, models.Voucher.id == models.VoucherEntry.voucher_id)
-            .join(models.Account, models.Account.id == models.VoucherEntry.account_id)
-            .where(models.Account.code == code,
-                   models.Voucher.voucher_date >= start,
-                   models.Voucher.voucher_date <= end)
-        ):
-            return code
-    codes = _all_active_codes(db, start, end)
-    return codes[0] if codes else None
+        "columns": ["日期", "凭证字号", "摘要", "借方合计"] + sub_cols + ["贷方金额", "余额"],
+        "sub_columns": sub_cols,
+    }
 
 
 def _qty_amount(db, base, period: Period, account_code):

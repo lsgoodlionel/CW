@@ -51,17 +51,20 @@ def _money_cols(ledger_type: str, ncols: int) -> set[int]:
 
 def _write_sheet(wb: Workbook, data: dict, period: Period):
     ledger_type = data["ledger_type"]
-    columns = data["columns"]
-    sub_columns = data.get("sub_columns", [])
-    ncols = len(columns)
+    per_group = data.get("per_group_columns", False)
+    default_cols = data["columns"]
+    default_sub = data.get("sub_columns", [])
+    groups = data["groups"]
+    # 多栏式各组列数不同,标题合并按最大列宽
+    max_ncols = max([len(default_cols)]
+                    + [len(g.get("columns", default_cols)) for g in groups])
     ws = wb.create_sheet(data["title"][:31])
-    last_col = get_column_letter(ncols)
+    last_col = get_column_letter(max_ncols)
 
     ws.merge_cells(f"A1:{last_col}1")
     ws["A1"] = f"{data['title']}    {data['period_label']}"
     ws["A1"].font = TITLE_FONT
     ws["A1"].alignment = CENTER
-    money_cols = _money_cols(ledger_type, ncols)
 
     r = 2
     if data.get("note"):
@@ -69,12 +72,16 @@ def _write_sheet(wb: Workbook, data: dict, period: Period):
         ws.cell(r, 1, f"说明:{data['note']}").alignment = LEFT
         r += 1
 
-    if not data["groups"]:
+    if not groups:
         ws.cell(r, 1, "本期无数据").alignment = LEFT
-        _set_widths(ws, ledger_type, ncols, sub_columns)
+        _set_widths(ws, ledger_type, max_ncols, default_sub)
         return
 
-    for group in data["groups"]:
+    for group in groups:
+        columns = group.get("columns", default_cols) if per_group else default_cols
+        sub_columns = group.get("sub_columns", default_sub) if per_group else default_sub
+        ncols = len(columns)
+        money_cols = _money_cols(ledger_type, ncols)
         # 科目标题行
         ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=ncols)
         gcell = ws.cell(r, 1, f"科目:{group['title']}")
@@ -111,7 +118,7 @@ def _write_sheet(wb: Workbook, data: dict, period: Period):
             r += 1
         r += 1  # 组间空行
 
-    _set_widths(ws, ledger_type, ncols, sub_columns)
+    _set_widths(ws, ledger_type, max_ncols, default_sub)
 
 
 def _set_widths(ws, ledger_type, ncols, sub_columns):

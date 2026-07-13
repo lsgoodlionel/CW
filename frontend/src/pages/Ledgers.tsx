@@ -7,7 +7,7 @@ import { http, Account } from '../api'
 type ReportType = 'month' | 'quarter' | 'year'
 
 interface LedgerRow { cells: (string | number)[]; is_summary?: boolean }
-interface Group { title: string; opening: number; closing: number; rows: LedgerRow[] }
+interface Group { title: string; opening: number; closing: number; rows: LedgerRow[]; columns?: string[] }
 interface Ledger {
   ledger_type: string; title: string; period_label: string
   columns: string[]; groups: Group[]; note?: string
@@ -105,7 +105,7 @@ export default function Ledgers() {
           <Table
             rowKey={(_, i) => String(i)} loading={loading} size="small" pagination={false} bordered
             dataSource={g.rows}
-            columns={data.columns.map((col, ci) => ({
+            columns={(g.columns ?? data.columns).map((col, ci) => ({
               title: col,
               key: ci,
               align: ci >= 3 ? ('right' as const) : ci === 2 ? ('left' as const) : ('center' as const),
