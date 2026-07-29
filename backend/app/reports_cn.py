@@ -418,18 +418,16 @@ def _cashflow_values(db: Session, start: date, end: date,
             .where(models.VoucherEntry.voucher_id == vid)
         ).all()
         rows = [(e, db.get(models.Account, e.account_id)) for e in entries]
-        # 按每条对方分录对现金的净影响(贷-借)带符号归类,兼容红字(负数)冲销。
-        # 影响>0=现金流入 归入流入行;<0=现金流出 归入流出行(金额取绝对值)。
+        # 按对方分录所在借贷方向归类(而非金额符号),使红字冲销自动抵减同一行:
+        # 贷方分录 → 现金流入类行(收到);借方分录 → 现金流出类行(支付)。
+        # 金额保留正负号,冲销(负数)保持原方向,故与原分录落在同一行相互抵减。
         for e, a in rows:
             if a.code in CASH_CODES:
                 continue
-            cash_effect = e.credit - e.debit
-            if cash_effect == 0:
-                continue
-            if cash_effect > 0:
-                v[_CF_INFLOW.get(a.code, 2)] += cash_effect
-            else:
-                v[_CF_OUTFLOW.get(a.code, 6)] += -cash_effect
+            if e.credit != 0:
+                v[_CF_INFLOW.get(a.code, 2)] += e.credit
+            if e.debit != 0:
+                v[_CF_OUTFLOW.get(a.code, 6)] += e.debit
 
     # 小计与合计
     v[7] = v[1] + v[2] - v[3] - v[4] - v[5] - v[6]          # 经营净额
