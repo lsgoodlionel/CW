@@ -209,13 +209,26 @@ class OrgUnitOut(BaseModel):
     employee_count: int = 0
 
 
+# ---------- 员工任职(一人多岗)----------
+class PositionIn(BaseModel):
+    org_unit_id: int | None = None
+    role_type: str = "staff"
+    position: str = ""
+
+
+class PositionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    org_unit_id: int | None
+    org_unit_name: str = ""
+    role_type: str
+    position: str
+
+
 # ---------- 员工档案 ----------
 class EmployeeBase(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     employee_no: str = ""
-    org_unit_id: int | None = None
-    role_type: str = "staff"
-    position: str = ""
     gender: str = ""
     phone: str = ""
     id_number: str = ""
@@ -227,18 +240,26 @@ class EmployeeBase(BaseModel):
 
 
 class EmployeeCreate(EmployeeBase):
-    pass
+    positions: list[PositionIn] = []
 
 
-class EmployeeUpdate(EmployeeBase):
+class EmployeeUpdate(EmployeeCreate):
     name: str | None = None
 
 
 class EmployeeOut(EmployeeBase):
     model_config = ConfigDict(from_attributes=True)
     id: int
-    org_unit_name: str = ""
+    positions: list[PositionOut] = []
     created_at: datetime
+
+
+class AddMemberIn(BaseModel):
+    """向部门添加成员:选已有员工或新建。"""
+    employee_id: int | None = None      # 选已有员工
+    name: str = ""                       # 或新建员工姓名
+    role_type: str = "staff"
+    position: str = ""
 
 
 # ---------- 凭证关联 ----------

@@ -85,12 +85,16 @@ def export_data(db: Session = Depends(get_db)):
             for u in db.scalars(select(models.OrgUnit).order_by(models.OrgUnit.id)).all()
         ],
         "employees": [
-            {"employee_no": e.employee_no, "name": e.name, "org_unit_ref": e.org_unit_id,
-             "role_type": e.role_type, "position": e.position, "gender": e.gender,
+            {"employee_no": e.employee_no, "name": e.name, "gender": e.gender,
              "phone": e.phone, "id_number": e.id_number, "email": e.email,
              "hire_date": e.hire_date, "equity_ratio": str(e.equity_ratio),
-             "status": e.status, "note": e.note}
-            for e in db.scalars(select(models.Employee).order_by(models.Employee.id)).all()
+             "status": e.status, "note": e.note,
+             "positions": [
+                 {"org_unit_ref": p.org_unit_id, "role_type": p.role_type,
+                  "position": p.position} for p in e.positions
+             ]}
+            for e in db.scalars(select(models.Employee).order_by(models.Employee.id)
+                                .options(selectinload(models.Employee.positions))).all()
         ],
         "links": [
             {"source_ref": link.source_id, "target_ref": link.target_id,
@@ -198,6 +202,7 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     db.execute(delete(models.SubAccount))
     db.execute(delete(models.Account))
     db.execute(delete(models.Customer))
+    db.execute(delete(models.EmployeePosition))
     db.execute(delete(models.Employee))
     db.execute(delete(models.OrgUnit))
 
@@ -260,10 +265,26 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
         if unit is not None and parent is not None:
             unit.parent_id = parent.id
     for e in payload.get("employees", []):
-        unit = ref_to_unit.get(e.get("org_unit_ref"))
-        data = {k: v for k, v in e.items() if k != "org_unit_ref"}
+        positions = e.get("positions")
+        # 兼容旧格式(v4 早期无 positions,单部门字段)
+        legacy_unit = ref_to_unit.get(e.get("org_unit_ref"))
+        data = {k: v for k, v in e.items()
+                if k not in ("positions", "org_unit_ref", "role_type", "position")}
         data["equity_ratio"] = Decimal(str(data.get("equity_ratio", "0")))
-        db.add(models.Employee(org_unit_id=unit.id if unit else None, **data))
+        emp = models.Employee(**data)
+        if positions:
+            for i, p in enumerate(positions, start=1):
+                u = ref_to_unit.get(p.get("org_unit_ref"))
+                emp.positions.append(models.EmployeePosition(
+                    org_unit_id=u.id if u else None,
+                    role_type=p.get("role_type", "staff"),
+                    position=p.get("position", ""), sort_no=i))
+        elif legacy_unit or e.get("role_type") or e.get("position"):
+            emp.positions.append(models.EmployeePosition(
+                org_unit_id=legacy_unit.id if legacy_unit else None,
+                role_type=e.get("role_type", "staff"),
+                position=e.get("position", ""), sort_no=1))
+        db.add(emp)
     db.flush()
 
     # 4. 凭证 + 分录 + 附件

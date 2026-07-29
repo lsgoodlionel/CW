@@ -41,7 +41,7 @@ export default function VoucherList() {
     { title: '日期', dataIndex: 'voucher_date', width: 120 },
     { title: '摘要', dataIndex: 'note', ellipsis: true },
     {
-      title: '客户', dataIndex: 'customer_name', width: 140, ellipsis: true,
+      title: '往来单位', dataIndex: 'customer_name', width: 140, ellipsis: true,
       render: (v: string) => v || '-',
     },
     {

@@ -18,6 +18,7 @@ def init_db() -> None:
         db.commit()
         _seed_subaccounts(db)
         _backfill_entry_sub_account_id(db)
+        _backfill_employee_positions(db)
         db.commit()
     finally:
         db.close()
@@ -95,6 +96,26 @@ def _seed_subaccounts(db) -> None:
                 name=sub_name, note=note, sort_no=idx, is_active=True,
             ))
     db.commit()
+
+
+def _backfill_employee_positions(db) -> None:
+    """把旧版单部门员工(org_unit_id/role_type/position)迁移为一条任职记录。"""
+    employees = db.scalars(select(models.Employee)).all()
+    if not employees:
+        return
+    existing = {pid for (pid,) in db.execute(
+        select(models.EmployeePosition.employee_id)).all()}
+    changed = False
+    for e in employees:
+        if e.id in existing:
+            continue
+        if e.org_unit_id or (e.role_type and e.role_type != "staff") or e.position:
+            db.add(models.EmployeePosition(
+                employee_id=e.id, org_unit_id=e.org_unit_id,
+                role_type=e.role_type or "staff", position=e.position, sort_no=1))
+            changed = True
+    if changed:
+        db.commit()
 
 
 def _backfill_entry_sub_account_id(db) -> None:

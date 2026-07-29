@@ -217,18 +217,18 @@ class OrgUnit(Base):
 
 
 class Employee(Base):
-    """员工档案。"""
+    """员工档案(个人信息);部门与角色见 employee_positions(支持一人多岗兼职)。"""
     __tablename__ = "employees"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     employee_no: Mapped[str] = mapped_column(String(40), default="", index=True)  # 工号
     name: Mapped[str] = mapped_column(String(60), index=True)
+    # 以下三列为历史遗留(旧版单部门),已迁移至 employee_positions,保留以兼容
     org_unit_id: Mapped[int | None] = mapped_column(
         ForeignKey("org_units.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    # shareholder 股东 / management 管理层 / staff 普通员工 / other 其他
-    role_type: Mapped[str] = mapped_column(String(20), default="staff", index=True)
-    position: Mapped[str] = mapped_column(String(60), default="")   # 职位
+    role_type: Mapped[str] = mapped_column(String(20), default="staff")
+    position: Mapped[str] = mapped_column(String(60), default="")
     gender: Mapped[str] = mapped_column(String(10), default="")     # 性别
     phone: Mapped[str] = mapped_column(String(30), default="")
     id_number: Mapped[str] = mapped_column(String(40), default="")  # 身份证号
@@ -239,4 +239,27 @@ class Employee(Base):
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
+    positions: Mapped[list["EmployeePosition"]] = relationship(
+        back_populates="employee", cascade="all, delete-orphan",
+        order_by="EmployeePosition.sort_no",
+    )
+
+
+class EmployeePosition(Base):
+    """员工任职:一名员工在某部门担任某角色/职位(支持跨多部门兼职)。"""
+    __tablename__ = "employee_positions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="CASCADE"), index=True
+    )
+    org_unit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("org_units.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # shareholder 股东 / management 管理层 / staff 普通员工 / other 其他
+    role_type: Mapped[str] = mapped_column(String(20), default="staff", index=True)
+    position: Mapped[str] = mapped_column(String(60), default="")   # 职位
+    sort_no: Mapped[int] = mapped_column(Integer, default=0)
+
+    employee: Mapped["Employee"] = relationship(back_populates="positions")
     org_unit: Mapped["OrgUnit | None"] = relationship()

@@ -104,14 +104,18 @@ export interface OrgUnit {
   employee_count: number
 }
 
+export interface Position {
+  id?: number
+  org_unit_id: number | null
+  org_unit_name?: string
+  role_type: string
+  position: string
+}
+
 export interface Employee {
   id: number
   employee_no: string
   name: string
-  org_unit_id: number | null
-  org_unit_name: string
-  role_type: string
-  position: string
   gender: string
   phone: string
   id_number: string
@@ -120,6 +124,7 @@ export interface Employee {
   equity_ratio: number
   status: string
   note: string
+  positions: Position[]
   created_at: string
 }
 

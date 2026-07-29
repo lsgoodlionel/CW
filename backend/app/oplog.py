@@ -31,6 +31,7 @@ _RULES: list[tuple[str, str, str, str]] = [
     (r"POST", r"^/api/personnel/org-units$", "personnel", "新增部门"),
     (r"PUT", r"^/api/personnel/org-units/(\d+)$", "personnel", "修改部门 #{id}"),
     (r"DELETE", r"^/api/personnel/org-units/(\d+)$", "personnel", "删除部门 #{id}"),
+    (r"POST", r"^/api/personnel/org-units/(\d+)/members$", "personnel", "部门#{id}添加成员"),
     (r"POST", r"^/api/personnel/employees$", "personnel", "新增员工"),
     (r"PUT", r"^/api/personnel/employees/(\d+)$", "personnel", "修改员工 #{id}"),
     (r"DELETE", r"^/api/personnel/employees/(\d+)$", "personnel", "删除员工 #{id}"),
