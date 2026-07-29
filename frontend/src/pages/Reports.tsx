@@ -11,9 +11,9 @@ const yuan = (n: number | null) =>
 
 type ReportType = 'month' | 'quarter' | 'year'
 
-interface StmtRow { label: string; line: number | null; style: string; col1: number | null; col2: number | null }
+interface StmtRow { label: string; line: number | null; style: string; indent?: number; col1: number | null; col2: number | null }
 interface Statement { rows: StmtRow[]; col1_label: string; col2_label: string }
-interface BsRow { label: string; line: number | null; style: string; end: number | null; begin: number | null }
+interface BsRow { label: string; line: number | null; style: string; indent?: number; end: number | null; begin: number | null }
 interface BalanceSheet {
   assets: BsRow[]; rights: BsRow[]
   asset_total: number; right_total: number; balanced: boolean
@@ -104,6 +104,15 @@ export default function Reports() {
 const styleFont = (s: string) =>
   ['total', 'grand', 'header', 'head'].includes(s) ? { fontWeight: 600 as const } : {}
 
+// 按层级缩进显示项目名称(还原模板上下级隶属关系)
+function LabelCell({ label, style, indent }: { label?: string; style?: string; indent?: number }) {
+  return (
+    <span style={{ ...styleFont(style || ''), paddingLeft: (indent || 0) * 18, display: 'inline-block' }}>
+      {label}
+    </span>
+  )
+}
+
 function BalanceSheetView({ data }: { data: BalanceSheet }) {
   const n = Math.max(data.assets.length, data.rights.length)
   const merged = Array.from({ length: n }, (_, i) => ({
@@ -118,11 +127,11 @@ function BalanceSheetView({ data }: { data: BalanceSheet }) {
       </Tag>
       <Table rowKey="key" size="small" pagination={false} dataSource={merged} bordered
         columns={[
-          { title: '资产', dataIndex: ['a', 'label'], render: (_, r) => <span style={styleFont(r.a?.style || '')}>{r.a?.label}</span> },
+          { title: '资产', dataIndex: ['a', 'label'], render: (_, r) => <LabelCell label={r.a?.label} style={r.a?.style} indent={r.a?.indent} /> },
           { title: '行次', width: 46, align: 'center', render: (_, r) => r.a?.line ?? '' },
           { title: '期末余额', width: 120, align: 'right', render: (_, r) => cell(r.a, 'end') },
           { title: '年初余额', width: 120, align: 'right', render: (_, r) => cell(r.a, 'begin') },
-          { title: '负债和所有者权益', dataIndex: ['r', 'label'], render: (_, r) => <span style={styleFont(r.r?.style || '')}>{r.r?.label}</span> },
+          { title: '负债和所有者权益', dataIndex: ['r', 'label'], render: (_, r) => <LabelCell label={r.r?.label} style={r.r?.style} indent={r.r?.indent} /> },
           { title: '行次', width: 46, align: 'center', render: (_, r) => r.r?.line ?? '' },
           { title: '期末余额', width: 120, align: 'right', render: (_, r) => cell(r.r, 'end') },
           { title: '年初余额', width: 120, align: 'right', render: (_, r) => cell(r.r, 'begin') },
@@ -136,7 +145,7 @@ function StatementView({ data }: { data: Statement }) {
     <Table rowKey="line" size="small" pagination={false} dataSource={data.rows} bordered
       rowClassName={(r) => (r.line === null ? 'report-header-row' : '')}
       columns={[
-        { title: '项目', dataIndex: 'label', render: (v, r) => <span style={styleFont(r.style)}>{v}</span> },
+        { title: '项目', dataIndex: 'label', render: (v, r) => <LabelCell label={v} style={r.style} indent={r.indent} /> },
         { title: '行次', dataIndex: 'line', width: 56, align: 'center', render: (v) => v ?? '' },
         { title: data.col1_label, dataIndex: 'col1', width: 150, align: 'right', render: (v, r) => <span style={styleFont(r.style)}>{yuan(v)}</span> },
         { title: data.col2_label, dataIndex: 'col2', width: 150, align: 'right', render: (v, r) => <span style={styleFont(r.style)}>{yuan(v)}</span> },

@@ -106,7 +106,8 @@ def _bs_row(ws, r, col, row):
         return
     label = ws.cell(r, col, row["label"])
     label.border = BORDER
-    label.alignment = LEFT
+    label.alignment = Alignment(horizontal="left", vertical="center",
+                                indent=row.get("indent", 0))
     if row["style"] in ("total", "grand", "header"):
         label.font = BOLD
     lineno = ws.cell(r, col + 1, row["line"] if row["line"] else "")
@@ -151,7 +152,8 @@ def _statement_sheet(ws, title, form_no, name, period: Period, data):
         r = start + 1 + i
         label = ws.cell(r, 1, row["label"])
         label.border = BORDER
-        label.alignment = LEFT
+        label.alignment = Alignment(horizontal="left", vertical="center",
+                                    indent=row.get("indent", 0))
         if row["style"] in ("head", "total"):
             label.font = BOLD
         lineno = ws.cell(r, 2, row["line"] if row["line"] else "")
