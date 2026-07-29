@@ -102,6 +102,29 @@ def _movement(db: Session, start: date | None, end: date | None) -> dict[str, De
     return {code: Decimal(v) for code, v in db.execute(stmt).all()}
 
 
+def _movement_by_sub(db: Session, start: date | None, end: date | None
+                     ) -> dict[tuple[str, str], tuple[Decimal, Decimal]]:
+    """区间内按(一级科目编码, 明细科目名称)聚合借/贷发生额,用于「其中」明细行。"""
+    stmt = (
+        select(
+            models.Account.code,
+            models.VoucherEntry.sub_account,
+            func.coalesce(func.sum(models.VoucherEntry.debit), 0),
+            func.coalesce(func.sum(models.VoucherEntry.credit), 0),
+        )
+        .join(models.VoucherEntry, models.VoucherEntry.account_id == models.Account.id)
+        .join(models.Voucher, models.Voucher.id == models.VoucherEntry.voucher_id)
+        .where(models.VoucherEntry.sub_account != "")
+        .group_by(models.Account.code, models.VoucherEntry.sub_account)
+    )
+    if start:
+        stmt = stmt.where(models.Voucher.voucher_date >= start)
+    if end:
+        stmt = stmt.where(models.Voucher.voucher_date <= end)
+    return {(code, sub): (Decimal(d), Decimal(c))
+            for code, sub, d, c in db.execute(stmt).all()}
+
+
 class Balances:
     """某一时点的科目累计余额(借方-贷方口径)。"""
     def __init__(self, data: dict[str, Decimal]):
@@ -305,7 +328,37 @@ _RIGHT_TEMPLATE = [
 # ---------------------------------------------------------------------------
 # 利润表(会小企02)
 # ---------------------------------------------------------------------------
-def _income_values(mv: dict[str, Decimal]) -> dict[int, Decimal]:
+# 利润表「其中」明细行:按明细科目(二级)名称关键字归入对应行次。
+# {一级科目编码: (是否收入类, [(行次, [关键字...]), ...])}
+_INCOME_SUB_LINES: dict[str, tuple[bool, list[tuple[int, list[str]]]]] = {
+    "6403": (False, [  # 税金及附加
+        (4, ["消费税"]), (5, ["营业税"]), (6, ["城市维护建设税", "城建税"]),
+        (7, ["资源税"]), (8, ["土地增值税"]),
+        (9, ["城镇土地使用税", "土地使用税", "房产税", "车船税", "印花税"]),
+        (10, ["教育费附加", "矿产资源补偿费", "排污费"]),
+    ]),
+    "6601": (False, [  # 销售费用
+        (12, ["维修"]), (13, ["广告", "业务宣传"]),
+    ]),
+    "6602": (False, [  # 管理费用
+        (15, ["开办费"]), (16, ["业务招待", "招待"]), (17, ["研究", "研发"]),
+    ]),
+    "6603": (False, [  # 财务费用
+        (19, ["利息"]),
+    ]),
+    "6301": (True, [   # 营业外收入
+        (23, ["政府补助", "补助"]),
+    ]),
+    "6711": (False, [  # 营业外支出
+        (25, ["坏账"]), (26, ["长期债券投资损失"]), (27, ["长期股权投资损失"]),
+        (28, ["自然灾害", "不可抗力"]), (29, ["滞纳金"]),
+    ]),
+}
+
+
+def _income_values(mv: dict[str, Decimal],
+                   sub_mv: dict[tuple[str, str], tuple[Decimal, Decimal]] | None = None
+                   ) -> dict[int, Decimal]:
     b = Balances(mv)
     v: dict[int, Decimal] = {i: ZERO for i in range(1, 33)}
     v[1] = b.net_credit("6001", "6051")                    # 营业收入
@@ -321,7 +374,25 @@ def _income_values(mv: dict[str, Decimal]) -> dict[int, Decimal]:
     v[30] = v[21] + v[22] - v[24]                          # 利润总额
     v[31] = b.net_debit("6801")                            # 所得税费用
     v[32] = v[30] - v[31]                                  # 净利润
+    _fill_income_sublines(v, sub_mv or {})
     return v
+
+
+def _fill_income_sublines(v: dict[int, Decimal],
+                          sub_mv: dict[tuple[str, str], tuple[Decimal, Decimal]]) -> None:
+    """按明细科目(二级)名称把金额归入利润表「其中」明细行。"""
+    for (code, sub_name), (debit, credit) in sub_mv.items():
+        rule = _INCOME_SUB_LINES.get(code)
+        if not rule or not sub_name:
+            continue
+        is_income, lines = rule
+        amount = (credit - debit) if is_income else (debit - credit)
+        if amount == 0:
+            continue
+        for line_no, keywords in lines:
+            if any(kw in sub_name for kw in keywords):
+                v[line_no] += amount
+                break
 
 
 # (label, line, style, indent)
@@ -362,9 +433,12 @@ _INCOME_TEMPLATE = [
 
 
 def income_statement(db: Session, period: Period) -> dict:
-    cur = _income_values(_movement(db, period.cur_start, period.cur_end))
-    ytd = _income_values(_movement(db, period.ytd_start, period.ytd_end))
-    prev = _income_values(_movement(db, period.prev_start, period.prev_end))
+    cur = _income_values(_movement(db, period.cur_start, period.cur_end),
+                         _movement_by_sub(db, period.cur_start, period.cur_end))
+    ytd = _income_values(_movement(db, period.ytd_start, period.ytd_end),
+                         _movement_by_sub(db, period.ytd_start, period.ytd_end))
+    prev = _income_values(_movement(db, period.prev_start, period.prev_end),
+                          _movement_by_sub(db, period.prev_start, period.prev_end))
     return _assemble(period, _INCOME_TEMPLATE, cur, ytd, prev)
 
 
