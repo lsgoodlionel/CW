@@ -30,6 +30,20 @@ export interface Account {
   is_active: boolean
 }
 
+export interface SubAccount {
+  id: number
+  account_id: number
+  code: string
+  name: string
+  note: string
+  is_active: boolean
+  sort_no: number
+}
+
+export interface AccountTreeNode extends Account {
+  sub_accounts: SubAccount[]
+}
+
 export interface Entry {
   id?: number
   line_no?: number

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Card, Form, DatePicker, Input, Button, Table, Select, InputNumber, Space,
-  message, Upload, Tag, Popconfirm, Divider, Typography, Modal,
+  message, Upload, Tag, Popconfirm, Divider, Typography, Modal, AutoComplete,
 } from 'antd'
 import {
   DeleteOutlined, PlusOutlined, UploadOutlined, SaveOutlined, EyeOutlined, RollbackOutlined,
@@ -9,8 +9,8 @@ import {
 import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import {
-  http, Account, Entry, Attachment, VoucherDetail, Customer, LinkedVoucher,
-  CATEGORY_LABEL, ATTACHMENT_KIND_LABEL,
+  http, Account, AccountTreeNode, Entry, Attachment, VoucherDetail, Customer,
+  LinkedVoucher, CATEGORY_LABEL, ATTACHMENT_KIND_LABEL,
 } from '../api'
 import AttachmentPreview from '../components/AttachmentPreview'
 import VoucherLinks from '../components/VoucherLinks'
@@ -27,6 +27,7 @@ export default function VoucherEdit() {
   const navigate = useNavigate()
   const [form] = Form.useForm()
   const [accounts, setAccounts] = useState<Account[]>([])
+  const [subMap, setSubMap] = useState<Record<number, { value: string; label: string }[]>>({})
   const [customers, setCustomers] = useState<Customer[]>([])
   const [entries, setEntries] = useState<Entry[]>([emptyEntry(), emptyEntry()])
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -36,8 +37,16 @@ export default function VoucherEdit() {
   const [previewing, setPreviewing] = useState<Attachment | null>(null)
 
   useEffect(() => {
-    http.get<Account[]>('/accounts', { params: { active_only: true } })
-      .then((r) => setAccounts(r.data))
+    http.get<AccountTreeNode[]>('/accounts/tree').then((r) => {
+      setAccounts(r.data.filter((a) => a.is_active))
+      const map: Record<number, { value: string; label: string }[]> = {}
+      r.data.forEach((a) => {
+        map[a.id] = a.sub_accounts
+          .filter((s) => s.is_active)
+          .map((s) => ({ value: s.name, label: `${s.code} ${s.name}` }))
+      })
+      setSubMap(map)
+    })
     http.get<Customer[]>('/customers', { params: { active_only: true } })
       .then((r) => setCustomers(r.data))
   }, [])
@@ -91,11 +100,17 @@ export default function VoucherEdit() {
       ),
     },
     {
-      title: '明细科目', dataIndex: 'sub_account', width: 130,
-      render: (_: unknown, _r: Entry, i: number) => (
-        <Input value={entries[i].sub_account} placeholder="可选"
-          onChange={(e) => updateEntry(i, { sub_account: e.target.value })} />
-      ),
+      title: '明细科目(二级)', dataIndex: 'sub_account', width: 170,
+      render: (_: unknown, _r: Entry, i: number) => {
+        const opts = subMap[entries[i].account_id] || []
+        return (
+          <AutoComplete value={entries[i].sub_account} style={{ width: '100%' }}
+            options={opts} allowClear
+            placeholder={entries[i].account_id ? '选择或输入(自动新建)' : '先选科目'}
+            filterOption={(input, opt) => (opt?.label ?? '').toString().includes(input)}
+            onChange={(v) => updateEntry(i, { sub_account: v || '' })} />
+        )
+      },
     },
     {
       title: '借方金额', dataIndex: 'debit', width: 150,

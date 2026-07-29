@@ -52,6 +52,28 @@ class Account(Base):
     direction: Mapped[str] = mapped_column(String(10))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    sub_accounts: Mapped[list["SubAccount"]] = relationship(
+        back_populates="account", cascade="all, delete-orphan",
+        order_by="SubAccount.code",
+    )
+
+
+class SubAccount(Base):
+    """二级明细科目(隶属于一级会计科目)。编码 = 一级编码(4位) + 顺序(2位)。"""
+    __tablename__ = "sub_accounts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True
+    )
+    code: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), index=True)
+    note: Mapped[str] = mapped_column(String(200), default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_no: Mapped[int] = mapped_column(Integer, default=0)
+
+    account: Mapped["Account"] = relationship(back_populates="sub_accounts")
+
 
 class Customer(Base):
     """企业客户/往来单位信息。"""
@@ -113,7 +135,10 @@ class VoucherEntry(Base):
     line_no: Mapped[int] = mapped_column(Integer, default=1)
     summary: Mapped[str] = mapped_column(String(200), default="")  # 摘要
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), index=True)
-    sub_account: Mapped[str] = mapped_column(String(100), default="")  # 明细科目
+    sub_account: Mapped[str] = mapped_column(String(100), default="")  # 明细科目名称(与二级科目同步)
+    sub_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sub_accounts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     debit: Mapped[Decimal] = mapped_column(MONEY, default=0)
     credit: Mapped[Decimal] = mapped_column(MONEY, default=0)
 

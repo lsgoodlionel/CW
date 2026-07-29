@@ -33,7 +33,7 @@
 | 客户管理 | 名称/简称/税号/开票信息维护、往来业务历史、与凭证联动 |
 | 附件管理 | 发票/银行回单/合同/完税证明/其他上传、类型可修改、在线预览(图片/PDF/文本)、下载 |
 | 仪表盘 | 货币资金(现金/银行)余额、日/月/季/年周期切换、收支利润、往来款、支出构成、趋势图 |
-| 会计科目 | 预置 81 个准则科目,可自定义增改停用 |
+| 会计科目 | 一级/二级多级管理(展开折叠、增改停用)、二级改名同步凭证、录入时自动新建二级(编号延续)、Excel 导入(带模板)/整表导出 |
 | 财务报表 | 资产负债表/利润表/现金流量表(官方会小企格式)+ 科目汇总表,月/季/年切换,一键导出 Excel |
 | 会计账簿 | 六类账簿(总账、明细账、日记账等)按凭证自动生成,按种类+年月季导出 Excel |
 | 操作日志 | 全系统行为留痕,按类型+年月季查询,一键导出 PDF |
@@ -130,7 +130,8 @@
 | 表 | 说明 |
 |---|---|
 | `company_info` | 企业基本信息(单例:名称/税号/地址/开户行/准则/本位币/人员等) |
-| `accounts` | 会计科目(编码、名称、类别、方向、启用) |
+| `accounts` | 一级会计科目(编码、名称、类别、方向、启用) |
+| `sub_accounts` | 二级明细科目(隶属一级,编码=一级4位+顺序2位) |
 | `customers` | 客户/往来单位(名称/简称/税号/开票信息/联系人) |
 | `vouchers` | 记账凭证(凭证号、日期、摘要、借贷合计、状态、客户) |
 | `voucher_entries` | 凭证分录(摘要、科目、明细科目、借方、贷方,允许负数红字) |
@@ -170,9 +171,15 @@ GET    /api/health
 GET    /api/company
 PUT    /api/company
 
-# 会计科目
+# 会计科目(一级/二级)
 GET    /api/accounts            POST /api/accounts
 PUT    /api/accounts/{id}       DELETE /api/accounts/{id}
+GET    /api/accounts/tree                          # 一级+二级树
+GET    /api/accounts/{id}/subaccounts              POST /api/accounts/{id}/subaccounts
+PUT    /api/accounts/subaccounts/{sid}             DELETE /api/accounts/subaccounts/{sid}
+GET    /api/accounts/export-excel                  # 导出完整科目(含一二级)
+GET    /api/accounts/subaccounts/template          # 二级导入模板
+POST   /api/accounts/subaccounts/import            # 批量导入二级
 
 # 客户管理
 GET    /api/customers           POST /api/customers

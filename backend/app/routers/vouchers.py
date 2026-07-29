@@ -7,7 +7,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
-from .. import models, schemas
+from .. import models, schemas, subaccounts_svc
 
 router = APIRouter(prefix="/api/vouchers", tags=["vouchers"])
 
@@ -177,15 +177,23 @@ def create_voucher(payload: schemas.VoucherCreate, db: Session = Depends(get_db)
         total_debit=total_debit,
         total_credit=total_credit,
     )
-    for idx, e in enumerate(payload.entries, start=1):
-        voucher.entries.append(models.VoucherEntry(
-            line_no=idx, summary=e.summary, account_id=e.account_id,
-            sub_account=e.sub_account, debit=e.debit, credit=e.credit,
-        ))
+    _build_entries(db, voucher, payload)
     db.add(voucher)
     db.commit()
     db.refresh(voucher)
     return get_voucher(voucher.id, db)
+
+
+def _build_entries(db: Session, voucher: models.Voucher, payload: schemas.VoucherCreate):
+    """构建分录;二级明细科目按(科目,名称)查找或自动新建(编号延续)。"""
+    for idx, e in enumerate(payload.entries, start=1):
+        sub = subaccounts_svc.get_or_create(db, e.account_id, e.sub_account)
+        voucher.entries.append(models.VoucherEntry(
+            line_no=idx, summary=e.summary, account_id=e.account_id,
+            sub_account=sub.name if sub else "",
+            sub_account_id=sub.id if sub else None,
+            debit=e.debit, credit=e.credit,
+        ))
 
 
 @router.put("/{voucher_id}", response_model=schemas.VoucherDetail)
@@ -208,11 +216,7 @@ def update_voucher(
 
     # 整体替换分录(附件保留)
     voucher.entries.clear()
-    for idx, e in enumerate(payload.entries, start=1):
-        voucher.entries.append(models.VoucherEntry(
-            line_no=idx, summary=e.summary, account_id=e.account_id,
-            sub_account=e.sub_account, debit=e.debit, credit=e.credit,
-        ))
+    _build_entries(db, voucher, payload)
     db.commit()
     return get_voucher(voucher_id, db)
 

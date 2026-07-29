@@ -23,8 +23,8 @@ from .. import models
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-EXPORT_VERSION = 2
-SUPPORTED_VERSIONS = {1, 2}  # 兼容早期备份(无客户/关联)
+EXPORT_VERSION = 3
+SUPPORTED_VERSIONS = {1, 2, 3}  # 1:基础 2:客户/关联 3:二级科目
 
 
 def _company_dict(c: models.CompanyInfo | None) -> dict:
@@ -52,6 +52,8 @@ def export_data(db: Session = Depends(get_db)):
 
     customers = db.scalars(select(models.Customer).order_by(models.Customer.id)).all()
     links = db.scalars(select(models.VoucherLink)).all()
+    subs = db.scalars(select(models.SubAccount).order_by(models.SubAccount.code)).all()
+    acc_code = {a.id: a.code for a in accounts}
 
     payload = {
         "version": EXPORT_VERSION,
@@ -61,6 +63,12 @@ def export_data(db: Session = Depends(get_db)):
             {"code": a.code, "name": a.name, "category": a.category,
              "direction": a.direction, "is_active": a.is_active}
             for a in accounts
+        ],
+        "sub_accounts": [
+            {"account_code": acc_code.get(s.account_id, ""), "code": s.code,
+             "name": s.name, "note": s.note, "is_active": s.is_active,
+             "sort_no": s.sort_no}
+            for s in subs
         ],
         "customers": [
             {"ref": c.id, "name": c.name, "short_name": c.short_name,
@@ -173,6 +181,7 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     db.execute(delete(models.VoucherEntry))
     db.execute(delete(models.Attachment))
     db.execute(delete(models.Voucher))
+    db.execute(delete(models.SubAccount))
     db.execute(delete(models.Account))
     db.execute(delete(models.Customer))
 
@@ -205,6 +214,21 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
             ref_to_customer[c["ref"]] = customer
     db.flush()  # 取得科目/客户 id
 
+    # 3c. 二级科目(按一级编码归属;记录 (账户id,名称)→二级 用于分录回链)
+    sub_lookup: dict[tuple[int, str], models.SubAccount] = {}
+    for s in payload.get("sub_accounts", []):
+        acc = code_to_account.get(s.get("account_code"))
+        if acc is None:
+            continue
+        sub = models.SubAccount(
+            account_id=acc.id, code=s["code"], name=s["name"],
+            note=s.get("note", ""), is_active=s.get("is_active", True),
+            sort_no=s.get("sort_no", 0),
+        )
+        db.add(sub)
+        sub_lookup[(acc.id, s["name"])] = sub
+    db.flush()
+
     # 4. 凭证 + 分录 + 附件
     upload_root = Path(settings.upload_dir)
     voucher_count = attachment_count = 0
@@ -227,9 +251,12 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
             credit = Decimal(str(e.get("credit", "0")))
             total_debit += debit
             total_credit += credit
+            sub_name = e.get("sub_account", "")
+            sub = sub_lookup.get((acc.id, sub_name)) if sub_name else None
             voucher.entries.append(models.VoucherEntry(
                 line_no=e.get("line_no", 1), summary=e.get("summary", ""),
-                account=acc, sub_account=e.get("sub_account", ""),
+                account=acc, sub_account=sub_name,
+                sub_account_id=sub.id if sub else None,
                 debit=debit, credit=credit,
             ))
         voucher.total_debit = total_debit

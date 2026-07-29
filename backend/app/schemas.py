@@ -41,6 +41,30 @@ class CompanyUpdate(CompanyFields):
     pass
 
 
+# ---------- 二级科目 ----------
+class SubAccountOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    account_id: int
+    code: str
+    name: str
+    note: str
+    is_active: bool
+    sort_no: int
+
+
+class SubAccountCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    note: str = ""
+    code: str = ""  # 留空自动按一级编码延续生成
+
+
+class SubAccountUpdate(BaseModel):
+    name: str | None = None
+    note: str | None = None
+    is_active: bool | None = None
+
+
 # ---------- 科目 ----------
 class AccountOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -50,6 +74,10 @@ class AccountOut(BaseModel):
     category: str
     direction: str
     is_active: bool
+
+
+class AccountTreeNode(AccountOut):
+    sub_accounts: list[SubAccountOut] = []
 
 
 class AccountCreate(BaseModel):
@@ -100,6 +128,7 @@ class EntryOut(BaseModel):
     account_code: str = ""
     account_name: str = ""
     sub_account: str
+    sub_account_id: int | None = None
     debit: Decimal
     credit: Decimal
 
