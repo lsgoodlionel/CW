@@ -261,3 +261,42 @@ def delete_link(link_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="关联不存在")
     db.delete(link)
     db.commit()
+
+
+@router.post("/{voucher_id}/reverse", response_model=schemas.VoucherDetail, status_code=201)
+def reverse_voucher(
+    voucher_id: int,
+    reverse_date: date | None = None,
+    db: Session = Depends(get_db),
+):
+    """生成红字冲销凭证:金额取负,借贷科目不变,并与原凭证建立「冲销」关联。"""
+    origin = db.scalar(
+        select(models.Voucher).where(models.Voucher.id == voucher_id)
+        .options(selectinload(models.Voucher.entries))
+    )
+    if origin is None:
+        raise HTTPException(status_code=404, detail="凭证不存在")
+
+    vdate = reverse_date or origin.voucher_date
+    reversal = models.Voucher(
+        voucher_no=_next_voucher_no(db, vdate),
+        voucher_date=vdate,
+        note=f"红字冲销:{origin.note or origin.voucher_no}",
+        customer_id=origin.customer_id,
+        status="posted",
+        total_debit=-origin.total_debit,
+        total_credit=-origin.total_credit,
+    )
+    for e in origin.entries:
+        reversal.entries.append(models.VoucherEntry(
+            line_no=e.line_no, summary=e.summary, account_id=e.account_id,
+            sub_account=e.sub_account, debit=-e.debit, credit=-e.credit,
+        ))
+    db.add(reversal)
+    db.flush()
+    db.add(models.VoucherLink(
+        source_id=reversal.id, target_id=origin.id,
+        relation_type="reversal", note="红字冲销",
+    ))
+    db.commit()
+    return get_voucher(reversal.id, db)

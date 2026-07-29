@@ -13,24 +13,32 @@ class Envelope(BaseModel):
 
 
 # ---------- 企业信息 ----------
-class CompanyOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    name: str
-    legal_person: str
-    accountant: str
-    auditor: str
-    bookkeeper: str
-    recorder: str
-
-
-class CompanyUpdate(BaseModel):
+class CompanyFields(BaseModel):
     name: str = ""
+    tax_number: str = ""
+    reg_address: str = ""
+    phone: str = ""
+    bank_name: str = ""
+    bank_account: str = ""
+    establish_date: str = ""
+    industry: str = ""
+    currency: str = "人民币"
+    accounting_standard: str = "小企业会计准则"
+    start_period: str = ""
     legal_person: str = ""
     accountant: str = ""
     auditor: str = ""
     bookkeeper: str = ""
     recorder: str = ""
+
+
+class CompanyOut(CompanyFields):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+
+
+class CompanyUpdate(CompanyFields):
+    pass
 
 
 # ---------- 科目 ----------
@@ -75,18 +83,12 @@ class AccountUpdate(BaseModel):
 
 # ---------- 凭证分录 ----------
 class EntryIn(BaseModel):
+    """凭证分录。允许负数金额(红字冲销):一行仍只填借方或贷方。"""
     summary: str = ""
     account_id: int
     sub_account: str = ""
     debit: Decimal = Decimal("0")
     credit: Decimal = Decimal("0")
-
-    @field_validator("debit", "credit")
-    @classmethod
-    def _non_negative(cls, v: Decimal) -> Decimal:
-        if v < 0:
-            raise ValueError("金额不能为负")
-        return v
 
 
 class EntryOut(BaseModel):
@@ -152,7 +154,7 @@ class CustomerBrief(BaseModel):
 
 
 # ---------- 凭证关联 ----------
-RELATION_TYPES = {"advance", "on_account", "write_off", "receivable", "other"}
+RELATION_TYPES = {"advance", "on_account", "write_off", "receivable", "reversal", "other"}
 
 
 class VoucherLinkCreate(BaseModel):
@@ -192,9 +194,10 @@ class VoucherCreate(BaseModel):
     @field_validator("entries")
     @classmethod
     def _check_entries(cls, entries: list[EntryIn]) -> list[EntryIn]:
+        # 允许红字(负数)冲销:判定用「非零」而非「大于零」
         for e in entries:
-            has_debit = e.debit > 0
-            has_credit = e.credit > 0
+            has_debit = e.debit != 0
+            has_credit = e.credit != 0
             if has_debit and has_credit:
                 raise ValueError("同一分录不能同时填借方和贷方")
             if not has_debit and not has_credit:

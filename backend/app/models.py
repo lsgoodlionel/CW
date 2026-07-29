@@ -19,6 +19,19 @@ class CompanyInfo(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(200), default="")
+    # 常规工商/税务信息
+    tax_number: Mapped[str] = mapped_column(String(40), default="")     # 纳税人识别号
+    reg_address: Mapped[str] = mapped_column(String(200), default="")   # 注册地址
+    phone: Mapped[str] = mapped_column(String(50), default="")          # 电话
+    bank_name: Mapped[str] = mapped_column(String(120), default="")     # 开户银行
+    bank_account: Mapped[str] = mapped_column(String(60), default="")   # 银行账号
+    establish_date: Mapped[str] = mapped_column(String(20), default="") # 成立日期
+    industry: Mapped[str] = mapped_column(String(60), default="")       # 所属行业
+    currency: Mapped[str] = mapped_column(String(20), default="人民币")  # 记账本位币
+    accounting_standard: Mapped[str] = mapped_column(
+        String(40), default="小企业会计准则")                            # 执行会计准则
+    start_period: Mapped[str] = mapped_column(String(20), default="")   # 启用期间
+    # 人员
     legal_person: Mapped[str] = mapped_column(String(100), default="")
     accountant: Mapped[str] = mapped_column(String(100), default="")
     auditor: Mapped[str] = mapped_column(String(100), default="")

@@ -2,7 +2,8 @@
 
 均为基于凭证分录的实时聚合,不做月末结转。
 """
-from datetime import date
+from calendar import monthrange
+from datetime import date, timedelta
 from decimal import Decimal
 from urllib.parse import quote
 
@@ -297,3 +298,83 @@ def _monthly_trend(db: Session, months: int = 6):
         {"month": ym, "revenue": float(v["revenue"]), "net_profit": float(v["profit"])}
         for ym, v in ordered
     ]
+
+
+# 支出科目及其中文名(利润表口径)
+_EXPENSE_CODES = {
+    "6401": "营业成本", "6402": "其他业务成本", "6403": "税金及附加",
+    "6601": "销售费用", "6602": "管理费用", "6603": "财务费用",
+    "6701": "资产减值损失", "6711": "营业外支出", "6801": "所得税费用",
+}
+
+
+def _period_range(period_type: str, ref: date) -> tuple[date, date, str]:
+    """按 day/month/quarter/year 计算区间与标签。"""
+    if period_type == "day":
+        return ref, ref, f"{ref:%Y-%m-%d}"
+    if period_type == "quarter":
+        q = (ref.month - 1) // 3 + 1
+        sm = (q - 1) * 3 + 1
+        return (date(ref.year, sm, 1),
+                date(ref.year, sm + 2, monthrange(ref.year, sm + 2)[1]),
+                f"{ref.year}年第{q}季度")
+    if period_type == "year":
+        return date(ref.year, 1, 1), date(ref.year, 12, 31), f"{ref.year}年度"
+    # month(默认)
+    return (date(ref.year, ref.month, 1),
+            date(ref.year, ref.month, monthrange(ref.year, ref.month)[1]),
+            f"{ref.year}年{ref.month:02d}月")
+
+
+@router.get("/dashboard")
+def dashboard(
+    period_type: str = Query("month"),
+    ref_date: date | None = None,
+    db: Session = Depends(get_db),
+):
+    """仪表盘:货币资金余额、往来款、周期收支利润、支出构成、趋势。"""
+    ref = ref_date or date.today()
+    start, end, label = _period_range(period_type, ref)
+
+    end_bal = reports_cn.balances_asof(db, end)
+    cash = end_bal.net_debit("1001")
+    bank = end_bal.net_debit("1002")
+    other_money = end_bal.net_debit("1012")
+    receivable = end_bal.net_debit("1122")
+    payable = end_bal.net_credit("2202")
+    tax_payable = end_bal.net_credit("2221")
+
+    # 周期发生额
+    mv = reports_cn._movement(db, start, end)
+    b = reports_cn.Balances(mv)
+    revenue = b.net_credit("6001", "6051")
+    profit_net = reports_cn._profit_net(b)
+    expense = revenue - profit_net
+
+    voucher_count = db.scalar(
+        select(func.count(models.Voucher.id)).where(
+            models.Voucher.voucher_date >= start,
+            models.Voucher.voucher_date <= end)) or 0
+
+    expense_breakdown = sorted(
+        ({"code": c, "name": n, "amount": float(b.net_debit(c))}
+         for c, n in _EXPENSE_CODES.items() if b.net_debit(c) != 0),
+        key=lambda x: -abs(x["amount"]))
+
+    return {
+        "period": {"type": period_type, "label": label,
+                   "start": start.isoformat(), "end": end.isoformat()},
+        "money": {
+            "cash": float(cash), "bank": float(bank), "other": float(other_money),
+            "total": float(cash + bank + other_money),
+        },
+        "receivable": float(receivable),
+        "payable": float(payable),
+        "tax_payable": float(tax_payable),
+        "revenue": float(revenue),
+        "expense": float(expense),
+        "net_profit": float(profit_net),
+        "voucher_count": voucher_count,
+        "expense_breakdown": expense_breakdown,
+        "trend": _monthly_trend(db, months=6),
+    }

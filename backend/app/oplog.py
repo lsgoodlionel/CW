@@ -18,8 +18,10 @@ from . import models
 # (方法正则, 路径正则, 类型, 行为模板)  —— {id} 由第一个捕获组填充
 _RULES: list[tuple[str, str, str, str]] = [
     (r"POST", r"^/api/vouchers/(\d+)/attachments$", "attachment", "上传附件(凭证#{id})"),
+    (r"POST", r"^/api/vouchers/(\d+)/reverse$", "voucher", "生成红字冲销(凭证#{id})"),
     (r"POST", r"^/api/vouchers/(\d+)/links$", "voucher", "添加凭证关联(凭证#{id})"),
     (r"DELETE", r"^/api/vouchers/links/(\d+)$", "voucher", "删除凭证关联 #{id}"),
+    (r"PATCH", r"^/api/attachments/(\d+)$", "attachment", "修改附件类型 #{id}"),
     (r"POST", r"^/api/vouchers$", "voucher", "新建凭证"),
     (r"PUT", r"^/api/vouchers/(\d+)$", "voucher", "修改凭证 #{id}"),
     (r"DELETE", r"^/api/vouchers/(\d+)$", "voucher", "删除凭证 #{id}"),

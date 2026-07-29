@@ -18,15 +18,38 @@ def init_db() -> None:
         db.close()
 
 
+# 已存在的表在版本迭代中新增的列:{表名: [(列名, 建列 DDL 片段), ...]}
+_ADDED_COLUMNS = {
+    "vouchers": [
+        ("customer_id", "INTEGER"),
+    ],
+    "company_info": [
+        ("tax_number", "VARCHAR(40) DEFAULT ''"),
+        ("reg_address", "VARCHAR(200) DEFAULT ''"),
+        ("phone", "VARCHAR(50) DEFAULT ''"),
+        ("bank_name", "VARCHAR(120) DEFAULT ''"),
+        ("bank_account", "VARCHAR(60) DEFAULT ''"),
+        ("establish_date", "VARCHAR(20) DEFAULT ''"),
+        ("industry", "VARCHAR(60) DEFAULT ''"),
+        ("currency", "VARCHAR(20) DEFAULT '人民币'"),
+        ("accounting_standard", "VARCHAR(40) DEFAULT '小企业会计准则'"),
+        ("start_period", "VARCHAR(20) DEFAULT ''"),
+    ],
+}
+
+
 def _migrate(bind) -> None:
     """为已存在的表补充新增列(create_all 不会 ALTER 现有表)。幂等。"""
     inspector = inspect(bind)
-    if "vouchers" not in inspector.get_table_names():
-        return
-    columns = {c["name"] for c in inspector.get_columns("vouchers")}
-    if "customer_id" not in columns:
-        with bind.begin() as conn:
-            conn.execute(text("ALTER TABLE vouchers ADD COLUMN customer_id INTEGER"))
+    existing_tables = set(inspector.get_table_names())
+    for table, cols in _ADDED_COLUMNS.items():
+        if table not in existing_tables:
+            continue
+        have = {c["name"] for c in inspector.get_columns(table)}
+        for name, ddl in cols:
+            if name not in have:
+                with bind.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
 
 def _seed_accounts(db) -> None:

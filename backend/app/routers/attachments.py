@@ -12,7 +12,8 @@ from .. import models, schemas
 
 router = APIRouter(prefix="/api", tags=["attachments"])
 
-ALLOWED_KINDS = {"invoice", "receipt", "other"}
+# invoice 发票 / receipt 银行回单 / contract 合同 / tax_payment 完税证明 / other 其他
+ALLOWED_KINDS = {"invoice", "receipt", "contract", "tax_payment", "other"}
 
 
 def _upload_root() -> Path:
@@ -90,6 +91,22 @@ def preview_attachment(attachment_id: int, db: Session = Depends(get_db)):
         media_type=attachment.mime_type or "application/octet-stream",
         content_disposition_type="inline",
     )
+
+
+@router.patch("/attachments/{attachment_id}", response_model=schemas.AttachmentOut)
+def update_attachment_kind(
+    attachment_id: int, kind: str = Form(...), db: Session = Depends(get_db)
+):
+    """变更已上传附件的类型。"""
+    attachment = db.get(models.Attachment, attachment_id)
+    if attachment is None:
+        raise HTTPException(status_code=404, detail="附件不存在")
+    if kind not in ALLOWED_KINDS:
+        raise HTTPException(status_code=400, detail=f"kind 必须是 {ALLOWED_KINDS} 之一")
+    attachment.kind = kind
+    db.commit()
+    db.refresh(attachment)
+    return attachment
 
 
 @router.delete("/attachments/{attachment_id}", status_code=204)

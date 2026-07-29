@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Card, Form, DatePicker, Input, Button, Table, Select, InputNumber, Space,
-  message, Upload, Tag, Popconfirm, Divider, Typography,
+  message, Upload, Tag, Popconfirm, Divider, Typography, Modal,
 } from 'antd'
-import { DeleteOutlined, PlusOutlined, UploadOutlined, SaveOutlined, EyeOutlined } from '@ant-design/icons'
+import {
+  DeleteOutlined, PlusOutlined, UploadOutlined, SaveOutlined, EyeOutlined, RollbackOutlined,
+} from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import {
   http, Account, Entry, Attachment, VoucherDetail, Customer, LinkedVoucher,
-  CATEGORY_LABEL,
+  CATEGORY_LABEL, ATTACHMENT_KIND_LABEL,
 } from '../api'
 import AttachmentPreview from '../components/AttachmentPreview'
 import VoucherLinks from '../components/VoucherLinks'
@@ -17,7 +19,7 @@ const { Text } = Typography
 const emptyEntry = (): Entry => ({ summary: '', account_id: 0, sub_account: '', debit: 0, credit: 0 })
 const yuan = (n: number) => n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-const KIND_LABEL: Record<string, string> = { invoice: '发票', receipt: '回单', other: '其他' }
+const KIND_OPTIONS = Object.entries(ATTACHMENT_KIND_LABEL).map(([value, label]) => ({ value, label }))
 
 export default function VoucherEdit() {
   const { id } = useParams()
@@ -65,7 +67,8 @@ export default function VoucherEdit() {
 
   const totalDebit = entries.reduce((s, e) => s + (Number(e.debit) || 0), 0)
   const totalCredit = entries.reduce((s, e) => s + (Number(e.credit) || 0), 0)
-  const balanced = totalDebit === totalCredit && totalDebit > 0
+  // 允许红字(负数)冲销:借贷相等且不为零即可
+  const balanced = totalDebit === totalCredit && totalDebit !== 0
 
   const updateEntry = (idx: number, patch: Partial<Entry>) =>
     setEntries((prev) => prev.map((e, i) => (i === idx ? { ...e, ...patch } : e)))
@@ -97,16 +100,16 @@ export default function VoucherEdit() {
     {
       title: '借方金额', dataIndex: 'debit', width: 150,
       render: (_: unknown, _r: Entry, i: number) => (
-        <InputNumber value={entries[i].debit || null} min={0} precision={2} style={{ width: '100%' }}
-          controls={false} placeholder="0.00"
+        <InputNumber value={entries[i].debit || null} precision={2} style={{ width: '100%' }}
+          controls={false} placeholder="0.00 (负数为红字)"
           onChange={(v) => updateEntry(i, { debit: Number(v) || 0, credit: 0 })} />
       ),
     },
     {
       title: '贷方金额', dataIndex: 'credit', width: 150,
       render: (_: unknown, _r: Entry, i: number) => (
-        <InputNumber value={entries[i].credit || null} min={0} precision={2} style={{ width: '100%' }}
-          controls={false} placeholder="0.00"
+        <InputNumber value={entries[i].credit || null} precision={2} style={{ width: '100%' }}
+          controls={false} placeholder="0.00 (负数为红字)"
           onChange={(v) => updateEntry(i, { credit: Number(v) || 0, debit: 0 })} />
       ),
     },
@@ -121,7 +124,7 @@ export default function VoucherEdit() {
 
   const save = async () => {
     const values = await form.validateFields()
-    const valid = entries.filter((e) => e.account_id && (e.debit > 0 || e.credit > 0))
+    const valid = entries.filter((e) => e.account_id && (e.debit !== 0 || e.credit !== 0))
     if (valid.length < 1) return message.error('请至少填写一条有效分录')
     if (!balanced) return message.error(`借贷不平衡:借 ${yuan(totalDebit)} ≠ 贷 ${yuan(totalCredit)}`)
 
@@ -148,6 +151,19 @@ export default function VoucherEdit() {
     }
   }
 
+  const reverse = () => {
+    Modal.confirm({
+      title: '生成红字冲销凭证?',
+      content: '将新建一张金额取负、借贷科目相同的红字凭证,并与本凭证建立「冲销」关联。',
+      okText: '确认冲销', cancelText: '取消',
+      onOk: async () => {
+        const r = await http.post<VoucherDetail>(`/vouchers/${id}/reverse`)
+        message.success('已生成红字冲销凭证')
+        navigate(`/vouchers/${r.data.id}`)
+      },
+    })
+  }
+
   const uploadProps = {
     showUploadList: false,
     customRequest: async (opt: { file: unknown; onSuccess?: (b: unknown) => void; onError?: (e: Error) => void }) => {
@@ -171,6 +187,15 @@ export default function VoucherEdit() {
       setAttachments((prev) => prev.filter((a) => a.id !== aid))
       message.success('附件已删除')
     })
+
+  const changeKind = (aid: number, kind: string) => {
+    const fd = new FormData()
+    fd.append('kind', kind)
+    http.patch(`/attachments/${aid}`, fd).then(() => {
+      setAttachments((prev) => prev.map((a) => (a.id === aid ? { ...a, kind } : a)))
+      message.success('附件类型已更新')
+    })
+  }
 
   return (
     <Card title={isEdit ? '编辑凭证' : '新建凭证'}
@@ -226,20 +251,21 @@ export default function VoucherEdit() {
         <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={save}>
           保存凭证
         </Button>
+        {isEdit && (
+          <Button danger icon={<RollbackOutlined />} onClick={reverse}>
+            红字冲销
+          </Button>
+        )}
       </Space>
 
       <Divider />
-      <h3>附件凭证(发票 / 回单)</h3>
+      <h3>附件凭证(发票 / 银行回单 / 合同 / 完税证明 / 其他)</h3>
       {!isEdit && <Text type="secondary">保存凭证后即可上传附件。</Text>}
       {isEdit && (
         <>
           <Space style={{ marginBottom: 12 }}>
-            <Select value={uploadKind} style={{ width: 120 }} onChange={setUploadKind}
-              options={[
-                { value: 'invoice', label: '发票' },
-                { value: 'receipt', label: '回单' },
-                { value: 'other', label: '其他' },
-              ]} />
+            <Select value={uploadKind} style={{ width: 130 }} onChange={setUploadKind}
+              options={KIND_OPTIONS} />
             <Upload {...uploadProps}>
               <Button icon={<UploadOutlined />}>上传附件</Button>
             </Upload>
@@ -247,7 +273,13 @@ export default function VoucherEdit() {
           <Table rowKey="id" size="small" pagination={false} dataSource={attachments}
             locale={{ emptyText: '暂无附件' }}
             columns={[
-              { title: '类型', dataIndex: 'kind', width: 80, render: (k: string) => <Tag>{KIND_LABEL[k]}</Tag> },
+              {
+                title: '类型', dataIndex: 'kind', width: 130,
+                render: (k: string, r: Attachment) => (
+                  <Select size="small" value={k} style={{ width: 110 }} options={KIND_OPTIONS}
+                    onChange={(nk) => changeKind(r.id, nk)} />
+                ),
+              },
               {
                 title: '文件名', dataIndex: 'original_name',
                 render: (name: string, r: Attachment) => (

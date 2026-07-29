@@ -45,7 +45,7 @@ export interface Entry {
 export interface Attachment {
   id: number
   voucher_id: number
-  kind: 'invoice' | 'receipt' | 'other'
+  kind: string
   original_name: string
   mime_type: string
   size_bytes: number
@@ -101,6 +101,15 @@ export const RELATION_LABEL: Record<string, string> = {
   on_account: '挂账',
   write_off: '核销',
   receivable: '应收款',
+  reversal: '冲销',
+  other: '其他',
+}
+
+export const ATTACHMENT_KIND_LABEL: Record<string, string> = {
+  invoice: '发票',
+  receipt: '银行回单',
+  contract: '合同',
+  tax_payment: '完税证明',
   other: '其他',
 }
 
@@ -123,6 +132,16 @@ export interface VoucherDetail {
 export interface Company {
   id: number
   name: string
+  tax_number: string
+  reg_address: string
+  phone: string
+  bank_name: string
+  bank_account: string
+  establish_date: string
+  industry: string
+  currency: string
+  accounting_standard: string
+  start_period: string
   legal_person: string
   accountant: string
   auditor: string
