@@ -31,6 +31,9 @@ _ADDED_COLUMNS = {
     "voucher_entries": [
         ("sub_account_id", "INTEGER"),
     ],
+    "customers": [
+        ("party_type", "VARCHAR(20) DEFAULT 'enterprise'"),
+    ],
     "company_info": [
         ("tax_number", "VARCHAR(40) DEFAULT ''"),
         ("reg_address", "VARCHAR(200) DEFAULT ''"),

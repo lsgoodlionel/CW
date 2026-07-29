@@ -76,10 +76,12 @@ class SubAccount(Base):
 
 
 class Customer(Base):
-    """企业客户/往来单位信息。"""
+    """往来单位:企业客户/个人客户/供应商/往来单位(银行、平台、租赁对象等)。"""
     __tablename__ = "customers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # enterprise 企业客户 / individual 个人客户 / supplier 供应商 / partner 往来单位
+    party_type: Mapped[str] = mapped_column(String(20), default="enterprise", index=True)
     name: Mapped[str] = mapped_column(String(200), index=True)          # 名称
     short_name: Mapped[str] = mapped_column(String(60), default="")     # 简称
     tax_number: Mapped[str] = mapped_column(String(40), default="", index=True)  # 税号
@@ -199,3 +201,42 @@ class OperationLog(Base):
     status_code: Mapped[int] = mapped_column(Integer, default=0)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
     ip: Mapped[str] = mapped_column(String(50), default="")
+
+
+class OrgUnit(Base):
+    """组织架构单元(可自引用形成多级组织树)。"""
+    __tablename__ = "org_units"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("org_units.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(100), index=True)
+    sort_no: Mapped[int] = mapped_column(Integer, default=0)
+    note: Mapped[str] = mapped_column(String(200), default="")
+
+
+class Employee(Base):
+    """员工档案。"""
+    __tablename__ = "employees"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employee_no: Mapped[str] = mapped_column(String(40), default="", index=True)  # 工号
+    name: Mapped[str] = mapped_column(String(60), index=True)
+    org_unit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("org_units.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # shareholder 股东 / management 管理层 / staff 普通员工 / other 其他
+    role_type: Mapped[str] = mapped_column(String(20), default="staff", index=True)
+    position: Mapped[str] = mapped_column(String(60), default="")   # 职位
+    gender: Mapped[str] = mapped_column(String(10), default="")     # 性别
+    phone: Mapped[str] = mapped_column(String(30), default="")
+    id_number: Mapped[str] = mapped_column(String(40), default="")  # 身份证号
+    email: Mapped[str] = mapped_column(String(120), default="")
+    hire_date: Mapped[str] = mapped_column(String(20), default="")  # 入职日期
+    equity_ratio: Mapped[Decimal] = mapped_column(Numeric(7, 4), default=0)  # 持股比例%
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active 在职 / left 离职
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    org_unit: Mapped["OrgUnit | None"] = relationship()

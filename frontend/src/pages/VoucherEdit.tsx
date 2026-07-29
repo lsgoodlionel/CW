@@ -10,7 +10,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import {
   http, Account, AccountTreeNode, Entry, Attachment, VoucherDetail, Customer,
-  LinkedVoucher, CATEGORY_LABEL, ATTACHMENT_KIND_LABEL,
+  LinkedVoucher, CATEGORY_LABEL, ATTACHMENT_KIND_LABEL, PARTY_LABEL,
 } from '../api'
 import AttachmentPreview from '../components/AttachmentPreview'
 import VoucherLinks from '../components/VoucherLinks'
@@ -223,11 +223,12 @@ export default function VoucherEdit() {
         <Form.Item name="voucher_no" label="凭证号">
           <Input placeholder="留空自动生成" allowClear />
         </Form.Item>
-        <Form.Item name="customer_id" label="客户">
-          <Select allowClear showSearch placeholder="关联客户(可选)" style={{ width: 220 }}
+        <Form.Item name="customer_id" label="往来单位">
+          <Select allowClear showSearch placeholder="关联往来单位(可选)" style={{ width: 240 }}
             optionFilterProp="label"
             options={customers.map((c) => ({
-              value: c.id, label: c.short_name ? `${c.name}(${c.short_name})` : c.name,
+              value: c.id,
+              label: `[${PARTY_LABEL[c.party_type] || '往来'}] ${c.name}${c.short_name ? `(${c.short_name})` : ''}`,
             }))} />
         </Form.Item>
         <Form.Item name="note" label="摘要" style={{ flex: 1, minWidth: 200 }}>

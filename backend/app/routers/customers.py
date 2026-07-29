@@ -15,10 +15,13 @@ router = APIRouter(prefix="/api/customers", tags=["customers"])
 @router.get("", response_model=list[schemas.CustomerOut])
 def list_customers(
     keyword: str | None = None,
+    party_type: str | None = None,
     active_only: bool = False,
     db: Session = Depends(get_db),
 ):
     stmt = select(models.Customer).order_by(models.Customer.name)
+    if party_type:
+        stmt = stmt.where(models.Customer.party_type == party_type)
     if active_only:
         stmt = stmt.where(models.Customer.is_active.is_(True))
     if keyword:

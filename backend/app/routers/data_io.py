@@ -23,8 +23,8 @@ from .. import models
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-EXPORT_VERSION = 3
-SUPPORTED_VERSIONS = {1, 2, 3}  # 1:基础 2:客户/关联 3:二级科目
+EXPORT_VERSION = 4
+SUPPORTED_VERSIONS = {1, 2, 3, 4}  # 1:基础 2:客户/关联 3:二级科目 4:往来类型/人员
 
 
 def _company_dict(c: models.CompanyInfo | None) -> dict:
@@ -71,12 +71,26 @@ def export_data(db: Session = Depends(get_db)):
             for s in subs
         ],
         "customers": [
-            {"ref": c.id, "name": c.name, "short_name": c.short_name,
+            {"ref": c.id, "party_type": c.party_type, "name": c.name,
+             "short_name": c.short_name,
              "tax_number": c.tax_number, "address": c.address, "phone": c.phone,
              "bank_name": c.bank_name, "bank_account": c.bank_account,
              "contact_person": c.contact_person, "contact_phone": c.contact_phone,
              "email": c.email, "note": c.note, "is_active": c.is_active}
             for c in customers
+        ],
+        "org_units": [
+            {"ref": u.id, "parent_ref": u.parent_id, "name": u.name,
+             "sort_no": u.sort_no, "note": u.note}
+            for u in db.scalars(select(models.OrgUnit).order_by(models.OrgUnit.id)).all()
+        ],
+        "employees": [
+            {"employee_no": e.employee_no, "name": e.name, "org_unit_ref": e.org_unit_id,
+             "role_type": e.role_type, "position": e.position, "gender": e.gender,
+             "phone": e.phone, "id_number": e.id_number, "email": e.email,
+             "hire_date": e.hire_date, "equity_ratio": str(e.equity_ratio),
+             "status": e.status, "note": e.note}
+            for e in db.scalars(select(models.Employee).order_by(models.Employee.id)).all()
         ],
         "links": [
             {"source_ref": link.source_id, "target_ref": link.target_id,
@@ -184,6 +198,8 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     db.execute(delete(models.SubAccount))
     db.execute(delete(models.Account))
     db.execute(delete(models.Customer))
+    db.execute(delete(models.Employee))
+    db.execute(delete(models.OrgUnit))
 
     # 2. 企业信息
     company = db.get(models.CompanyInfo, 1)
@@ -227,6 +243,27 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
         )
         db.add(sub)
         sub_lookup[(acc.id, s["name"])] = sub
+    db.flush()
+
+    # 3d. 组织架构(两遍:先建单元,再回填 parent)+ 员工
+    ref_to_unit: dict[int, models.OrgUnit] = {}
+    for u in payload.get("org_units", []):
+        unit = models.OrgUnit(name=u["name"], sort_no=u.get("sort_no", 0),
+                              note=u.get("note", ""))
+        db.add(unit)
+        if u.get("ref") is not None:
+            ref_to_unit[u["ref"]] = unit
+    db.flush()
+    for u in payload.get("org_units", []):
+        unit = ref_to_unit.get(u.get("ref"))
+        parent = ref_to_unit.get(u.get("parent_ref"))
+        if unit is not None and parent is not None:
+            unit.parent_id = parent.id
+    for e in payload.get("employees", []):
+        unit = ref_to_unit.get(e.get("org_unit_ref"))
+        data = {k: v for k, v in e.items() if k != "org_unit_ref"}
+        data["equity_ratio"] = Decimal(str(data.get("equity_ratio", "0")))
+        db.add(models.Employee(org_unit_id=unit.id if unit else None, **data))
     db.flush()
 
     # 4. 凭证 + 分录 + 附件

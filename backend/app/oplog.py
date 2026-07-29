@@ -25,9 +25,15 @@ _RULES: list[tuple[str, str, str, str]] = [
     (r"POST", r"^/api/vouchers$", "voucher", "新建凭证"),
     (r"PUT", r"^/api/vouchers/(\d+)$", "voucher", "修改凭证 #{id}"),
     (r"DELETE", r"^/api/vouchers/(\d+)$", "voucher", "删除凭证 #{id}"),
-    (r"POST", r"^/api/customers$", "customer", "新增客户"),
-    (r"PUT", r"^/api/customers/(\d+)$", "customer", "修改客户 #{id}"),
-    (r"DELETE", r"^/api/customers/(\d+)$", "customer", "删除/停用客户 #{id}"),
+    (r"POST", r"^/api/customers$", "customer", "新增往来单位"),
+    (r"PUT", r"^/api/customers/(\d+)$", "customer", "修改往来单位 #{id}"),
+    (r"DELETE", r"^/api/customers/(\d+)$", "customer", "删除/停用往来单位 #{id}"),
+    (r"POST", r"^/api/personnel/org-units$", "personnel", "新增部门"),
+    (r"PUT", r"^/api/personnel/org-units/(\d+)$", "personnel", "修改部门 #{id}"),
+    (r"DELETE", r"^/api/personnel/org-units/(\d+)$", "personnel", "删除部门 #{id}"),
+    (r"POST", r"^/api/personnel/employees$", "personnel", "新增员工"),
+    (r"PUT", r"^/api/personnel/employees/(\d+)$", "personnel", "修改员工 #{id}"),
+    (r"DELETE", r"^/api/personnel/employees/(\d+)$", "personnel", "删除员工 #{id}"),
     (r"POST", r"^/api/accounts/subaccounts/import$", "account", "批量导入二级科目"),
     (r"GET", r"^/api/accounts/export-excel$", "account", "导出会计科目表 Excel"),
     (r"POST", r"^/api/accounts/(\d+)/subaccounts$", "account", "新增二级科目(一级#{id})"),
@@ -47,8 +53,8 @@ _RULES: list[tuple[str, str, str, str]] = [
 
 ACTION_TYPES = {
     "voucher": "凭证", "account": "科目", "attachment": "附件",
-    "customer": "客户", "company": "企业信息", "report": "报表",
-    "ledger": "账簿", "data": "数据", "other": "其他",
+    "customer": "往来单位", "personnel": "人员", "company": "企业信息",
+    "report": "报表", "ledger": "账簿", "data": "数据", "other": "其他",
 }
 
 

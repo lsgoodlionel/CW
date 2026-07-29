@@ -145,8 +145,12 @@ class AttachmentOut(BaseModel):
     uploaded_at: datetime
 
 
-# ---------- 客户 ----------
+# ---------- 往来单位 ----------
+PARTY_TYPES = {"enterprise", "individual", "supplier", "partner"}
+
+
 class CustomerBase(BaseModel):
+    party_type: str = "enterprise"
     name: str = Field(min_length=1, max_length=200)
     short_name: str = ""
     tax_number: str = ""
@@ -180,6 +184,61 @@ class CustomerBrief(BaseModel):
     id: int
     name: str
     short_name: str
+
+
+# ---------- 组织架构 ----------
+class OrgUnitCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    parent_id: int | None = None
+    note: str = ""
+
+
+class OrgUnitUpdate(BaseModel):
+    name: str | None = None
+    parent_id: int | None = None
+    note: str | None = None
+
+
+class OrgUnitOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    parent_id: int | None
+    name: str
+    sort_no: int
+    note: str
+    employee_count: int = 0
+
+
+# ---------- 员工档案 ----------
+class EmployeeBase(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    employee_no: str = ""
+    org_unit_id: int | None = None
+    role_type: str = "staff"
+    position: str = ""
+    gender: str = ""
+    phone: str = ""
+    id_number: str = ""
+    email: str = ""
+    hire_date: str = ""
+    equity_ratio: float = 0
+    status: str = "active"
+    note: str = ""
+
+
+class EmployeeCreate(EmployeeBase):
+    pass
+
+
+class EmployeeUpdate(EmployeeBase):
+    name: str | None = None
+
+
+class EmployeeOut(EmployeeBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    org_unit_name: str = ""
+    created_at: datetime
 
 
 # ---------- 凭证关联 ----------

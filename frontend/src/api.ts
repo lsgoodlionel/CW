@@ -81,8 +81,51 @@ export interface VoucherListItem {
   link_count: number
 }
 
+export const PARTY_LABEL: Record<string, string> = {
+  enterprise: '企业客户',
+  individual: '个人客户',
+  supplier: '供应商',
+  partner: '往来单位',
+}
+
+export const ROLE_LABEL: Record<string, string> = {
+  shareholder: '股东',
+  management: '管理层',
+  staff: '普通员工',
+  other: '其他',
+}
+
+export interface OrgUnit {
+  id: number
+  parent_id: number | null
+  name: string
+  sort_no: number
+  note: string
+  employee_count: number
+}
+
+export interface Employee {
+  id: number
+  employee_no: string
+  name: string
+  org_unit_id: number | null
+  org_unit_name: string
+  role_type: string
+  position: string
+  gender: string
+  phone: string
+  id_number: string
+  email: string
+  hire_date: string
+  equity_ratio: number
+  status: string
+  note: string
+  created_at: string
+}
+
 export interface Customer {
   id: number
+  party_type: string
   name: string
   short_name: string
   tax_number: string

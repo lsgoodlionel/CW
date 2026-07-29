@@ -1,17 +1,18 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
-  Table, Button, Input, Space, Modal, Form, Tag, Popconfirm, message, Drawer, Descriptions,
+  Table, Button, Input, Space, Modal, Form, Tag, Popconfirm, message, Drawer,
+  Descriptions, Segmented, Select,
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { http, Customer } from '../api'
+import { http, Customer, PARTY_LABEL } from '../api'
 
 const FIELDS: { name: keyof Customer; label: string; required?: boolean }[] = [
-  { name: 'name', label: '客户名称', required: true },
+  { name: 'name', label: '名称', required: true },
   { name: 'short_name', label: '简称' },
-  { name: 'tax_number', label: '税号' },
-  { name: 'address', label: '开票地址' },
-  { name: 'phone', label: '开票电话' },
+  { name: 'tax_number', label: '税号/证件号' },
+  { name: 'address', label: '地址' },
+  { name: 'phone', label: '电话' },
   { name: 'bank_name', label: '开户行' },
   { name: 'bank_account', label: '银行账号' },
   { name: 'contact_person', label: '联系人' },
@@ -20,12 +21,17 @@ const FIELDS: { name: keyof Customer; label: string; required?: boolean }[] = [
   { name: 'note', label: '备注' },
 ]
 
+const PARTY_COLOR: Record<string, string> = {
+  enterprise: 'blue', individual: 'green', supplier: 'orange', partner: 'purple',
+}
+
 interface HistItem { id: number; voucher_no: string; voucher_date: string; note: string; total_debit: number }
 
 export default function Customers() {
   const navigate = useNavigate()
   const [list, setList] = useState<Customer[]>([])
   const [keyword, setKeyword] = useState('')
+  const [partyType, setPartyType] = useState('all')
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Customer | null>(null)
@@ -36,15 +42,19 @@ export default function Customers() {
 
   const load = useCallback(() => {
     setLoading(true)
-    http.get<Customer[]>('/customers', { params: keyword ? { keyword } : {} })
+    const params: Record<string, string> = {}
+    if (keyword) params.keyword = keyword
+    if (partyType !== 'all') params.party_type = partyType
+    http.get<Customer[]>('/customers', { params })
       .then((r) => setList(r.data)).finally(() => setLoading(false))
-  }, [keyword])
+  }, [keyword, partyType])
   useEffect(() => { load() }, [load])
 
   const openEdit = (c: Customer | null) => {
     setEditing(c)
     form.resetFields()
     if (c) form.setFieldsValue(c)
+    else form.setFieldsValue({ party_type: partyType === 'all' ? 'enterprise' : partyType })
     setOpen(true)
   }
 
@@ -66,17 +76,21 @@ export default function Customers() {
   }
 
   const columns = [
-    { title: '名称', dataIndex: 'name', render: (v: string, r: Customer) => <a onClick={() => openDetail(r)}>{v}</a> },
-    { title: '简称', dataIndex: 'short_name', width: 120 },
-    { title: '税号', dataIndex: 'tax_number', width: 180 },
-    { title: '联系人', dataIndex: 'contact_person', width: 100 },
-    { title: '电话', dataIndex: 'contact_phone', width: 130 },
-    { title: '状态', dataIndex: 'is_active', width: 80, render: (a: boolean) => a ? <Tag color="green">启用</Tag> : <Tag>停用</Tag> },
     {
-      title: '操作', width: 130, render: (_: unknown, r: Customer) => (
+      title: '类型', dataIndex: 'party_type', width: 100,
+      render: (t: string) => <Tag color={PARTY_COLOR[t]}>{PARTY_LABEL[t] || t}</Tag>,
+    },
+    { title: '名称', dataIndex: 'name', render: (v: string, r: Customer) => <a onClick={() => openDetail(r)}>{v}</a> },
+    { title: '简称', dataIndex: 'short_name', width: 110 },
+    { title: '税号/证件号', dataIndex: 'tax_number', width: 170 },
+    { title: '联系人', dataIndex: 'contact_person', width: 90 },
+    { title: '电话', dataIndex: 'contact_phone', width: 130 },
+    { title: '状态', dataIndex: 'is_active', width: 70, render: (a: boolean) => a ? <Tag color="green">启用</Tag> : <Tag>停用</Tag> },
+    {
+      title: '操作', width: 120, render: (_: unknown, r: Customer) => (
         <Space>
           <a onClick={() => openEdit(r)}>编辑</a>
-          <Popconfirm title="删除/停用该客户?" onConfirm={() => remove(r.id)}>
+          <Popconfirm title="删除/停用该单位?" onConfirm={() => remove(r.id)}>
             <a style={{ color: '#cf1322' }}>删除</a>
           </Popconfirm>
         </Space>
@@ -86,17 +100,26 @@ export default function Customers() {
 
   return (
     <div className="content-card">
-      <Space style={{ marginBottom: 16 }}>
-        <Input.Search placeholder="搜索名称/简称/税号" allowClear style={{ width: 260 }}
+      <Space style={{ marginBottom: 16, flexWrap: 'wrap' }}>
+        <Segmented value={partyType} onChange={(v) => setPartyType(v as string)}
+          options={[
+            { label: '全部', value: 'all' },
+            ...Object.entries(PARTY_LABEL).map(([value, label]) => ({ value, label })),
+          ]} />
+        <Input.Search placeholder="搜索名称/简称/税号" allowClear style={{ width: 240 }}
           onSearch={setKeyword} />
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit(null)}>新增客户</Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit(null)}>新增往来单位</Button>
       </Space>
       <Table rowKey="id" loading={loading} columns={columns} dataSource={list}
-        pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 家客户` }} />
+        pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 个往来单位` }} />
 
-      <Modal title={editing ? '编辑客户' : '新增客户'} open={open} onOk={save}
+      <Modal title={editing ? '编辑往来单位' : '新增往来单位'} open={open} onOk={save}
         onCancel={() => setOpen(false)} okText="保存" width={560}>
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" initialValues={{ party_type: 'enterprise' }}>
+          <Form.Item name="party_type" label="类型" rules={[{ required: true }]}
+            style={{ marginBottom: 12 }}>
+            <Select options={Object.entries(PARTY_LABEL).map(([value, label]) => ({ value, label }))} />
+          </Form.Item>
           {FIELDS.map((f) => (
             <Form.Item key={f.name} name={f.name} label={f.label}
               rules={f.required ? [{ required: true, message: `请填写${f.label}` }] : []}
