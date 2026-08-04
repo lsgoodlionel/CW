@@ -262,6 +262,79 @@ class AddMemberIn(BaseModel):
     position: str = ""
 
 
+# ---------- 审批流程 ----------
+class StepIn(BaseModel):
+    name: str = ""
+    approver_type: str = "employee"   # employee/role/department_head/any
+    approver_employee_id: int | None = None
+    approver_role: str = ""
+
+
+class StepOut(StepIn):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    step_no: int
+    approver_name: str = ""
+
+
+class WorkflowDefIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    biz_type: str = "general"
+    note: str = ""
+    is_active: bool = True
+    steps: list[StepIn] = Field(min_length=1)
+
+
+class WorkflowDefOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    biz_type: str
+    note: str
+    is_active: bool
+    steps: list[StepOut] = []
+
+
+class InstanceSubmit(BaseModel):
+    definition_id: int
+    biz_type: str = "general"
+    biz_id: int | None = None
+    title: str = ""
+    applicant_employee_id: int | None = None
+
+
+class TaskAction(BaseModel):
+    comment: str = ""
+
+
+class TaskOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    instance_id: int
+    step_no: int
+    step_name: str
+    approver_employee_id: int | None
+    approver_name: str = ""
+    result: str
+    comment: str
+    acted_at: datetime | None
+
+
+class InstanceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    definition_id: int
+    biz_type: str
+    biz_id: int | None
+    title: str
+    applicant_employee_id: int | None
+    applicant_name: str = ""
+    status: str
+    current_step_no: int
+    created_at: datetime
+    tasks: list[TaskOut] = []
+
+
 # ---------- 凭证关联 ----------
 RELATION_TYPES = {"advance", "on_account", "write_off", "receivable", "reversal", "other"}
 

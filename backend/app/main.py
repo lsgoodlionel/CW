@@ -10,7 +10,7 @@ from .init_db import init_db
 from .oplog import OperationLogMiddleware
 from .routers import (
     company, accounts, vouchers, attachments, reports, data_io, ledgers, logs,
-    customers, personnel,
+    customers, personnel, workflow,
 )
 
 
@@ -51,3 +51,4 @@ app.include_router(ledgers.router)
 app.include_router(logs.router)
 app.include_router(customers.router)
 app.include_router(personnel.router)
+app.include_router(workflow.router)

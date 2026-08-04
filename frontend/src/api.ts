@@ -128,6 +128,58 @@ export interface Employee {
   created_at: string
 }
 
+export interface WorkflowStep {
+  id?: number
+  step_no?: number
+  name: string
+  approver_type: string
+  approver_employee_id: number | null
+  approver_role: string
+  approver_name?: string
+}
+
+export interface WorkflowDef {
+  id: number
+  name: string
+  biz_type: string
+  note: string
+  is_active: boolean
+  steps: WorkflowStep[]
+}
+
+export interface WorkflowTask {
+  id: number
+  instance_id: number
+  step_no: number
+  step_name: string
+  approver_employee_id: number | null
+  approver_name: string
+  result: string
+  comment: string
+  acted_at: string | null
+}
+
+export interface WorkflowInstance {
+  id: number
+  definition_id: number
+  biz_type: string
+  biz_id: number | null
+  title: string
+  applicant_employee_id: number | null
+  applicant_name: string
+  status: string
+  current_step_no: number
+  created_at: string
+  tasks: WorkflowTask[]
+}
+
+export const APPROVER_TYPE_LABEL: Record<string, string> = {
+  employee: '指定员工', role: '按角色', department_head: '部门负责人', any: '任一管理层',
+}
+export const WF_STATUS_LABEL: Record<string, string> = {
+  pending: '审批中', approved: '已通过', rejected: '已驳回', cancelled: '已撤销',
+}
+
 export interface Customer {
   id: number
   party_type: string

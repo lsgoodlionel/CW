@@ -246,6 +246,85 @@ class Employee(Base):
     )
 
 
+class WorkflowDefinition(Base):
+    """审批流程定义(可复用于报销等业务单据)。"""
+    __tablename__ = "workflow_definitions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), index=True)
+    biz_type: Mapped[str] = mapped_column(String(30), default="general", index=True)  # expense/general...
+    note: Mapped[str] = mapped_column(String(200), default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    steps: Mapped[list["WorkflowStep"]] = relationship(
+        back_populates="definition", cascade="all, delete-orphan",
+        order_by="WorkflowStep.step_no",
+    )
+
+
+class WorkflowStep(Base):
+    """流程步骤:第 N 步由谁审批。"""
+    __tablename__ = "workflow_steps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    definition_id: Mapped[int] = mapped_column(
+        ForeignKey("workflow_definitions.id", ondelete="CASCADE"), index=True
+    )
+    step_no: Mapped[int] = mapped_column(Integer, default=1)
+    name: Mapped[str] = mapped_column(String(60), default="")
+    # employee 指定员工 / role 按角色 / department_head 部门负责人 / any 任意管理层
+    approver_type: Mapped[str] = mapped_column(String(20), default="employee")
+    approver_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("employees.id", ondelete="SET NULL"), nullable=True
+    )
+    approver_role: Mapped[str] = mapped_column(String(20), default="")  # role 时用
+
+    definition: Mapped["WorkflowDefinition"] = relationship(back_populates="steps")
+
+
+class WorkflowInstance(Base):
+    """流程实例:一张业务单据走一次审批。"""
+    __tablename__ = "workflow_instances"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    definition_id: Mapped[int] = mapped_column(ForeignKey("workflow_definitions.id"))
+    biz_type: Mapped[str] = mapped_column(String(30), default="general", index=True)
+    biz_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(200), default="")
+    applicant_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("employees.id", ondelete="SET NULL"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)  # pending/approved/rejected/cancelled
+    current_step_no: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    tasks: Mapped[list["WorkflowTask"]] = relationship(
+        back_populates="instance", cascade="all, delete-orphan",
+        order_by="WorkflowTask.id",
+    )
+
+
+class WorkflowTask(Base):
+    """审批任务/轨迹:某实例某步骤指派给某审批人的处理记录。"""
+    __tablename__ = "workflow_tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    instance_id: Mapped[int] = mapped_column(
+        ForeignKey("workflow_instances.id", ondelete="CASCADE"), index=True
+    )
+    step_no: Mapped[int] = mapped_column(Integer, default=1)
+    step_name: Mapped[str] = mapped_column(String(60), default="")
+    approver_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("employees.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    result: Mapped[str] = mapped_column(String(20), default="pending")  # pending/approved/rejected
+    comment: Mapped[str] = mapped_column(String(300), default="")
+    acted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    instance: Mapped["WorkflowInstance"] = relationship(back_populates="tasks")
+
+
 class EmployeePosition(Base):
     """员工任职:一名员工在某部门担任某角色/职位(支持跨多部门兼职)。"""
     __tablename__ = "employee_positions"

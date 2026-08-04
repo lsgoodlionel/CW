@@ -23,9 +23,9 @@ from .. import models
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-EXPORT_VERSION = 5
-# 1:基础 2:客户/关联 3:二级科目 4:往来类型/人员 5:操作日志/一人多岗
-SUPPORTED_VERSIONS = {1, 2, 3, 4, 5}
+EXPORT_VERSION = 6
+# 1:基础 2:客户/关联 3:二级科目 4:往来类型/人员 5:操作日志/一人多岗 6:审批流程
+SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6}
 
 
 def _company_dict(c: models.CompanyInfo | None) -> dict:
@@ -86,7 +86,7 @@ def export_data(db: Session = Depends(get_db)):
             for u in db.scalars(select(models.OrgUnit).order_by(models.OrgUnit.id)).all()
         ],
         "employees": [
-            {"employee_no": e.employee_no, "name": e.name, "gender": e.gender,
+            {"ref": e.id, "employee_no": e.employee_no, "name": e.name, "gender": e.gender,
              "phone": e.phone, "id_number": e.id_number, "email": e.email,
              "hire_date": e.hire_date, "equity_ratio": str(e.equity_ratio),
              "status": e.status, "note": e.note,
@@ -101,6 +101,30 @@ def export_data(db: Session = Depends(get_db)):
             {"source_ref": link.source_id, "target_ref": link.target_id,
              "relation_type": link.relation_type, "note": link.note}
             for link in links
+        ],
+        "workflow_definitions": [
+            {"ref": d.id, "name": d.name, "biz_type": d.biz_type, "note": d.note,
+             "is_active": d.is_active,
+             "steps": [{"step_no": s.step_no, "name": s.name,
+                        "approver_type": s.approver_type,
+                        "approver_employee_ref": s.approver_employee_id,
+                        "approver_role": s.approver_role} for s in d.steps]}
+            for d in db.scalars(select(models.WorkflowDefinition)
+                                .options(selectinload(models.WorkflowDefinition.steps))).all()
+        ],
+        "workflow_instances": [
+            {"definition_ref": ins.definition_id, "biz_type": ins.biz_type,
+             "biz_id": ins.biz_id, "title": ins.title,
+             "applicant_ref": ins.applicant_employee_id, "status": ins.status,
+             "current_step_no": ins.current_step_no,
+             "created_at": ins.created_at.isoformat() if ins.created_at else None,
+             "tasks": [{"step_no": t.step_no, "step_name": t.step_name,
+                        "approver_ref": t.approver_employee_id, "result": t.result,
+                        "comment": t.comment,
+                        "acted_at": t.acted_at.isoformat() if t.acted_at else None}
+                       for t in ins.tasks]}
+            for ins in db.scalars(select(models.WorkflowInstance)
+                                  .options(selectinload(models.WorkflowInstance.tasks))).all()
         ],
         "operation_logs": [
             {"created_at": lg.created_at.isoformat() if lg.created_at else None,
@@ -212,6 +236,10 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     db.execute(delete(models.SubAccount))
     db.execute(delete(models.Account))
     db.execute(delete(models.Customer))
+    db.execute(delete(models.WorkflowTask))
+    db.execute(delete(models.WorkflowInstance))
+    db.execute(delete(models.WorkflowStep))
+    db.execute(delete(models.WorkflowDefinition))
     db.execute(delete(models.EmployeePosition))
     db.execute(delete(models.Employee))
     db.execute(delete(models.OrgUnit))
@@ -275,12 +303,13 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
         parent = ref_to_unit.get(u.get("parent_ref"))
         if unit is not None and parent is not None:
             unit.parent_id = parent.id
+    ref_to_emp: dict[int, models.Employee] = {}
     for e in payload.get("employees", []):
         positions = e.get("positions")
         # 兼容旧格式(v4 早期无 positions,单部门字段)
         legacy_unit = ref_to_unit.get(e.get("org_unit_ref"))
         data = {k: v for k, v in e.items()
-                if k not in ("positions", "org_unit_ref", "role_type", "position")}
+                if k not in ("ref", "positions", "org_unit_ref", "role_type", "position")}
         data["equity_ratio"] = Decimal(str(data.get("equity_ratio", "0")))
         emp = models.Employee(**data)
         if positions:
@@ -296,6 +325,49 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
                 role_type=e.get("role_type", "staff"),
                 position=e.get("position", ""), sort_no=1))
         db.add(emp)
+        if e.get("ref") is not None:
+            ref_to_emp[e["ref"]] = emp
+    db.flush()
+
+    # 3f. 审批流程(定义 + 步骤 + 实例 + 任务;员工按 ref 映射)
+    ref_to_def: dict[int, models.WorkflowDefinition] = {}
+    for wd in payload.get("workflow_definitions", []):
+        d = models.WorkflowDefinition(
+            name=wd["name"], biz_type=wd.get("biz_type", "general"),
+            note=wd.get("note", ""), is_active=wd.get("is_active", True))
+        for s in wd.get("steps", []):
+            ap = ref_to_emp.get(s.get("approver_employee_ref"))
+            d.steps.append(models.WorkflowStep(
+                step_no=s.get("step_no", 1), name=s.get("name", ""),
+                approver_type=s.get("approver_type", "employee"),
+                approver_employee_id=ap.id if ap else None,
+                approver_role=s.get("approver_role", "")))
+        db.add(d)
+        if wd.get("ref") is not None:
+            ref_to_def[wd["ref"]] = d
+    db.flush()
+    for wi in payload.get("workflow_instances", []):
+        d = ref_to_def.get(wi.get("definition_ref"))
+        if d is None:
+            continue
+        app_emp = ref_to_emp.get(wi.get("applicant_ref"))
+        ts = wi.get("created_at")
+        inst = models.WorkflowInstance(
+            definition_id=d.id, biz_type=wi.get("biz_type", "general"),
+            biz_id=wi.get("biz_id"), title=wi.get("title", ""),
+            applicant_employee_id=app_emp.id if app_emp else None,
+            status=wi.get("status", "pending"),
+            current_step_no=wi.get("current_step_no", 1),
+            created_at=datetime.fromisoformat(ts) if ts else None)
+        for t in wi.get("tasks", []):
+            ap = ref_to_emp.get(t.get("approver_ref"))
+            at = t.get("acted_at")
+            inst.tasks.append(models.WorkflowTask(
+                step_no=t.get("step_no", 1), step_name=t.get("step_name", ""),
+                approver_employee_id=ap.id if ap else None,
+                result=t.get("result", "pending"), comment=t.get("comment", ""),
+                acted_at=datetime.fromisoformat(at) if at else None))
+        db.add(inst)
     db.flush()
 
     # 3e. 操作日志(审计流水)

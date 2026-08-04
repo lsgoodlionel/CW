@@ -9,6 +9,7 @@ import {
   HistoryOutlined,
   TeamOutlined,
   IdcardOutlined,
+  PartitionOutlined,
 } from '@ant-design/icons'
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
@@ -17,6 +18,7 @@ import VoucherEdit from './pages/VoucherEdit'
 import Accounts from './pages/Accounts'
 import Customers from './pages/Customers'
 import Personnel from './pages/Personnel'
+import Workflow from './pages/Workflow'
 import Reports from './pages/Reports'
 import Ledgers from './pages/Ledgers'
 import Logs from './pages/Logs'
@@ -32,6 +34,7 @@ const MENU = [
   { key: '/accounts', icon: <ProfileOutlined />, label: '会计科目' },
   { key: '/ledgers', icon: <BookOutlined />, label: '会计账簿' },
   { key: '/reports', icon: <BarChartOutlined />, label: '财务报表' },
+  { key: '/workflow', icon: <PartitionOutlined />, label: '审批流程' },
   { key: '/logs', icon: <HistoryOutlined />, label: '操作日志' },
   { key: '/settings', icon: <SettingOutlined />, label: '企业信息' },
 ]
@@ -71,6 +74,7 @@ export default function App() {
             <Route path="/accounts" element={<Accounts />} />
             <Route path="/ledgers" element={<Ledgers />} />
             <Route path="/reports" element={<Reports />} />
+            <Route path="/workflow" element={<Workflow />} />
             <Route path="/logs" element={<Logs />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
