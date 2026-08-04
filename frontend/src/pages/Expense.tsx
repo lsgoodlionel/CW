@@ -27,6 +27,7 @@ export default function Expense() {
   const [subMap, setSubMap] = useState<Record<number, { value: string }[]>>({})
   const [categories, setCategories] = useState<string[]>([])
   const [wf, setWf] = useState<ActiveWorkflow | null>(null)
+  const [approverWarn, setApproverWarn] = useState<string | null>(null)
   const [employees, setEmployees] = useState<Employee[]>([])
   const [units, setUnits] = useState<OrgUnit[]>([])
   const [approvedApps, setApprovedApps] = useState<ExpenseApplication[]>([])
@@ -58,6 +59,11 @@ export default function Expense() {
     })
     http.get<{ categories: string[] }>('/expense/meta').then((r) => setCategories(r.data.categories || []))
     http.get<ActiveWorkflow>('/expense/active-workflow').then((r) => setWf(r.data))
+    http.get<{ has_management: boolean; problems: { biz_type: string }[] }>('/workflow/approver-check')
+      .then((r) => {
+        if (!r.data.has_management) setApproverWarn('系统尚未设置「管理层」审批人,提交后可能无人可审批。请到人员管理给员工添加「管理层」职位。')
+        else if (r.data.problems.some((p) => p.biz_type === 'expense')) setApproverWarn('费用报销流程存在未匹配到审批人的步骤,请到审批流程页检查。')
+      })
     http.get<Employee[]>('/personnel/employees').then((r) => setEmployees(r.data))
     http.get<OrgUnit[]>('/personnel/org-units').then((r) => setUnits(r.data))
     http.get<ExpenseApplication[]>('/expense-apply/approved').then((r) => setApprovedApps(r.data))
@@ -150,6 +156,8 @@ export default function Expense() {
             ? <span>提交后将走审批流程「{wf.name}」:{(wf.steps || []).map((s) => `${s.step_no}.${s.name}(${APPROVER_TYPE_LABEL[s.approver_type] || s.approver_type})`).join(' → ')}
               <a style={{ marginLeft: 8 }} onClick={() => navigate('/workflow')}>查看/修改</a></span>
             : <span>尚未配置「费用报销」审批流程,提交时将报错。请先到<a onClick={() => navigate('/workflow')}>审批流程</a>页新建。</span>} />
+        {approverWarn && <Alert type="warning" showIcon style={{ marginBottom: 12 }}
+          message={<span>{approverWarn} <a onClick={() => navigate('/personnel')}>去人员管理</a></span>} />}
         <Form form={form} layout="vertical">
           <Form.Item name="application_id" label="关联费用申请(事前审批)"
             extra="选择已通过的费用申请可自动带出事由与明细,并在生成凭证时同步其附件">

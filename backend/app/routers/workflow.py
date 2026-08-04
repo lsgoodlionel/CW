@@ -1,6 +1,6 @@
 """审批流程 API:流程定义设计、发起实例、审批待办。"""
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
@@ -225,3 +225,32 @@ def _act(task_id: int, approve: bool, comment: str, db: Session) -> schemas.Inst
 @router.get("/meta")
 def workflow_meta():
     return {"approver_types": APPROVER_TYPES, "biz_types": BIZ_TYPES, "status": STATUS_LABEL}
+
+
+@router.get("/approver-check")
+def approver_check(db: Session = Depends(get_db)):
+    """审批人就绪自检:是否有『管理层』员工、启用流程里哪些步骤解析不到审批人。"""
+    mgmt_count = db.scalar(
+        select(func.count(func.distinct(models.EmployeePosition.employee_id)))
+        .where(models.EmployeePosition.role_type == "management")) or 0
+    names = _emp_names(db)
+    defs = db.scalars(
+        select(models.WorkflowDefinition)
+        .where(models.WorkflowDefinition.is_active.is_(True))
+        .order_by(models.WorkflowDefinition.id)
+        .options(selectinload(models.WorkflowDefinition.steps))).all()
+    problems: list[dict] = []
+    for d in defs:
+        missing = []
+        for s in d.steps:
+            approver_id = workflow_svc.resolve_approver(db, s, None)
+            if not approver_id or approver_id not in names:
+                missing.append({"step_no": s.step_no, "name": s.name or f"第{s.step_no}步",
+                                "approver_type": s.approver_type,
+                                "approver_type_label": APPROVER_TYPES.get(s.approver_type, s.approver_type)})
+        if missing:
+            problems.append({"id": d.id, "name": d.name, "biz_type": d.biz_type,
+                             "biz_type_label": BIZ_TYPES.get(d.biz_type, d.biz_type),
+                             "missing_steps": missing})
+    return {"management_count": mgmt_count, "has_management": mgmt_count > 0,
+            "ready": not problems, "problems": problems}

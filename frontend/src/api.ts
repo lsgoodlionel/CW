@@ -223,6 +223,16 @@ export interface WorkflowInstance {
   steps: InstanceStep[]
 }
 
+export interface ApproverCheck {
+  management_count: number
+  has_management: boolean
+  ready: boolean
+  problems: {
+    id: number; name: string; biz_type: string; biz_type_label: string
+    missing_steps: { step_no: number; name: string; approver_type: string; approver_type_label: string }[]
+  }[]
+}
+
 export const STEP_STATE_LABEL: Record<string, string> = {
   approved: '已通过', rejected: '已驳回', current: '审批中', upcoming: '待审批', skipped: '未进行',
 }

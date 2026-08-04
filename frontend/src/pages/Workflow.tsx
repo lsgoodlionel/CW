@@ -5,7 +5,7 @@ import {
 } from 'antd'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import {
-  http, WorkflowDef, WorkflowInstance, Employee, ROLE_LABEL,
+  http, WorkflowDef, WorkflowInstance, Employee, ROLE_LABEL, ApproverCheck,
   APPROVER_TYPE_LABEL, WF_STATUS_LABEL, STEP_STATE_LABEL, STEP_STATE_COLOR,
 } from '../api'
 
@@ -17,9 +17,11 @@ const BIZ_LABEL: Record<string, string> = { general: '通用', expense_apply: '�
 export default function Workflow() {
   const [defs, setDefs] = useState<WorkflowDef[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
+  const [check, setCheck] = useState<ApproverCheck | null>(null)
 
   const loadDefs = useCallback(() => {
     http.get<WorkflowDef[]>('/workflow/definitions').then((r) => setDefs(r.data))
+    http.get<ApproverCheck>('/workflow/approver-check').then((r) => setCheck(r.data))
   }, [])
   useEffect(() => {
     loadDefs()
@@ -28,6 +30,27 @@ export default function Workflow() {
 
   return (
     <Card>
+      {check && !check.ready && (
+        <Alert type="warning" showIcon style={{ marginBottom: 12 }}
+          message={check.has_management ? '部分流程步骤未匹配到审批人' : '尚未设置任何「管理层」审批人'}
+          description={
+            <div>
+              {!check.has_management && (
+                <p style={{ marginBottom: 6 }}>
+                  预置的「费用申请/费用报销」流程按<b>部门负责人 / 任一管理层</b>自动找审批人。
+                  请到<b>人员管理</b>给至少一名员工添加<b>「管理层」</b>职位,否则提交的单据将<b>无人可审批</b>。
+                </p>
+              )}
+              {check.problems.map((p) => (
+                <div key={p.id}>
+                  流程「{p.name}」({p.biz_type_label}):
+                  {p.missing_steps.map((s) => `第${s.step_no}步「${s.name}」(${s.approver_type_label})`).join('、')}
+                  {' '}未匹配到审批人 — 请在流程设计里指定具体审批人,或到人员管理补充对应职位/员工。
+                </div>
+              ))}
+            </div>
+          } />
+      )}
       <Tabs items={[
         { key: 'design', label: '流程设计', children: <Design defs={defs} employees={employees} reload={loadDefs} /> },
         { key: 'center', label: '审批中心', children: <ApprovalCenter defs={defs} employees={employees} /> },

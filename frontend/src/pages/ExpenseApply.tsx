@@ -25,6 +25,7 @@ export default function ExpenseApply() {
   const [subMap, setSubMap] = useState<Record<number, { value: string }[]>>({})
   const [categories, setCategories] = useState<string[]>([])
   const [wf, setWf] = useState<ActiveWorkflow | null>(null)
+  const [approverWarn, setApproverWarn] = useState<string | null>(null)
   const [employees, setEmployees] = useState<Employee[]>([])
   const [units, setUnits] = useState<OrgUnit[]>([])
   const [statusFilter, setStatusFilter] = useState('all')
@@ -55,6 +56,11 @@ export default function ExpenseApply() {
     })
     http.get<{ categories: string[] }>('/expense-apply/meta').then((r) => setCategories(r.data.categories || []))
     http.get<ActiveWorkflow>('/expense-apply/active-workflow').then((r) => setWf(r.data))
+    http.get<{ has_management: boolean; problems: { biz_type: string }[] }>('/workflow/approver-check')
+      .then((r) => {
+        if (!r.data.has_management) setApproverWarn('系统尚未设置「管理层」审批人,提交后可能无人可审批。请到人员管理给员工添加「管理层」职位。')
+        else if (r.data.problems.some((p) => p.biz_type === 'expense_apply')) setApproverWarn('费用申请流程存在未匹配到审批人的步骤,请到审批流程页检查。')
+      })
     http.get<Employee[]>('/personnel/employees').then((r) => setEmployees(r.data))
     http.get<OrgUnit[]>('/personnel/org-units').then((r) => setUnits(r.data))
   }, [])
@@ -146,6 +152,7 @@ export default function ExpenseApply() {
           message={wf?.exists
             ? <span>提交后将走事前审批流程「{wf.name}」:{(wf.steps || []).map((s) => `${s.step_no}.${s.name}`).join(' → ')}</span>
             : <span>尚未配置「费用申请」审批流程,提交时将报错。请先到审批流程页新建。</span>} />
+        {approverWarn && <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={approverWarn} />}
         <Form form={form} layout="vertical">
           <Space wrap>
             <Form.Item name="applicant_employee_id" label="申请人">
