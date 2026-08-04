@@ -55,6 +55,7 @@ def export_data(db: Session = Depends(get_db)):
     links = db.scalars(select(models.VoucherLink)).all()
     subs = db.scalars(select(models.SubAccount).order_by(models.SubAccount.code)).all()
     acc_code = {a.id: a.code for a in accounts}
+    role_names = {r.id: r.name for r in db.scalars(select(models.Role)).all()}
 
     payload = {
         "version": EXPORT_VERSION,
@@ -151,6 +152,11 @@ def export_data(db: Session = Depends(get_db)):
              "is_super_admin": u.is_super_admin, "is_active": u.is_active,
              "role_names": [r.name for r in u.roles]}
             for u in db.scalars(select(models.User)).all()
+        ],
+        "auth_presets": [
+            {"org_unit_ref": p.org_unit_id, "emp_role_type": p.emp_role_type,
+             "role_name": role_names.get(p.role_id, ""), "note": p.note}
+            for p in db.scalars(select(models.AuthPreset)).all()
         ],
         "operation_logs": [
             {"created_at": lg.created_at.isoformat() if lg.created_at else None,
@@ -272,6 +278,7 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     db.execute(delete(models.Employee))
     db.execute(delete(models.OrgUnit))
     db.execute(delete(models.OperationLog))
+    db.execute(delete(models.AuthPreset))
     db.execute(delete(models.UserRole))
     db.execute(delete(models.RolePermission))
     db.execute(delete(models.User))
@@ -429,6 +436,15 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
             role = name_to_role.get(rn)
             if role:
                 db.add(models.UserRole(user_id=user.id, role_id=role.id))
+    for pr in payload.get("auth_presets", []):
+        role = name_to_role.get(pr.get("role_name"))
+        if role is None:
+            continue
+        unit = ref_to_unit.get(pr.get("org_unit_ref"))
+        db.add(models.AuthPreset(
+            org_unit_id=unit.id if unit else None,
+            emp_role_type=pr.get("emp_role_type", ""), role_id=role.id,
+            note=pr.get("note", "")))
     db.flush()
 
     # 3f. 操作日志(审计流水)

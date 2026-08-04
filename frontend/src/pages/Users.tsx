@@ -3,8 +3,8 @@ import {
   Card, Tabs, Table, Tag, Button, Space, Modal, Form, Input, Select, Popconfirm,
   message, Checkbox, Switch,
 } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
-import { http, Employee } from '../api'
+import { PlusOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { http, Employee, OrgUnit, ROLE_LABEL } from '../api'
 
 interface Role { id: number; name: string; note: string; is_system: boolean; perms: string[] }
 interface UserRow {
@@ -20,6 +20,7 @@ export default function Users() {
       <Tabs items={[
         { key: 'users', label: '用户管理', children: <UserTab /> },
         { key: 'roles', label: '角色与权限', children: <RoleTab /> },
+        { key: 'presets', label: '授权预设', children: <PresetTab /> },
       ]} />
     </Card>
   )
@@ -98,7 +99,18 @@ function UserTab() {
             <Select allowClear showSearch optionFilterProp="label"
               options={employees.map((e) => ({ value: e.id, label: e.name }))} />
           </Form.Item>
-          <Form.Item name="role_ids" label="角色(可多选)">
+          <Form.Item name="role_ids" label={
+            <Space>角色(可多选)
+              <Button size="small" type="link" icon={<ThunderboltOutlined />}
+                onClick={async () => {
+                  const empId = form.getFieldValue('employee_id')
+                  if (!empId) return message.warning('请先选择关联员工')
+                  const r = await http.get(`/auth-presets/resolve`, { params: { employee_id: empId } })
+                  form.setFieldValue('role_ids', r.data.role_ids)
+                  message.success('已按该员工的部门+职位预设填充角色')
+                }}>按部门角色预设填充</Button>
+            </Space>
+          }>
             <Select mode="multiple" options={roles.map((r) => ({ value: r.id, label: r.name }))} />
           </Form.Item>
           {editing && <Form.Item name="is_active" label="启用" valuePropName="checked"><Switch /></Form.Item>}
@@ -202,6 +214,92 @@ function RoleTab() {
             </div>
           )
         })}
+      </Modal>
+    </>
+  )
+}
+
+interface Preset {
+  id: number; org_unit_id: number | null; org_unit_name: string
+  emp_role_type: string; emp_role_label: string; role_id: number; role_name: string; note: string
+}
+
+function PresetTab() {
+  const [presets, setPresets] = useState<Preset[]>([])
+  const [roles, setRoles] = useState<Role[]>([])
+  const [units, setUnits] = useState<OrgUnit[]>([])
+  const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState<Preset | null>(null)
+  const [form] = Form.useForm()
+
+  const load = useCallback(() => {
+    http.get<Preset[]>('/auth-presets').then((r) => setPresets(r.data))
+    http.get<Role[]>('/roles').then((r) => setRoles(r.data))
+    http.get<OrgUnit[]>('/personnel/org-units').then((r) => setUnits(r.data))
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const openEdit = (p: Preset | null) => {
+    setEditing(p); form.resetFields()
+    if (p) form.setFieldsValue(p)
+    setOpen(true)
+  }
+  const save = async () => {
+    const v = await form.validateFields()
+    if (editing) await http.put(`/auth-presets/${editing.id}`, v)
+    else await http.post('/auth-presets', v)
+    message.success('已保存'); setOpen(false); load()
+  }
+  const remove = (id: number) =>
+    http.delete(`/auth-presets/${id}`).then(() => { message.success('已删除'); load() })
+  const apply = () =>
+    http.post('/auth-presets/apply').then((r) => {
+      message.success(`已按预设更新 ${r.data.updated} / ${r.data.total} 个用户的角色`)
+    })
+
+  const roleTypeOpts = [{ value: '', label: '全部职位' },
+    ...Object.entries(ROLE_LABEL).map(([value, label]) => ({ value, label }))]
+
+  return (
+    <>
+      <Space style={{ marginBottom: 12 }}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit(null)}>新建预设</Button>
+        <Popconfirm title="将按预设覆盖所有关联员工用户的角色,确认?" onConfirm={apply}>
+          <Button icon={<ThunderboltOutlined />}>批量应用到用户</Button>
+        </Popconfirm>
+      </Space>
+      <p style={{ color: '#888' }}>规则:员工在「部门 + 职位角色」满足条件时,自动授予对应系统角色。新建用户关联员工后可一键按预设填充。</p>
+      <Table rowKey="id" size="small" pagination={false} dataSource={presets}
+        columns={[
+          { title: '部门', dataIndex: 'org_unit_name', render: (v: string) => <Tag>{v}</Tag> },
+          { title: '员工职位角色', dataIndex: 'emp_role_label', render: (v: string) => <Tag color="blue">{v}</Tag> },
+          { title: '授予系统角色', dataIndex: 'role_name', render: (v: string) => <Tag color="green">{v}</Tag> },
+          { title: '说明', dataIndex: 'note', ellipsis: true, render: (v: string) => v || '-' },
+          {
+            title: '操作', width: 110, render: (_: unknown, r: Preset) => (
+              <Space>
+                <a onClick={() => openEdit(r)}>编辑</a>
+                <Popconfirm title="删除该预设?" onConfirm={() => remove(r.id)}>
+                  <a style={{ color: '#cf1322' }}>删除</a>
+                </Popconfirm>
+              </Space>
+            ),
+          },
+        ]} />
+
+      <Modal title={editing ? '编辑授权预设' : '新建授权预设'} open={open} onOk={save} onCancel={() => setOpen(false)} okText="保存">
+        <Form form={form} layout="vertical">
+          <Form.Item name="org_unit_id" label="部门(留空=全部部门)">
+            <Select allowClear options={units.map((u) => ({ value: u.id, label: u.name }))} />
+          </Form.Item>
+          <Form.Item name="emp_role_type" label="员工职位角色" initialValue="">
+            <Select options={roleTypeOpts} />
+          </Form.Item>
+          <Form.Item name="role_id" label="授予系统角色" rules={[{ required: true }]}>
+            <Select options={roles.map((r) => ({ value: r.id, label: r.name }))} />
+          </Form.Item>
+          <Form.Item name="note" label="说明"><Input /></Form.Item>
+        </Form>
       </Modal>
     </>
   )

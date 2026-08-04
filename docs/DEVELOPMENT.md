@@ -193,6 +193,7 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 - 内置超管 `admin`(首次启动创建),拥有全部权限(`permissions=['*']`,中间件直接放行)。
 - 可创建**子管理员**:给用户勾选 `user` 模块权限或授予超管标志(仅超管可授予/取消超管;至少保留一个超管;内置 admin 不可删除)。
 - 角色×权限矩阵 + 用户×角色 分配即「单一/批量权限管理」。
+- **授权预设(按部门+职位)**:`auth_presets`(部门×员工职位角色 → 系统角色)。用户关联员工后可「按部门角色预设填充」角色,或「批量应用」把所有关联员工的用户角色按预设覆盖。API `/api/auth-presets`(CRUD + `/resolve` + `/apply`);备份纳入。
 
 ## 8. 关键设计决策与已知限制
 

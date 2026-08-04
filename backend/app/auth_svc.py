@@ -82,7 +82,7 @@ def catalog() -> list[dict]:
 
 # ---------- 路径 → 所需权限 ----------
 _PREFIX_MODULE = [
-    ("/api/users", "user"), ("/api/roles", "user"),
+    ("/api/users", "user"), ("/api/roles", "user"), ("/api/auth-presets", "user"),
     ("/api/vouchers", "voucher"), ("/api/attachments", "voucher"),
     ("/api/accounts", "account"), ("/api/customers", "customer"),
     ("/api/personnel", "personnel"), ("/api/workflow", "workflow"),

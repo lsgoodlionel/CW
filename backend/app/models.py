@@ -290,6 +290,21 @@ class RolePermission(Base):
     perm: Mapped[str] = mapped_column(String(50))
 
 
+class AuthPreset(Base):
+    """授权预设:某部门 + 某员工角色 → 授予某系统角色。用于按部门/职位预设权限。"""
+    __tablename__ = "auth_presets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_unit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("org_units.id", ondelete="CASCADE"), nullable=True, index=True
+    )  # 空 = 任意部门
+    emp_role_type: Mapped[str] = mapped_column(String(20), default="")  # 空 = 任意职位角色
+    role_id: Mapped[int] = mapped_column(
+        ForeignKey("roles.id", ondelete="CASCADE"), index=True
+    )
+    note: Mapped[str] = mapped_column(String(200), default="")
+
+
 class UserRole(Base):
     __tablename__ = "user_roles"
 
