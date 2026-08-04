@@ -12,7 +12,7 @@ import {
 const STATUS_COLOR: Record<string, string> = {
   pending: 'processing', approved: 'success', rejected: 'error', cancelled: 'default',
 }
-const BIZ_LABEL: Record<string, string> = { general: '通用', expense: '费用报销' }
+const BIZ_LABEL: Record<string, string> = { general: '通用', expense_apply: '费用申请', expense: '费用报销' }
 
 export default function Workflow() {
   const [defs, setDefs] = useState<WorkflowDef[]>([])

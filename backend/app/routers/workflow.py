@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api/workflow", tags=["workflow"])
 APPROVER_TYPES = {
     "employee": "指定员工", "role": "按角色", "department_head": "部门负责人", "any": "任一管理层",
 }
-BIZ_TYPES = {"general": "通用", "expense": "费用报销"}
+BIZ_TYPES = {"general": "通用", "expense_apply": "费用申请", "expense": "费用报销"}
 STATUS_LABEL = {"pending": "审批中", "approved": "已通过", "rejected": "已驳回", "cancelled": "已撤销"}
 
 
