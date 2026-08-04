@@ -318,7 +318,13 @@ export const APPLY_TYPE_LABEL: Record<string, string> = {
 
 export const ATTACH_KIND_LABEL: Record<string, string> = {
   invoice: '发票', receipt: '回单', contract: '合同', tax_payment: '完税证明',
-  approval: '审批记录', other: '其他',
+  approval: '费用审批记录', other: '其他',
+}
+
+// 附件预览/下载 URL(带令牌,供浏览器直接加载 img/iframe/a)
+export function fileUrl(attachmentId: number, mode: 'preview' | 'download'): string {
+  const t = getToken()
+  return `/api/attachments/${attachmentId}/${mode}${t ? `?token=${encodeURIComponent(t)}` : ''}`
 }
 
 export const APPROVER_TYPE_LABEL: Record<string, string> = {
@@ -372,6 +378,7 @@ export const ATTACHMENT_KIND_LABEL: Record<string, string> = {
   receipt: '银行回单',
   contract: '合同',
   tax_payment: '完税证明',
+  approval: '费用审批记录',
   other: '其他',
 }
 

@@ -1,7 +1,7 @@
 import { Upload, Button, Select, Space, Tag, Progress, message } from 'antd'
 import { UploadOutlined, PaperClipOutlined } from '@ant-design/icons'
 import { useState } from 'react'
-import { http, Attachment, ATTACH_KIND_LABEL } from '../api'
+import { http, Attachment, ATTACH_KIND_LABEL, fileUrl } from '../api'
 
 interface InFlight { uid: string; name: string; percent: number; error?: boolean }
 
@@ -82,7 +82,7 @@ export default function AttachmentEditor({
         {existing.map((a) => (
           <Tag key={a.id} icon={<PaperClipOutlined />} color="blue" closable={canEdit}
             onClose={(e) => { e.preventDefault(); remove(a.id) }}>
-            <a href={`/api/attachments/${a.id}/preview`} target="_blank" rel="noreferrer">
+            <a href={fileUrl(a.id, 'preview')} target="_blank" rel="noreferrer">
               {ATTACH_KIND_LABEL[a.kind] || a.kind}·{a.original_name}
             </a>
           </Tag>

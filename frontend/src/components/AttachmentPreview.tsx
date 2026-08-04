@@ -1,6 +1,6 @@
 import { Modal, Empty, Button } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
-import { Attachment } from '../api'
+import { Attachment, fileUrl } from '../api'
 
 interface Props {
   attachment: Attachment | null
@@ -14,8 +14,8 @@ const isText = (mime: string) => mime.startsWith('text/')
 
 export default function AttachmentPreview({ attachment, open, onClose }: Props) {
   if (!attachment) return null
-  const src = `/api/attachments/${attachment.id}/preview`
-  const downloadUrl = `/api/attachments/${attachment.id}/download`
+  const src = fileUrl(attachment.id, 'preview')
+  const downloadUrl = fileUrl(attachment.id, 'download')
   const mime = attachment.mime_type || ''
 
   const renderBody = () => {

@@ -13,9 +13,15 @@ _OPEN = {"/api/health", "/api/auth/login"}
 
 def _resolve_user(request: Request):
     auth = request.headers.get("authorization", "")
-    if not auth.lower().startswith("bearer "):
+    if auth.lower().startswith("bearer "):
+        raw = auth[7:].strip()
+    else:
+        # 附件预览/下载等由浏览器直接发起(img/iframe/a),无法带 Authorization 头,
+        # 允许通过 ?token= 传令牌;令牌仍经同一校验。
+        raw = request.query_params.get("token", "")
+    if not raw:
         return None
-    uid = auth_svc.parse_token(auth[7:].strip())
+    uid = auth_svc.parse_token(raw)
     if uid is None:
         return None
     db = SessionLocal()

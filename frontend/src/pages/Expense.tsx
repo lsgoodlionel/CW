@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   http, ExpenseClaim, ExpenseApplication, Attachment, AccountTreeNode, Employee, OrgUnit,
   APPROVER_TYPE_LABEL, EXPENSE_STATUS_LABEL, APPLY_TYPE_LABEL,
-  STEP_STATE_LABEL, STEP_STATE_COLOR,
+  STEP_STATE_LABEL, STEP_STATE_COLOR, fileUrl,
 } from '../api'
 import AttachmentEditor from '../components/AttachmentEditor'
 
@@ -279,7 +279,7 @@ export default function Expense() {
                 <Divider orientation="left" plain>相关附件(含从费用申请同步)</Divider>
                 <Space wrap>
                   {detail.attachments.map((a) => (
-                    <a key={a.id} href={`/api/attachments/${a.id}/preview`} target="_blank" rel="noreferrer">
+                    <a key={a.id} href={fileUrl(a.id, 'preview')} target="_blank" rel="noreferrer">
                       <Tag>{a.original_name}</Tag>
                     </a>
                   ))}

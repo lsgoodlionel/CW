@@ -7,7 +7,7 @@ import { PlusOutlined } from '@ant-design/icons'
 import {
   http, WorkflowDef, WorkflowInstance, Employee, AuthUser, ExpenseClaim, ExpenseApplication,
   WF_STATUS_LABEL, STEP_STATE_LABEL, STEP_STATE_COLOR, ATTACH_KIND_LABEL, APPLY_TYPE_LABEL,
-  hasPerm,
+  hasPerm, fileUrl,
 } from '../api'
 
 const STATUS_COLOR: Record<string, string> = {
@@ -267,7 +267,7 @@ function BizContent({ doc }: { doc: NonNullable<BizDoc> }) {
       <div style={{ marginTop: 8 }}>
         <span style={{ color: '#666' }}>附件:</span>
         {attachments.length ? attachments.map((a) => (
-          <a key={a.id} href={`/api/attachments/${a.id}/preview`} target="_blank" rel="noreferrer" style={{ marginLeft: 6 }}>
+          <a key={a.id} href={fileUrl(a.id, 'preview')} target="_blank" rel="noreferrer" style={{ marginLeft: 6 }}>
             <Tag color="blue">{ATTACH_KIND_LABEL[a.kind] || a.kind}·{a.original_name}</Tag>
           </a>
         )) : <span style={{ color: '#bbb' }}>无</span>}
