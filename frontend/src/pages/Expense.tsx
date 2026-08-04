@@ -10,7 +10,7 @@ import {
   APPROVER_TYPE_LABEL, EXPENSE_STATUS_LABEL, APPLY_TYPE_LABEL,
   STEP_STATE_LABEL, STEP_STATE_COLOR,
 } from '../api'
-import AttachmentEditor, { StagedFile, uploadStaged } from '../components/AttachmentEditor'
+import AttachmentEditor from '../components/AttachmentEditor'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'default', pending: 'processing', approved: 'success', rejected: 'error', paid: 'gold',
@@ -39,7 +39,7 @@ export default function Expense() {
   const [editing, setEditing] = useState<ExpenseClaim | null>(null)
   const [form] = Form.useForm()
   const [detail, setDetail] = useState<ExpenseClaim | null>(null)
-  const [staged, setStaged] = useState<StagedFile[]>([])
+  const [draftId, setDraftId] = useState<number | null>(null)
   const [existingAtt, setExistingAtt] = useState<Attachment[]>([])
 
   const load = useCallback(() => {
@@ -90,26 +90,29 @@ export default function Expense() {
   }
 
   const openEdit = (c: ExpenseClaim | null) => {
-    setEditing(c); form.resetFields(); setStaged([])
+    setEditing(c); form.resetFields(); setDraftId(null)
     setExistingAtt(c ? c.attachments : [])
     if (c) form.setFieldsValue({ ...c, items: c.items })
     else form.setFieldsValue({ items: [{ amount: 0 }] })
     setOpen(true)
   }
+  // 上传附件前确保报销单已落库(新建则先建草稿),返回单据 id
+  const ensureOwner = async (): Promise<number | null> => {
+    if (editing) return editing.id
+    if (draftId) return draftId
+    try {
+      const v = await form.validateFields()
+      const r = await http.post<ExpenseClaim>('/expense/claims', v)
+      setDraftId(r.data.id); load(); return r.data.id
+    } catch { return null }
+  }
   const save = async () => {
     const v = await form.validateFields()
-    const r = editing
-      ? await http.put<ExpenseClaim>(`/expense/claims/${editing.id}`, v)
-      : await http.post<ExpenseClaim>('/expense/claims', v)
-    if (staged.length) {
-      await uploadStaged(http, '/expense/claims', r.data.id, staged)
-    }
+    const id = editing?.id ?? draftId
+    if (id) await http.put(`/expense/claims/${id}`, v)
+    else await http.post('/expense/claims', v)
     message.success('已保存'); setOpen(false); load()
   }
-  const deleteExisting = (aid: number) =>
-    http.delete(`/attachments/${aid}`).then(() => {
-      setExistingAtt((prev) => prev.filter((a) => a.id !== aid)); message.success('附件已删除')
-    })
   const submit = (id: number) =>
     http.post(`/expense/claims/${id}/submit`).then(() => { message.success('已提交审批'); load() })
   const remove = (id: number) =>
@@ -237,8 +240,8 @@ export default function Expense() {
             )}
           </Form.List>
           <Divider orientation="left" plain>报销附件(发票/回单等,生成凭证时自动同步)</Divider>
-          <AttachmentEditor existing={existingAtt} staged={staged} onStagedChange={setStaged}
-            onDeleteExisting={editing ? deleteExisting : undefined} defaultKind="invoice" />
+          <AttachmentEditor ownerId={editing?.id ?? draftId} basePath="/expense/claims"
+            ensureOwner={ensureOwner} existing={existingAtt} onChange={setExistingAtt} defaultKind="invoice" />
         </Form>
       </Modal>
 

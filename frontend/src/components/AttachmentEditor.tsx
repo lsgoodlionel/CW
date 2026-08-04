@@ -1,81 +1,91 @@
-import { Upload, Button, Select, Space, Tag } from 'antd'
-import { UploadOutlined, DeleteOutlined, PaperClipOutlined } from '@ant-design/icons'
+import { Upload, Button, Select, Space, Tag, Progress, message } from 'antd'
+import { UploadOutlined, PaperClipOutlined } from '@ant-design/icons'
 import { useState } from 'react'
-import { Attachment, ATTACH_KIND_LABEL } from '../api'
+import { http, Attachment, ATTACH_KIND_LABEL } from '../api'
 
-export interface StagedFile {
-  uid: string
-  file: File
-  kind: string
-}
+interface InFlight { uid: string; name: string; percent: number; error?: boolean }
 
 interface Props {
+  /** 已存在的单据 id;新建时为 null,配合 ensureOwner 先建草稿再上传 */
+  ownerId: number | null
+  /** 附件端点前缀,如 '/expense-apply' 或 '/expense/claims' */
+  basePath: string
+  /** 新建场景:确保单据已落库并返回 id(校验/创建草稿);返回 null 表示暂不能上传 */
+  ensureOwner?: () => Promise<number | null>
   existing: Attachment[]
-  staged: StagedFile[]
-  onStagedChange: (s: StagedFile[]) => void
-  onDeleteExisting?: (id: number) => void
+  onChange: (atts: Attachment[]) => void
+  canEdit?: boolean
   defaultKind?: string
 }
 
-/** 单据附件编辑器:支持"新建时暂存、保存后上传"以及已存在附件的预览/删除。 */
+/** 单据附件:选择后立即上传并显示进度,与保存动作解耦。 */
 export default function AttachmentEditor({
-  existing, staged, onStagedChange, onDeleteExisting, defaultKind = 'invoice',
+  ownerId, basePath, ensureOwner, existing, onChange, canEdit = true, defaultKind = 'invoice',
 }: Props) {
   const [kind, setKind] = useState(defaultKind)
+  const [flights, setFlights] = useState<InFlight[]>([])
   const kindOpts = Object.entries(ATTACH_KIND_LABEL).map(([value, label]) => ({ value, label }))
 
-  const stageFile = (file: File) => {
-    onStagedChange([...staged, { uid: `${Date.now()}-${file.name}`, file, kind }])
-    return false // 阻止 antd 自动上传,改为保存时统一上传
+  const doUpload = async (file: File) => {
+    let id = ownerId
+    if (!id && ensureOwner) id = await ensureOwner()
+    if (!id) { message.warning('请先填写单据必填项(如明细),再上传附件'); return }
+
+    const uid = `${Date.now()}-${file.name}`
+    setFlights((f) => [...f, { uid, name: file.name, percent: 0 }])
+    const fd = new FormData()
+    fd.append('file', file); fd.append('kind', kind)
+    try {
+      const r = await http.post<Attachment>(`${basePath}/${id}/attachments`, fd, {
+        onUploadProgress: (e) => {
+          const percent = e.total ? Math.round((e.loaded / e.total) * 100) : 0
+          setFlights((fs) => fs.map((x) => (x.uid === uid ? { ...x, percent } : x)))
+        },
+      })
+      setFlights((fs) => fs.filter((x) => x.uid !== uid))
+      onChange([...existing, r.data])
+      message.success('附件已上传')
+    } catch {
+      setFlights((fs) => fs.map((x) => (x.uid === uid ? { ...x, error: true } : x)))
+      message.error('上传失败')
+    }
   }
-  const removeStaged = (uid: string) => onStagedChange(staged.filter((s) => s.uid !== uid))
+
+  const remove = (aid: number) =>
+    http.delete(`/attachments/${aid}`).then(() => {
+      onChange(existing.filter((a) => a.id !== aid)); message.success('附件已删除')
+    })
 
   return (
     <div>
       <Space wrap style={{ marginBottom: 8 }}>
         <span>附件类型</span>
         <Select value={kind} style={{ width: 130 }} onChange={setKind} options={kindOpts} />
-        <Upload showUploadList={false} beforeUpload={stageFile} multiple>
-          <Button icon={<UploadOutlined />}>选择附件</Button>
+        <Upload showUploadList={false} multiple beforeUpload={(f) => { doUpload(f as File); return false }}>
+          <Button icon={<UploadOutlined />}>上传附件</Button>
         </Upload>
-        <span style={{ color: '#999' }}>(保存单据时一并上传)</span>
+        <span style={{ color: '#999' }}>选择后立即上传并显示进度</span>
       </Space>
 
-      {(existing.length > 0 || staged.length > 0) && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {existing.map((a) => (
-            <Tag key={`e${a.id}`} icon={<PaperClipOutlined />} color="blue"
-              closable={Boolean(onDeleteExisting)}
-              onClose={(e) => { e.preventDefault(); onDeleteExisting?.(a.id) }}>
-              <a href={`/api/attachments/${a.id}/preview`} target="_blank" rel="noreferrer">
-                {ATTACH_KIND_LABEL[a.kind] || a.kind}·{a.original_name}
-              </a>
-            </Tag>
-          ))}
-          {staged.map((s) => (
-            <Tag key={s.uid} color="orange">
-              待上传·{ATTACH_KIND_LABEL[s.kind] || s.kind}·{s.file.name}
-              <DeleteOutlined style={{ marginLeft: 6, cursor: 'pointer' }} onClick={() => removeStaged(s.uid)} />
-            </Tag>
-          ))}
+      {flights.map((f) => (
+        <div key={f.uid} style={{ maxWidth: 380, marginBottom: 4 }}>
+          <span style={{ fontSize: 12, color: '#666' }}>{f.name}</span>
+          <Progress percent={f.percent} size="small"
+            status={f.error ? 'exception' : f.percent < 100 ? 'active' : 'success'} />
         </div>
-      )}
-      {existing.length === 0 && staged.length === 0 && (
-        <span style={{ color: '#bbb' }}>暂无附件</span>
-      )}
+      ))}
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+        {existing.map((a) => (
+          <Tag key={a.id} icon={<PaperClipOutlined />} color="blue" closable={canEdit}
+            onClose={(e) => { e.preventDefault(); remove(a.id) }}>
+            <a href={`/api/attachments/${a.id}/preview`} target="_blank" rel="noreferrer">
+              {ATTACH_KIND_LABEL[a.kind] || a.kind}·{a.original_name}
+            </a>
+          </Tag>
+        ))}
+        {existing.length === 0 && flights.length === 0 && <span style={{ color: '#bbb' }}>暂无附件</span>}
+      </div>
     </div>
   )
-}
-
-/** 保存单据后,把暂存文件逐个上传到 `${basePath}/${id}/attachments`。 */
-export async function uploadStaged(
-  http: { post: (url: string, data: FormData) => Promise<unknown> },
-  basePath: string, id: number, staged: StagedFile[],
-): Promise<void> {
-  for (const s of staged) {
-    const fd = new FormData()
-    fd.append('file', s.file)
-    fd.append('kind', s.kind)
-    await http.post(`${basePath}/${id}/attachments`, fd)
-  }
 }

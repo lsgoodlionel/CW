@@ -1,15 +1,15 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Table, Tag, Button, Space, Modal, Form, Input, Select, InputNumber,
-  Popconfirm, message, Segmented, Timeline, Divider, AutoComplete, Alert, Upload,
+  Popconfirm, message, Segmented, Timeline, Divider, AutoComplete, Alert,
 } from 'antd'
-import { PlusOutlined, DeleteOutlined, UploadOutlined, PaperClipOutlined } from '@ant-design/icons'
+import { PlusOutlined, DeleteOutlined, PaperClipOutlined } from '@ant-design/icons'
 import {
   http, ExpenseApplication, Attachment, AccountTreeNode, Employee, OrgUnit,
-  APPLY_STATUS_LABEL, APPLY_TYPE_LABEL, ATTACH_KIND_LABEL,
+  APPLY_STATUS_LABEL, APPLY_TYPE_LABEL,
   STEP_STATE_LABEL, STEP_STATE_COLOR,
 } from '../api'
-import AttachmentEditor, { StagedFile, uploadStaged } from '../components/AttachmentEditor'
+import AttachmentEditor from '../components/AttachmentEditor'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'default', pending: 'processing', approved: 'success', rejected: 'error', closed: 'gold',
@@ -36,8 +36,7 @@ export default function ExpenseApply() {
   const [editing, setEditing] = useState<ExpenseApplication | null>(null)
   const [form] = Form.useForm()
   const [detail, setDetail] = useState<ExpenseApplication | null>(null)
-  const [uploadKind, setUploadKind] = useState('contract')
-  const [staged, setStaged] = useState<StagedFile[]>([])
+  const [draftId, setDraftId] = useState<number | null>(null)
   const [existingAtt, setExistingAtt] = useState<Attachment[]>([])
 
   const load = useCallback(() => {
@@ -69,49 +68,33 @@ export default function ExpenseApply() {
   }, [])
 
   const openEdit = (a: ExpenseApplication | null) => {
-    setEditing(a); form.resetFields(); setStaged([])
+    setEditing(a); form.resetFields(); setDraftId(null)
     setExistingAtt(a ? a.attachments : [])
     if (a) form.setFieldsValue({ ...a, items: a.items })
     else form.setFieldsValue({ apply_type: 'general', items: [{ amount: 0 }] })
     setOpen(true)
   }
+  // 上传附件前确保单据已落库(新建则先建草稿),返回单据 id
+  const ensureOwner = async (): Promise<number | null> => {
+    if (editing) return editing.id
+    if (draftId) return draftId
+    try {
+      const v = await form.validateFields()
+      const r = await http.post<ExpenseApplication>('/expense-apply', v)
+      setDraftId(r.data.id); load(); return r.data.id
+    } catch { return null }
+  }
   const save = async () => {
     const v = await form.validateFields()
-    const r = editing
-      ? await http.put<ExpenseApplication>(`/expense-apply/${editing.id}`, v)
-      : await http.post<ExpenseApplication>('/expense-apply', v)
-    if (staged.length) {
-      await uploadStaged(http, '/expense-apply', r.data.id, staged)
-    }
+    const id = editing?.id ?? draftId
+    if (id) await http.put(`/expense-apply/${id}`, v)
+    else await http.post('/expense-apply', v)
     message.success('已保存'); setOpen(false); load()
   }
-  const deleteExisting = (aid: number) =>
-    http.delete(`/attachments/${aid}`).then(() => {
-      setExistingAtt((prev) => prev.filter((a) => a.id !== aid)); message.success('附件已删除')
-    })
   const submit = (id: number) =>
     http.post(`/expense-apply/${id}/submit`).then(() => { message.success('已提交审批'); load() })
   const remove = (id: number) =>
     http.delete(`/expense-apply/${id}`).then(() => { message.success('已删除'); load() })
-
-  const refreshDetail = (id: number) =>
-    http.get<ExpenseApplication>(`/expense-apply/${id}`).then((r) => setDetail(r.data))
-
-  const uploadProps = {
-    showUploadList: false,
-    customRequest: async (opt: { file: unknown; onSuccess?: (b: unknown) => void; onError?: (e: Error) => void }) => {
-      if (!detail) return
-      const fd = new FormData()
-      fd.append('file', opt.file as Blob)
-      fd.append('kind', uploadKind)
-      try {
-        await http.post<Attachment>(`/expense-apply/${detail.id}/attachments`, fd)
-        message.success('附件已上传'); await refreshDetail(detail.id); opt.onSuccess?.({})
-      } catch (e) { opt.onError?.(e as Error) }
-    },
-  }
-  const removeAttachment = (aid: number) =>
-    http.delete(`/attachments/${aid}`).then(() => { if (detail) refreshDetail(detail.id) })
 
   const accOpts = accounts.map((a) => ({ value: a.id, label: `${a.code} ${a.name}` }))
 
@@ -227,8 +210,8 @@ export default function ExpenseApply() {
             )}
           </Form.List>
           <Divider orientation="left" plain>申请附件(合同/发票等,报销生成凭证时自动同步)</Divider>
-          <AttachmentEditor existing={existingAtt} staged={staged} onStagedChange={setStaged}
-            onDeleteExisting={editing ? deleteExisting : undefined} defaultKind="contract" />
+          <AttachmentEditor ownerId={editing?.id ?? draftId} basePath="/expense-apply"
+            ensureOwner={ensureOwner} existing={existingAtt} onChange={setExistingAtt} defaultKind="contract" />
         </Form>
       </Modal>
 
@@ -256,24 +239,9 @@ export default function ExpenseApply() {
               )} />
 
             <Divider orientation="left" plain>申请附件(合同/发票等,生成报销凭证时自动同步)</Divider>
-            {detail.status !== 'closed' && (
-              <Space style={{ marginBottom: 8 }}>
-                <Select value={uploadKind} style={{ width: 130 }} onChange={setUploadKind}
-                  options={Object.entries(ATTACH_KIND_LABEL).map(([value, label]) => ({ value, label }))} />
-                <Upload {...uploadProps}><Button icon={<UploadOutlined />}>上传附件</Button></Upload>
-              </Space>
-            )}
-            <Table rowKey="id" size="small" pagination={false} dataSource={detail.attachments}
-              locale={{ emptyText: '暂无附件' }}
-              columns={[
-                { title: '类型', dataIndex: 'kind', width: 90, render: (k: string) => <Tag>{ATTACH_KIND_LABEL[k] || k}</Tag> },
-                { title: '文件名', dataIndex: 'original_name',
-                  render: (v: string, a: Attachment) => <a href={`/api/attachments/${a.id}/preview`} target="_blank" rel="noreferrer">{v}</a> },
-                { title: '操作', width: 60, render: (_: unknown, a: Attachment) => (
-                  detail.status !== 'closed'
-                    ? <Popconfirm title="删除该附件?" onConfirm={() => removeAttachment(a.id)}><a style={{ color: '#cf1322' }}>删除</a></Popconfirm>
-                    : <a href={`/api/attachments/${a.id}/download`}>下载</a>) },
-              ]} />
+            <AttachmentEditor ownerId={detail.id} basePath="/expense-apply"
+              existing={detail.attachments} canEdit={detail.status !== 'closed'}
+              onChange={(atts) => setDetail({ ...detail, attachments: atts })} defaultKind="contract" />
 
             {detail.claim_ids.length > 0 && (
               <p style={{ marginTop: 12 }}>已关联报销单:{detail.claim_ids.length} 单(可在费用报销页查看)</p>
