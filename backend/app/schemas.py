@@ -309,6 +309,11 @@ class TaskAction(BaseModel):
     comment: str = ""
 
 
+class TaskReassign(BaseModel):
+    # 指定新处理人;为空则按流程步骤配置自动重新匹配
+    employee_id: int | None = None
+
+
 class TaskOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

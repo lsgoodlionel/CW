@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Card, Table, Tag, Button, Space, Modal, Form, Input, Select, Alert, Timeline,
-  Divider, message,
+  Divider, message, Popconfirm,
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import {
   http, WorkflowDef, WorkflowInstance, Employee, AuthUser, ExpenseClaim, ExpenseApplication,
   WF_STATUS_LABEL, STEP_STATE_LABEL, STEP_STATE_COLOR, ATTACH_KIND_LABEL, APPLY_TYPE_LABEL,
+  hasPerm,
 } from '../api'
 
 const STATUS_COLOR: Record<string, string> = {
@@ -30,6 +31,11 @@ export default function ApprovalCenter() {
   const [bizDoc, setBizDoc] = useState<BizDoc>(null)
   const [submitOpen, setSubmitOpen] = useState(false)
   const [submitForm] = Form.useForm()
+  const [reassignTo, setReassignTo] = useState<number | undefined>()
+
+  // 能否管理流程(改派/撤销/删除):超管或拥有流程编辑权限
+  const canManage = Boolean(me?.is_super_admin
+    || hasPerm(me, 'workflow', 'edit') || hasPerm(me, 'workflow', 'create'))
 
   // 当前审批人身份默认取登录账号绑定的员工
   useEffect(() => {
@@ -67,6 +73,30 @@ export default function ApprovalCenter() {
   const empOpts = employees.map((e) => ({ value: e.id, label: e.name }))
   const pendingTask = (inst: WorkflowInstance) =>
     inst.tasks.find((t) => t.result === 'pending' && t.approver_employee_id === actorId)
+  const anyPendingTask = (inst: WorkflowInstance) =>
+    inst.tasks.find((t) => t.result === 'pending')
+
+  const refreshAll = (inst?: WorkflowInstance) => {
+    loadTodos(); loadAll()
+    if (inst) http.get<WorkflowInstance>(`/workflow/instances/${inst.id}`).then((r) => setDetail(r.data))
+  }
+  // 改派处理人:传 employeeId 指定,否则按流程配置自动重新匹配
+  const reassign = async (inst: WorkflowInstance, employeeId?: number) => {
+    const task = anyPendingTask(inst)
+    if (!task) { message.warning('无进行中的待办可改派'); return }
+    try {
+      await http.post(`/workflow/tasks/${task.id}/reassign`, { employee_id: employeeId ?? null })
+      message.success(employeeId ? '已改派处理人' : '已按流程重新匹配'); setReassignTo(undefined); refreshAll(inst)
+    } catch { /* 全局拦截已提示 */ }
+  }
+  const cancelInst = async (inst: WorkflowInstance) => {
+    await http.post(`/workflow/instances/${inst.id}/cancel`)
+    message.success('已撤销,关联单据已退回草稿'); setDetail(null); loadTodos(); loadAll()
+  }
+  const delInst = async (inst: WorkflowInstance) => {
+    await http.delete(`/workflow/instances/${inst.id}`)
+    message.success('已删除审批实例'); setDetail(null); loadTodos(); loadAll()
+  }
 
   const act = (inst: WorkflowInstance, approve: boolean) => {
     const task = pendingTask(inst)
@@ -158,6 +188,28 @@ export default function ApprovalCenter() {
                 </div>
               ),
             }))} />
+
+            {canManage && detail.status === 'pending' && (
+              <>
+                <Divider orientation="left" plain>处理人管理</Divider>
+                <Space wrap>
+                  <span>当前处理人:{anyPendingTask(detail)?.approver_name || <Tag color="red">未指派</Tag>}</span>
+                  <Select showSearch placeholder="改派给…" style={{ width: 170 }} optionFilterProp="label"
+                    value={reassignTo} onChange={setReassignTo} options={empOpts} />
+                  <Button onClick={() => reassign(detail, reassignTo)} disabled={!reassignTo}>改派</Button>
+                  <Button onClick={() => reassign(detail)}>按流程自动匹配</Button>
+                  <Popconfirm title="撤销该审批?关联单据将退回草稿" onConfirm={() => cancelInst(detail)}>
+                    <Button>撤销审批</Button>
+                  </Popconfirm>
+                  <Popconfirm title="删除该审批实例?(关联单据退回草稿)" onConfirm={() => delInst(detail)}>
+                    <Button danger>删除</Button>
+                  </Popconfirm>
+                </Space>
+                <div style={{ color: '#999', fontSize: 12, marginTop: 6 }}>
+                  提示:未匹配到审批人时,可先到「人员管理」设置管理层/股东后点「自动匹配」,或直接「改派」给指定处理人。
+                </div>
+              </>
+            )}
           </>
         )}
       </Modal>
