@@ -20,6 +20,7 @@ def init_db() -> None:
         _backfill_entry_sub_account_id(db)
         _backfill_employee_positions(db)
         _seed_auth(db)
+        _seed_workflow(db)
         db.commit()
     finally:
         db.close()
@@ -132,6 +133,23 @@ def _seed_subaccounts(db) -> None:
                 code=f"{account.code}{idx:02d}",
                 name=sub_name, note=note, sort_no=idx, is_active=True,
             ))
+    db.commit()
+
+
+def _seed_workflow(db) -> None:
+    """预置默认「费用报销审批流程」,使其可在审批流程设计页查看/修改。幂等。"""
+    exists = db.scalar(select(models.WorkflowDefinition.id).where(
+        models.WorkflowDefinition.biz_type == "expense").limit(1))
+    if exists is not None:
+        return
+    d = models.WorkflowDefinition(
+        name="费用报销审批流程", biz_type="expense",
+        note="系统预置,可在审批流程页修改审批人与步骤", is_active=True)
+    d.steps.append(models.WorkflowStep(
+        step_no=1, name="部门负责人审批", approver_type="department_head"))
+    d.steps.append(models.WorkflowStep(
+        step_no=2, name="财务/管理层审批", approver_type="any"))
+    db.add(d)
     db.commit()
 
 

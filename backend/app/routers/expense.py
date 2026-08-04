@@ -203,6 +203,29 @@ def make_voucher(claim_id: int, credit_account_code: str = Query("1002"),
     return get_claim(claim_id, db)
 
 
+@router.get("/active-workflow")
+def active_workflow(db: Session = Depends(get_db)):
+    """报销当前使用的审批流程(供报销页展示,可到审批流程页修改)。"""
+    d = db.scalar(select(models.WorkflowDefinition)
+                  .where(models.WorkflowDefinition.biz_type == "expense",
+                         models.WorkflowDefinition.is_active.is_(True))
+                  .order_by(models.WorkflowDefinition.id)
+                  .options(selectinload(models.WorkflowDefinition.steps)))
+    if d is None:
+        return {"exists": False}
+    return {"exists": True, "id": d.id, "name": d.name,
+            "steps": [{"step_no": s.step_no, "name": s.name,
+                       "approver_type": s.approver_type} for s in d.steps]}
+
+
+# 常用费用类别预设
+EXPENSE_CATEGORIES = [
+    "办公费", "差旅费", "交通费", "住宿费", "餐饮费", "业务招待费", "通讯费",
+    "邮寄快递费", "培训费", "会议费", "市场推广费", "租赁费", "水电费",
+    "维修费", "劳保费", "低值易耗品", "其他",
+]
+
+
 @router.get("/meta")
 def expense_meta():
-    return {"status": STATUS_LABEL}
+    return {"status": STATUS_LABEL, "categories": EXPENSE_CATEGORIES}

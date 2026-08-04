@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Table, Tag, Button, Space, Modal, Form, Input, Select, InputNumber,
-  Popconfirm, message, Segmented, Timeline, Divider,
+  Popconfirm, message, Segmented, Timeline, Divider, AutoComplete, Alert,
 } from 'antd'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
-  http, ExpenseClaim, Account, Employee, OrgUnit,
+  http, ExpenseClaim, AccountTreeNode, Employee, OrgUnit, APPROVER_TYPE_LABEL,
   EXPENSE_STATUS_LABEL, WF_STATUS_LABEL,
 } from '../api'
 
@@ -14,10 +14,18 @@ const STATUS_COLOR: Record<string, string> = {
   draft: 'default', pending: 'processing', approved: 'success', rejected: 'error', paid: 'gold',
 }
 
+interface ActiveWorkflow {
+  exists: boolean; id?: number; name?: string
+  steps?: { step_no: number; name: string; approver_type: string }[]
+}
+
 export default function Expense() {
   const navigate = useNavigate()
   const [claims, setClaims] = useState<ExpenseClaim[]>([])
-  const [accounts, setAccounts] = useState<Account[]>([])
+  const [accounts, setAccounts] = useState<AccountTreeNode[]>([])
+  const [subMap, setSubMap] = useState<Record<number, { value: string }[]>>({})
+  const [categories, setCategories] = useState<string[]>([])
+  const [wf, setWf] = useState<ActiveWorkflow | null>(null)
   const [employees, setEmployees] = useState<Employee[]>([])
   const [units, setUnits] = useState<OrgUnit[]>([])
   const [statusFilter, setStatusFilter] = useState('all')
@@ -36,7 +44,18 @@ export default function Expense() {
   }, [statusFilter])
   useEffect(() => { load() }, [load])
   useEffect(() => {
-    http.get<Account[]>('/accounts', { params: { active_only: true } }).then((r) => setAccounts(r.data.filter((a) => a.category === 'profit' || a.category === 'cost')))
+    http.get<AccountTreeNode[]>('/accounts/tree').then((r) => {
+      const feeAccounts = r.data.filter((a) => a.category === 'profit' || a.category === 'cost')
+      setAccounts(feeAccounts)
+      const map: Record<number, { value: string }[]> = {}
+      feeAccounts.forEach((a) => {
+        map[a.id] = (a.sub_accounts || []).filter((s) => s.is_active)
+          .map((s) => ({ value: s.name, label: `${s.code} ${s.name}` } as { value: string }))
+      })
+      setSubMap(map)
+    })
+    http.get<{ categories: string[] }>('/expense/meta').then((r) => setCategories(r.data.categories || []))
+    http.get<ActiveWorkflow>('/expense/active-workflow').then((r) => setWf(r.data))
     http.get<Employee[]>('/personnel/employees').then((r) => setEmployees(r.data))
     http.get<OrgUnit[]>('/personnel/org-units').then((r) => setUnits(r.data))
   }, [])
@@ -106,6 +125,11 @@ export default function Expense() {
       {/* 新建/编辑报销单 */}
       <Modal title={editing ? '编辑报销单' : '新建报销单'} open={open} onOk={save}
         onCancel={() => setOpen(false)} okText="保存" width={760}>
+        <Alert type={wf?.exists ? 'info' : 'warning'} showIcon style={{ marginBottom: 12 }}
+          message={wf?.exists
+            ? <span>提交后将走审批流程「{wf.name}」:{(wf.steps || []).map((s) => `${s.step_no}.${s.name}(${APPROVER_TYPE_LABEL[s.approver_type] || s.approver_type})`).join(' → ')}
+              <a style={{ marginLeft: 8 }} onClick={() => navigate('/workflows')}>查看/修改</a></span>
+            : <span>尚未配置「费用报销」审批流程,提交时将报错。请先到<a onClick={() => navigate('/workflows')}>审批流程</a>页新建。</span>} />
         <Form form={form} layout="vertical">
           <Space wrap>
             <Form.Item name="applicant_employee_id" label="申请人">
@@ -127,15 +151,27 @@ export default function Expense() {
                 {fields.map((field) => (
                   <Space key={field.key} align="baseline" style={{ display: 'flex', marginBottom: 8 }} wrap>
                     <Form.Item name={[field.name, 'category']} style={{ marginBottom: 0 }}>
-                      <Input placeholder="费用类别" style={{ width: 120 }} />
+                      <AutoComplete placeholder="费用类别" style={{ width: 120 }}
+                        options={categories.map((c) => ({ value: c }))}
+                        filterOption={(input, opt) => (opt?.value ?? '').toLowerCase().includes(input.toLowerCase())} />
                     </Form.Item>
                     <Form.Item name={[field.name, 'account_id']} style={{ marginBottom: 0 }}
                       rules={[{ required: true, message: '选科目' }]}>
                       <Select showSearch placeholder="费用科目" style={{ width: 180 }}
                         optionFilterProp="label" options={accOpts} />
                     </Form.Item>
-                    <Form.Item name={[field.name, 'sub_account']} style={{ marginBottom: 0 }}>
-                      <Input placeholder="明细科目" style={{ width: 120 }} />
+                    <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                      prev.items?.[field.name]?.account_id !== cur.items?.[field.name]?.account_id}>
+                      {({ getFieldValue }) => {
+                        const accId = getFieldValue(['items', field.name, 'account_id']) as number | undefined
+                        const opts = accId ? (subMap[accId] || []) : []
+                        return (
+                          <Form.Item name={[field.name, 'sub_account']} style={{ marginBottom: 0 }}>
+                            <AutoComplete placeholder="明细科目" style={{ width: 120 }} options={opts}
+                              filterOption={(input, opt) => (opt?.value ?? '').toLowerCase().includes(input.toLowerCase())} />
+                          </Form.Item>
+                        )
+                      }}
                     </Form.Item>
                     <Form.Item name={[field.name, 'amount']} style={{ marginBottom: 0 }}
                       rules={[{ required: true, message: '金额' }]}>
