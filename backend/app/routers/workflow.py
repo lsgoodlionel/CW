@@ -229,10 +229,10 @@ def workflow_meta():
 
 @router.get("/approver-check")
 def approver_check(db: Session = Depends(get_db)):
-    """审批人就绪自检:是否有『管理层』员工、启用流程里哪些步骤解析不到审批人。"""
-    mgmt_count = db.scalar(
+    """审批人就绪自检:是否有可审批的『管理层/股东』员工、启用流程里哪些步骤解析不到审批人。"""
+    approver_count = db.scalar(
         select(func.count(func.distinct(models.EmployeePosition.employee_id)))
-        .where(models.EmployeePosition.role_type == "management")) or 0
+        .where(models.EmployeePosition.role_type.in_(workflow_svc.APPROVER_ROLES))) or 0
     names = _emp_names(db)
     defs = db.scalars(
         select(models.WorkflowDefinition)
@@ -252,5 +252,5 @@ def approver_check(db: Session = Depends(get_db)):
             problems.append({"id": d.id, "name": d.name, "biz_type": d.biz_type,
                              "biz_type_label": BIZ_TYPES.get(d.biz_type, d.biz_type),
                              "missing_steps": missing})
-    return {"management_count": mgmt_count, "has_management": mgmt_count > 0,
+    return {"approver_count": approver_count, "has_approver": approver_count > 0,
             "ready": not problems, "problems": problems}

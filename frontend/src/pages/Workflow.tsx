@@ -28,13 +28,14 @@ export default function Workflow() {
     <Card>
       {check && !check.ready && (
         <Alert type="warning" showIcon style={{ marginBottom: 12 }}
-          message={check.has_management ? '部分流程步骤未匹配到审批人' : '尚未设置任何「管理层」审批人'}
+          message={check.has_approver ? '部分流程步骤未匹配到审批人' : '尚未设置任何「管理层/股东」审批人'}
           description={
             <div>
-              {!check.has_management && (
+              {!check.has_approver && (
                 <p style={{ marginBottom: 6 }}>
-                  预置的「费用申请/费用报销」流程按<b>部门负责人 / 任一管理层</b>自动找审批人。
-                  请到<b>人员管理</b>给至少一名员工添加<b>「管理层」</b>职位,否则提交的单据将<b>无人可审批</b>。
+                  预置的「费用申请/费用报销」流程按<b>部门负责人 / 任一管理层</b>自动找审批人
+                  (<b>股东高于管理层,同样可审批</b>)。
+                  请到<b>人员管理</b>给至少一名员工添加<b>「管理层」或「股东」</b>职位,否则提交的单据将<b>无人可审批</b>。
                 </p>
               )}
               {check.problems.map((p) => (

@@ -232,8 +232,8 @@ export interface WorkflowInstance {
 }
 
 export interface ApproverCheck {
-  management_count: number
-  has_management: boolean
+  approver_count: number
+  has_approver: boolean
   ready: boolean
   problems: {
     id: number; name: string; biz_type: string; biz_type_label: string

@@ -7,34 +7,64 @@ from sqlalchemy.orm import Session
 from . import models
 
 
+# 审批资格与优先级:股东(董事会)高于管理层,均可审批部门/管理层流程。
+APPROVER_ROLES = ("management", "shareholder")
+
+
+def _first_by_role(db: Session, role_type: str, org_unit_id: int | None = None) -> int | None:
+    q = select(models.EmployeePosition.employee_id).where(
+        models.EmployeePosition.role_type == role_type)
+    if org_unit_id is not None:
+        q = q.where(models.EmployeePosition.org_unit_id == org_unit_id)
+    return db.scalar(q.limit(1))
+
+
+def _first_approver(db: Session, org_unit_id: int | None = None,
+                    exclude_id: int | None = None) -> int | None:
+    """在指定部门(或全局)按 管理层→股东 顺序取一名审批人,可排除申请人本人。"""
+    for rt in APPROVER_ROLES:
+        q = select(models.EmployeePosition.employee_id).where(
+            models.EmployeePosition.role_type == rt)
+        if org_unit_id is not None:
+            q = q.where(models.EmployeePosition.org_unit_id == org_unit_id)
+        if exclude_id is not None:
+            q = q.where(models.EmployeePosition.employee_id != exclude_id)
+        row = db.scalar(q.limit(1))
+        if row:
+            return row
+    return None
+
+
 def resolve_approver(db: Session, step: models.WorkflowStep,
                      applicant_id: int | None) -> int | None:
-    """把步骤的审批人配置解析为具体员工 id。"""
+    """把步骤的审批人配置解析为具体员工 id。
+
+    审批资格层级:股东(董事会)高于管理层,二者都可审批部门/管理层步骤。
+    - 部门负责人:优先本部门(管理层→股东);本部门无人 / 申请人无部门时,
+      回退到全局(管理层→股东),即由股东兜底审批。
+    - 任一管理层:全局(管理层→股东)。
+    这样董事会股东发起、或系统管理员(无部门)发起时,仍能由股东完成审批。
+    """
     t = step.approver_type
     if t == "employee":
         return step.approver_employee_id
     if t == "role":
-        row = db.scalar(
-            select(models.EmployeePosition.employee_id)
-            .where(models.EmployeePosition.role_type == (step.approver_role or "management"))
-            .limit(1))
-        return row
+        # 指定角色精确匹配;取不到则按通用审批资格兜底
+        return _first_by_role(db, step.approver_role or "management") or _first_approver(db)
     if t == "department_head":
-        # 申请人所在部门的管理层;取不到则任一管理层
         emp_unit = None
         if applicant_id:
             emp_unit = db.scalar(
                 select(models.EmployeePosition.org_unit_id)
                 .where(models.EmployeePosition.employee_id == applicant_id).limit(1))
-        q = select(models.EmployeePosition.employee_id).where(
-            models.EmployeePosition.role_type == "management")
-        if emp_unit:
-            q = q.where(models.EmployeePosition.org_unit_id == emp_unit)
-        return db.scalar(q.limit(1))
-    # any:任一管理层
-    return db.scalar(
-        select(models.EmployeePosition.employee_id)
-        .where(models.EmployeePosition.role_type == "management").limit(1))
+        if emp_unit is not None:
+            in_dept = _first_approver(db, emp_unit, exclude_id=applicant_id)
+            if in_dept:
+                return in_dept
+        # 本部门找不到 / 无部门:回退到全局(股东可审批任何部门流程)
+        return _first_approver(db, exclude_id=applicant_id) or _first_approver(db)
+    # any:任一管理层(股东亦可,且更高)
+    return _first_approver(db)
 
 
 def create_instance(db: Session, sub, definition: models.WorkflowDefinition
