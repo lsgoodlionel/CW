@@ -3,7 +3,7 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
@@ -45,6 +45,9 @@ def _out(db: Session, claim: models.ExpenseClaim) -> schemas.ExpenseClaimOut:
     if claim.voucher_id:
         v = db.get(models.Voucher, claim.voucher_id)
         item.voucher_no = v.voucher_no if v else ""
+    if claim.application_id:
+        app = db.get(models.ExpenseApplication, claim.application_id)
+        item.application_no = app.apply_no if app else ""
     for it, io in zip(claim.items, item.items):
         acc = db.get(models.Account, it.account_id) if it.account_id else None
         io.account_name = acc.name if acc else ""
@@ -61,7 +64,8 @@ def _out(db: Session, claim: models.ExpenseClaim) -> schemas.ExpenseClaimOut:
 def _load(db: Session, claim_id: int) -> models.ExpenseClaim:
     claim = db.scalar(select(models.ExpenseClaim)
                       .where(models.ExpenseClaim.id == claim_id)
-                      .options(selectinload(models.ExpenseClaim.items)))
+                      .options(selectinload(models.ExpenseClaim.items),
+                     selectinload(models.ExpenseClaim.attachments)))
     if claim is None:
         raise HTTPException(status_code=404, detail="报销单不存在")
     return claim
@@ -71,7 +75,8 @@ def _load(db: Session, claim_id: int) -> models.ExpenseClaim:
 def list_claims(status: str | None = None, applicant_employee_id: int | None = None,
                 db: Session = Depends(get_db)):
     stmt = (select(models.ExpenseClaim).order_by(models.ExpenseClaim.id.desc())
-            .options(selectinload(models.ExpenseClaim.items)))
+            .options(selectinload(models.ExpenseClaim.items),
+                     selectinload(models.ExpenseClaim.attachments)))
     if status:
         stmt = stmt.where(models.ExpenseClaim.status == status)
     if applicant_employee_id:
@@ -107,8 +112,8 @@ def create_claim(payload: schemas.ExpenseClaimIn, db: Session = Depends(get_db))
     claim = models.ExpenseClaim(
         claim_no=_claim_no(db, date.today()),
         applicant_employee_id=payload.applicant_employee_id,
-        org_unit_id=payload.org_unit_id, reason=payload.reason,
-        note=payload.note, status="draft")
+        org_unit_id=payload.org_unit_id, application_id=payload.application_id,
+        reason=payload.reason, note=payload.note, status="draft")
     _apply_items(db, claim, payload.items)
     db.add(claim)
     db.commit()
@@ -122,6 +127,7 @@ def update_claim(claim_id: int, payload: schemas.ExpenseClaimIn, db: Session = D
         raise HTTPException(status_code=400, detail="仅草稿或被驳回的报销单可编辑")
     claim.applicant_employee_id = payload.applicant_employee_id
     claim.org_unit_id = payload.org_unit_id
+    claim.application_id = payload.application_id
     claim.reason = payload.reason
     claim.note = payload.note
     _apply_items(db, claim, payload.items)
@@ -199,6 +205,20 @@ def make_voucher(claim_id: int, credit_account_code: str = Query("1002"),
     db.flush()
     claim.voucher_id = voucher.id
     claim.status = "paid"
+
+    # 附件同步:把报销单及其关联费用申请的附件挂到新生成的凭证上
+    owners = [models.Attachment.expense_claim_id == claim.id]
+    if claim.application_id:
+        owners.append(models.Attachment.expense_application_id == claim.application_id)
+    related = db.scalars(select(models.Attachment).where(or_(*owners))).all()
+    for att in related:
+        att.voucher_id = voucher.id
+    # 关联的费用申请标记为已关联报销(闭环)
+    if claim.application_id:
+        app = db.get(models.ExpenseApplication, claim.application_id)
+        if app and app.status == "approved":
+            app.status = "closed"
+
     db.commit()
     return get_claim(claim_id, db)
 

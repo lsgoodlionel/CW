@@ -178,7 +178,16 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 - 流程:建单(草稿)→ 提交(按 biz_type=expense 的启用流程发起审批实例)→ 审批(在「审批流程·审批中心」处理)→ 通过后「生成凭证」(借 各费用科目/贷 银行存款,复用二级科目自动建)→ 已生成凭证(paid)。
 - 状态与流程实例同步(读时 `_sync_status`)。
 - API `/api/expense/claims` CRUD + `/submit` + `/make-voucher`;前端「费用报销」页(建单/明细/提交/详情+审批轨迹/生成凭证)。
+- **关联费用申请**:`expense_claims.application_id` 可指向事前申请;报销页可选择已通过的申请自动带出事由/明细;生成凭证时把申请及报销的附件挂到凭证上;并把申请置为 `closed`。
 - 备份纳入(v7,员工/部门/科目/流程实例/凭证按 ref 映射)。
+
+### 7.2.1 费用申请(事前审批)✅ 已实现
+- 模型:`expense_applications`(单号 SQ-/申请人/部门/申请类型 general·contract·routine/事由/预计金额/状态/流程实例)+ `expense_application_items`(与报销明细同构,便于带出)。
+- 附件多归属:`attachments` 的 `voucher_id` 放宽为可空,新增 `expense_application_id`/`expense_claim_id`;共享 `attach_svc` 落盘。申请阶段即可上传合同/发票等,报销生成凭证时同步到凭证附件(同一附件行同时挂 `voucher_id`,无重复文件)。
+- 流程:建单(草稿)→ 提交(按 biz_type=`expense_apply` 的启用流程发起)→ 审批 → 通过(approved)→ 被报销关联后置 closed。预置「费用申请审批流程」(部门负责人→管理层)。
+- 权限模块 `expense_apply`(路径前缀 `/api/expense-apply` 需排在 `/api/expense` 之前);默认「财务操作」「审批人」角色已含。
+- API `/api/expense-apply` CRUD + `/submit` + `/{id}/attachments` + `/active-workflow` + `/approved` + `/meta`;前端「费用申请」页(建单/明细/附件上传/提交/详情+审批轨迹)。
+- 备份 **v9**:新增 `expense_applications`(含明细)+ 附件改为**扁平附件表**统一导出(记录 voucher/application/claim 三种归属 ref),导入按 ref 还原多归属;兼容 v1–v8 老备份(旧版凭证内嵌附件仍可读)。
 
 ### 7.3 用户模块 + RBAC 权限 ✅ 已实现(全站强制登录)
 - 模型:`users`(用户名/密码哈希/关联员工/超管标志/启用)、`roles`、`role_permissions`(perm='module:action')、`user_roles`。

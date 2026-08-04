@@ -34,6 +34,13 @@ _ADDED_COLUMNS = {
     "voucher_entries": [
         ("sub_account_id", "INTEGER"),
     ],
+    "attachments": [
+        ("expense_application_id", "INTEGER"),
+        ("expense_claim_id", "INTEGER"),
+    ],
+    "expense_claims": [
+        ("application_id", "INTEGER"),
+    ],
     "customers": [
         ("party_type", "VARCHAR(20) DEFAULT 'enterprise'"),
     ],
@@ -68,6 +75,21 @@ def _migrate(bind) -> None:
             if name not in have:
                 with bind.begin() as conn:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+    _relax_attachment_voucher(bind, inspector)
+
+
+def _relax_attachment_voucher(bind, inspector) -> None:
+    """附件支持多归属:voucher_id 由 NOT NULL 放宽为可空(仅 Postgres 需要 ALTER)。"""
+    if "attachments" not in set(inspector.get_table_names()):
+        return
+    col = next((c for c in inspector.get_columns("attachments")
+                if c["name"] == "voucher_id"), None)
+    if col is None or col.get("nullable", True):
+        return
+    if bind.dialect.name != "postgresql":
+        return
+    with bind.begin() as conn:
+        conn.execute(text("ALTER TABLE attachments ALTER COLUMN voucher_id DROP NOT NULL"))
 
 
 def _seed_accounts(db) -> None:
@@ -103,15 +125,15 @@ def _seed_auth(db) -> None:
         for m in auth_svc.MODULES:
             readonly.permissions.append(models.RolePermission(perm=f"{m}:view"))
         db.add(readonly)
-        finance = models.Role(name="财务操作", note="凭证/科目/往来/报表/账簿/报销 常规操作", is_system=True)
-        for m in ("voucher", "account", "customer", "expense"):
+        finance = models.Role(name="财务操作", note="凭证/科目/往来/报表/账簿/申请/报销 常规操作", is_system=True)
+        for m in ("voucher", "account", "customer", "expense_apply", "expense"):
             for a in ("view", "create", "edit", "delete"):
                 finance.permissions.append(models.RolePermission(perm=f"{m}:{a}"))
         for m in ("report", "ledger", "company"):
             finance.permissions.append(models.RolePermission(perm=f"{m}:view"))
         db.add(finance)
-        approver = models.Role(name="审批人", note="审批流程与报销审批", is_system=True)
-        for m in ("workflow", "expense"):
+        approver = models.Role(name="审批人", note="审批流程与申请/报销审批", is_system=True)
+        for m in ("workflow", "expense_apply", "expense"):
             approver.permissions.append(models.RolePermission(perm=f"{m}:view"))
             approver.permissions.append(models.RolePermission(perm=f"{m}:approve"))
         db.add(approver)
@@ -137,20 +159,32 @@ def _seed_subaccounts(db) -> None:
 
 
 def _seed_workflow(db) -> None:
-    """预置默认「费用报销审批流程」,使其可在审批流程设计页查看/修改。幂等。"""
-    exists = db.scalar(select(models.WorkflowDefinition.id).where(
-        models.WorkflowDefinition.biz_type == "expense").limit(1))
-    if exists is not None:
-        return
-    d = models.WorkflowDefinition(
-        name="费用报销审批流程", biz_type="expense",
-        note="系统预置,可在审批流程页修改审批人与步骤", is_active=True)
-    d.steps.append(models.WorkflowStep(
-        step_no=1, name="部门负责人审批", approver_type="department_head"))
-    d.steps.append(models.WorkflowStep(
-        step_no=2, name="财务/管理层审批", approver_type="any"))
-    db.add(d)
-    db.commit()
+    """预置默认「费用申请」「费用报销」审批流程,使其可在审批流程设计页查看/修改。幂等。"""
+    changed = False
+    if db.scalar(select(models.WorkflowDefinition.id).where(
+            models.WorkflowDefinition.biz_type == "expense").limit(1)) is None:
+        d = models.WorkflowDefinition(
+            name="费用报销审批流程", biz_type="expense",
+            note="系统预置,可在审批流程页修改审批人与步骤", is_active=True)
+        d.steps.append(models.WorkflowStep(
+            step_no=1, name="部门负责人审批", approver_type="department_head"))
+        d.steps.append(models.WorkflowStep(
+            step_no=2, name="财务/管理层审批", approver_type="any"))
+        db.add(d)
+        changed = True
+    if db.scalar(select(models.WorkflowDefinition.id).where(
+            models.WorkflowDefinition.biz_type == "expense_apply").limit(1)) is None:
+        d = models.WorkflowDefinition(
+            name="费用申请审批流程", biz_type="expense_apply",
+            note="系统预置事前审批,可在审批流程页修改审批人与步骤", is_active=True)
+        d.steps.append(models.WorkflowStep(
+            step_no=1, name="部门负责人审批", approver_type="department_head"))
+        d.steps.append(models.WorkflowStep(
+            step_no=2, name="分管/管理层审批", approver_type="any"))
+        db.add(d)
+        changed = True
+    if changed:
+        db.commit()
 
 
 def _backfill_employee_positions(db) -> None:

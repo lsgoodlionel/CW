@@ -149,21 +149,28 @@ class VoucherEntry(Base):
 
 
 class Attachment(Base):
-    """附件:发票/回单等原始单据。"""
+    """附件:发票/回单/合同等原始单据。可归属凭证/费用申请/费用报销(多归属)。"""
     __tablename__ = "attachments"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    voucher_id: Mapped[int] = mapped_column(
-        ForeignKey("vouchers.id", ondelete="CASCADE"), index=True
+    # 归属凭证(可空:费用申请阶段尚无凭证;生成凭证时回填以实现附件同步)
+    voucher_id: Mapped[int | None] = mapped_column(
+        ForeignKey("vouchers.id", ondelete="CASCADE"), nullable=True, index=True
     )
-    kind: Mapped[str] = mapped_column(String(20), default="other")  # invoice/receipt/other
+    expense_application_id: Mapped[int | None] = mapped_column(
+        ForeignKey("expense_applications.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    expense_claim_id: Mapped[int | None] = mapped_column(
+        ForeignKey("expense_claims.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(20), default="other")  # invoice/receipt/contract/tax_payment/other
     original_name: Mapped[str] = mapped_column(String(255))
     stored_path: Mapped[str] = mapped_column(Text)
     mime_type: Mapped[str] = mapped_column(String(120), default="")
     size_bytes: Mapped[int] = mapped_column(Integer, default=0)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
-    voucher: Mapped["Voucher"] = relationship(back_populates="attachments")
+    voucher: Mapped["Voucher | None"] = relationship(back_populates="attachments")
 
 
 class VoucherLink(Base):
@@ -316,6 +323,58 @@ class UserRole(Base):
     )
 
 
+class ExpenseApplication(Base):
+    """费用申请单(事前审批)。审批通过后可据此发起费用报销(事后管理)。"""
+    __tablename__ = "expense_applications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    apply_no: Mapped[str] = mapped_column(String(40), index=True)
+    applicant_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("employees.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    org_unit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("org_units.id", ondelete="SET NULL"), nullable=True
+    )
+    # general 一般申请 / contract 合同 / routine 常规费用
+    apply_type: Mapped[str] = mapped_column(String(20), default="general", index=True)
+    reason: Mapped[str] = mapped_column(String(200), default="")   # 申请事由
+    estimated_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)  # 预计金额
+    # draft 草稿 / pending 审批中 / approved 已通过 / rejected 已驳回 / closed 已报销关联
+    status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
+    workflow_instance_id: Mapped[int | None] = mapped_column(
+        ForeignKey("workflow_instances.id", ondelete="SET NULL"), nullable=True
+    )
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    items: Mapped[list["ExpenseApplicationItem"]] = relationship(
+        back_populates="application", cascade="all, delete-orphan",
+        order_by="ExpenseApplicationItem.id",
+    )
+    attachments: Mapped[list["Attachment"]] = relationship(
+        foreign_keys="Attachment.expense_application_id", cascade="all, delete-orphan",
+    )
+
+
+class ExpenseApplicationItem(Base):
+    """费用申请明细行(预算/预计费用),字段与报销明细一致以便带出。"""
+    __tablename__ = "expense_application_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("expense_applications.id", ondelete="CASCADE"), index=True
+    )
+    category: Mapped[str] = mapped_column(String(60), default="")
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("accounts.id"), nullable=True
+    )
+    sub_account: Mapped[str] = mapped_column(String(100), default="")
+    amount: Mapped[Decimal] = mapped_column(MONEY, default=0)
+    note: Mapped[str] = mapped_column(String(200), default="")
+
+    application: Mapped["ExpenseApplication"] = relationship(back_populates="items")
+
+
 class ExpenseClaim(Base):
     """费用报销申请单(复用审批流程,通过后可生成记账凭证)。"""
     __tablename__ = "expense_claims"
@@ -327,6 +386,10 @@ class ExpenseClaim(Base):
     )
     org_unit_id: Mapped[int | None] = mapped_column(
         ForeignKey("org_units.id", ondelete="SET NULL"), nullable=True
+    )
+    # 关联的事前费用申请(可空)
+    application_id: Mapped[int | None] = mapped_column(
+        ForeignKey("expense_applications.id", ondelete="SET NULL"), nullable=True, index=True
     )
     reason: Mapped[str] = mapped_column(String(200), default="")   # 报销事由
     total_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)
@@ -344,6 +407,10 @@ class ExpenseClaim(Base):
     items: Mapped[list["ExpenseItem"]] = relationship(
         back_populates="claim", cascade="all, delete-orphan", order_by="ExpenseItem.id",
     )
+    attachments: Mapped[list["Attachment"]] = relationship(
+        foreign_keys="Attachment.expense_claim_id", cascade="all, delete-orphan",
+    )
+    application: Mapped["ExpenseApplication | None"] = relationship()
 
 
 class ExpenseItem(Base):

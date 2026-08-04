@@ -60,7 +60,8 @@ def parse_token(token: str) -> int | None:
 # ---------- 权限目录 ----------
 MODULES = {
     "voucher": "记账凭证", "account": "会计科目", "customer": "往来单位",
-    "personnel": "人员管理", "workflow": "审批流程", "expense": "费用报销",
+    "personnel": "人员管理", "workflow": "审批流程",
+    "expense_apply": "费用申请", "expense": "费用报销",
     "report": "财务报表", "ledger": "会计账簿", "company": "企业信息",
     "data": "数据备份", "logs": "操作日志", "user": "用户与权限",
 }
@@ -86,7 +87,8 @@ _PREFIX_MODULE = [
     ("/api/vouchers", "voucher"), ("/api/attachments", "voucher"),
     ("/api/accounts", "account"), ("/api/customers", "customer"),
     ("/api/personnel", "personnel"), ("/api/workflow", "workflow"),
-    ("/api/expense", "expense"), ("/api/reports", "report"),
+    ("/api/expense-apply", "expense_apply"), ("/api/expense", "expense"),
+    ("/api/reports", "report"),
     ("/api/ledgers", "ledger"), ("/api/company", "company"),
     ("/api/data", "data"), ("/api/logs", "logs"),
 ]

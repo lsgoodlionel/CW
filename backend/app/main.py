@@ -11,7 +11,7 @@ from .oplog import OperationLogMiddleware
 from .auth_mw import AuthMiddleware
 from .routers import (
     company, accounts, vouchers, attachments, reports, data_io, ledgers, logs,
-    customers, personnel, workflow, expense, auth, users, presets,
+    customers, personnel, workflow, expense, expense_apply, auth, users, presets,
 )
 
 
@@ -56,6 +56,7 @@ app.include_router(customers.router)
 app.include_router(personnel.router)
 app.include_router(workflow.router)
 app.include_router(expense.router)
+app.include_router(expense_apply.router)
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(presets.router)

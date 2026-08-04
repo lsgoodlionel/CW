@@ -23,9 +23,9 @@ from .. import models
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-EXPORT_VERSION = 8
-# 1-7 见历史;8:用户/角色/权限
-SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8}
+EXPORT_VERSION = 9
+# 1-7 见历史;8:用户/角色/权限;9:费用申请 + 附件多归属(扁平附件表)
+SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9}
 
 
 def _company_dict(c: models.CompanyInfo | None) -> dict:
@@ -127,9 +127,22 @@ def export_data(db: Session = Depends(get_db)):
             for ins in db.scalars(select(models.WorkflowInstance)
                                   .options(selectinload(models.WorkflowInstance.tasks))).all()
         ],
+        "expense_applications": [
+            {"ref": a.id, "apply_no": a.apply_no, "applicant_ref": a.applicant_employee_id,
+             "org_unit_ref": a.org_unit_id, "apply_type": a.apply_type, "reason": a.reason,
+             "estimated_amount": str(a.estimated_amount), "status": a.status,
+             "workflow_instance_ref": a.workflow_instance_id, "note": a.note,
+             "created_at": a.created_at.isoformat() if a.created_at else None,
+             "items": [{"category": it.category, "account_code": acc_code.get(it.account_id, ""),
+                        "sub_account": it.sub_account, "amount": str(it.amount),
+                        "note": it.note} for it in a.items]}
+            for a in db.scalars(select(models.ExpenseApplication)
+                                .options(selectinload(models.ExpenseApplication.items))).all()
+        ],
         "expense_claims": [
-            {"claim_no": c.claim_no, "applicant_ref": c.applicant_employee_id,
-             "org_unit_ref": c.org_unit_id, "reason": c.reason,
+            {"ref": c.id, "claim_no": c.claim_no, "applicant_ref": c.applicant_employee_id,
+             "org_unit_ref": c.org_unit_id, "application_ref": c.application_id,
+             "reason": c.reason,
              "total_amount": str(c.total_amount), "status": c.status,
              "workflow_instance_ref": c.workflow_instance_id,
              "voucher_ref": c.voucher_id, "note": c.note,
@@ -170,20 +183,8 @@ def export_data(db: Session = Depends(get_db)):
         "vouchers": [],
     }
 
-    # 收集附件文件名(zip 内路径)
-    file_map: list[tuple[str, Path]] = []
+    # 凭证(v9 起附件改为扁平表统一导出,凭证内不再内嵌)
     for v in vouchers:
-        attachments = []
-        for att in v.attachments:
-            src = Path(att.stored_path)
-            arc_name = f"attachments/{att.id}_{Path(att.stored_path).name}"
-            attachments.append({
-                "kind": att.kind, "original_name": att.original_name,
-                "mime_type": att.mime_type, "size_bytes": att.size_bytes,
-                "archive_name": arc_name,
-            })
-            if src.exists():
-                file_map.append((arc_name, src))
         payload["vouchers"].append({
             "ref": v.id,
             "voucher_no": v.voucher_no,
@@ -197,8 +198,24 @@ def export_data(db: Session = Depends(get_db)):
                  "debit": str(e.debit), "credit": str(e.credit)}
                 for e in v.entries
             ],
-            "attachments": attachments,
         })
+
+    # 扁平附件表:覆盖凭证/费用申请/费用报销全部归属(含同步到凭证的申请附件)
+    file_map: list[tuple[str, Path]] = []
+    payload["attachments"] = []
+    for att in db.scalars(select(models.Attachment).order_by(models.Attachment.id)).all():
+        src = Path(att.stored_path)
+        arc_name = f"attachments/{att.id}_{src.name}"
+        payload["attachments"].append({
+            "kind": att.kind, "original_name": att.original_name,
+            "mime_type": att.mime_type, "size_bytes": att.size_bytes,
+            "archive_name": arc_name,
+            "voucher_ref": att.voucher_id,
+            "application_ref": att.expense_application_id,
+            "claim_ref": att.expense_claim_id,
+        })
+        if src.exists():
+            file_map.append((arc_name, src))
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -270,6 +287,8 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     db.execute(delete(models.Customer))
     db.execute(delete(models.ExpenseItem))
     db.execute(delete(models.ExpenseClaim))
+    db.execute(delete(models.ExpenseApplicationItem))
+    db.execute(delete(models.ExpenseApplication))
     db.execute(delete(models.WorkflowTask))
     db.execute(delete(models.WorkflowInstance))
     db.execute(delete(models.WorkflowStep))
@@ -532,17 +551,49 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
         ))
         link_count += 1
 
-    # 5. 费用报销单(引用员工/部门/科目/流程实例/凭证,均按 ref 映射)
+    # 5a. 费用申请(事前审批;引用员工/部门/科目/流程实例,均按 ref 映射)
+    ref_to_application: dict[int, models.ExpenseApplication] = {}
+    for a in payload.get("expense_applications", []):
+        app_emp = ref_to_emp.get(a.get("applicant_ref"))
+        unit = ref_to_unit.get(a.get("org_unit_ref"))
+        inst = ref_to_instance.get(a.get("workflow_instance_ref"))
+        ts = a.get("created_at")
+        application = models.ExpenseApplication(
+            apply_no=a.get("apply_no", ""),
+            applicant_employee_id=app_emp.id if app_emp else None,
+            org_unit_id=unit.id if unit else None,
+            apply_type=a.get("apply_type", "general"), reason=a.get("reason", ""),
+            estimated_amount=Decimal(str(a.get("estimated_amount", "0"))),
+            status=a.get("status", "draft"),
+            workflow_instance_id=inst.id if inst else None, note=a.get("note", ""),
+            created_at=datetime.fromisoformat(ts) if ts else None)
+        for it in a.get("items", []):
+            acc = code_to_account.get(it.get("account_code"))
+            application.items.append(models.ExpenseApplicationItem(
+                category=it.get("category", ""),
+                account_id=acc.id if acc else None,
+                sub_account=it.get("sub_account", ""),
+                amount=Decimal(str(it.get("amount", "0"))), note=it.get("note", "")))
+        db.add(application)
+        if a.get("ref") is not None:
+            ref_to_application[a["ref"]] = application
+    db.flush()
+
+    # 5b. 费用报销单(引用员工/部门/科目/流程实例/凭证/费用申请,均按 ref 映射)
+    ref_to_claim: dict[int, models.ExpenseClaim] = {}
     for c in payload.get("expense_claims", []):
         app_emp = ref_to_emp.get(c.get("applicant_ref"))
         unit = ref_to_unit.get(c.get("org_unit_ref"))
         inst = ref_to_instance.get(c.get("workflow_instance_ref"))
         vch = ref_to_voucher.get(c.get("voucher_ref"))
+        application = ref_to_application.get(c.get("application_ref"))
         ts = c.get("created_at")
         claim = models.ExpenseClaim(
             claim_no=c.get("claim_no", ""),
             applicant_employee_id=app_emp.id if app_emp else None,
-            org_unit_id=unit.id if unit else None, reason=c.get("reason", ""),
+            org_unit_id=unit.id if unit else None,
+            application_id=application.id if application else None,
+            reason=c.get("reason", ""),
             total_amount=Decimal(str(c.get("total_amount", "0"))),
             status=c.get("status", "draft"),
             workflow_instance_id=inst.id if inst else None,
@@ -556,6 +607,37 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
                 sub_account=it.get("sub_account", ""),
                 amount=Decimal(str(it.get("amount", "0"))), note=it.get("note", "")))
         db.add(claim)
+        if c.get("ref") is not None:
+            ref_to_claim[c["ref"]] = claim
+    db.flush()
+
+    # 5c. 扁平附件表(v9):按 ref 映射到凭证/费用申请/费用报销并落盘
+    for att in payload.get("attachments", []):
+        arc = att.get("archive_name")
+        if not arc:
+            continue
+        member = arc if arc in zf.namelist() else _find_member(zf, arc)
+        if member is None:
+            continue
+        vch = ref_to_voucher.get(att.get("voucher_ref"))
+        application = ref_to_application.get(att.get("application_ref"))
+        claim = ref_to_claim.get(att.get("claim_ref"))
+        owner_dir = (f"{vch.id}" if vch else
+                     f"apply_{application.id}" if application else
+                     f"claim_{claim.id}" if claim else "misc")
+        sub_dir = upload_root / owner_dir
+        sub_dir.mkdir(parents=True, exist_ok=True)
+        suffix = Path(att.get("original_name", "")).suffix
+        stored = sub_dir / f"{uuid.uuid4().hex}{suffix}"
+        stored.write_bytes(zf.read(member))
+        db.add(models.Attachment(
+            voucher_id=vch.id if vch else None,
+            expense_application_id=application.id if application else None,
+            expense_claim_id=claim.id if claim else None,
+            kind=att.get("kind", "other"), original_name=att.get("original_name", ""),
+            stored_path=str(stored), mime_type=att.get("mime_type", ""),
+            size_bytes=att.get("size_bytes", 0)))
+        attachment_count += 1
 
     db.commit()
     return {

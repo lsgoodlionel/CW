@@ -1,5 +1,4 @@
 """附件 API:上传(发票/回单)、下载、删除。文件存本地卷,元数据入库。"""
-import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -8,18 +7,23 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..config import settings
-from .. import models, schemas
+from .. import models, schemas, attach_svc
 
 router = APIRouter(prefix="/api", tags=["attachments"])
 
-# invoice 发票 / receipt 银行回单 / contract 合同 / tax_payment 完税证明 / other 其他
-ALLOWED_KINDS = {"invoice", "receipt", "contract", "tax_payment", "other"}
+ALLOWED_KINDS = attach_svc.ALLOWED_KINDS
 
 
-def _upload_root() -> Path:
-    root = Path(settings.upload_dir)
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+async def read_upload(file: UploadFile, kind: str) -> bytes:
+    """校验类型/大小并返回文件字节。"""
+    if kind not in ALLOWED_KINDS:
+        raise HTTPException(status_code=400, detail=f"kind 必须是 {ALLOWED_KINDS} 之一")
+    content = await file.read()
+    if len(content) > settings.max_upload_bytes:
+        raise HTTPException(status_code=413, detail="文件超过大小上限")
+    if not content:
+        raise HTTPException(status_code=400, detail="空文件")
+    return content
 
 
 @router.post(
@@ -35,29 +39,12 @@ async def upload_attachment(
     voucher = db.get(models.Voucher, voucher_id)
     if voucher is None:
         raise HTTPException(status_code=404, detail="凭证不存在")
-    if kind not in ALLOWED_KINDS:
-        raise HTTPException(status_code=400, detail=f"kind 必须是 {ALLOWED_KINDS} 之一")
-
-    content = await file.read()
-    if len(content) > settings.max_upload_bytes:
-        raise HTTPException(status_code=413, detail="文件超过大小上限")
-    if not content:
-        raise HTTPException(status_code=400, detail="空文件")
-
-    suffix = Path(file.filename or "").suffix
-    sub_dir = _upload_root() / str(voucher_id)
-    sub_dir.mkdir(parents=True, exist_ok=True)
-    stored = sub_dir / f"{uuid.uuid4().hex}{suffix}"
-    stored.write_bytes(content)
-
-    attachment = models.Attachment(
-        voucher_id=voucher_id,
-        kind=kind,
-        original_name=file.filename or stored.name,
-        stored_path=str(stored),
-        mime_type=file.content_type or "application/octet-stream",
-        size_bytes=len(content),
-    )
+    content = await read_upload(file, kind)
+    stored = attach_svc.store_bytes(str(voucher_id), file.filename or "", content)
+    attachment = attach_svc.make_attachment(
+        kind=kind, original_name=file.filename or stored.name, stored_path=stored,
+        mime_type=file.content_type or "", size_bytes=len(content),
+        voucher_id=voucher_id)
     db.add(attachment)
     db.commit()
     db.refresh(attachment)

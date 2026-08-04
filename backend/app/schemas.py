@@ -137,7 +137,9 @@ class EntryOut(BaseModel):
 class AttachmentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
-    voucher_id: int
+    voucher_id: int | None = None
+    expense_application_id: int | None = None
+    expense_claim_id: int | None = None
     kind: str
     original_name: str
     mime_type: str
@@ -353,6 +355,7 @@ class ExpenseItemOut(ExpenseItemIn):
 class ExpenseClaimIn(BaseModel):
     applicant_employee_id: int | None = None
     org_unit_id: int | None = None
+    application_id: int | None = None
     reason: str = ""
     note: str = ""
     items: list[ExpenseItemIn] = Field(min_length=1)
@@ -366,6 +369,8 @@ class ExpenseClaimOut(BaseModel):
     applicant_name: str = ""
     org_unit_id: int | None
     org_unit_name: str = ""
+    application_id: int | None = None
+    application_no: str = ""
     reason: str
     total_amount: Decimal
     status: str
@@ -375,6 +380,55 @@ class ExpenseClaimOut(BaseModel):
     note: str
     created_at: datetime
     items: list[ExpenseItemOut] = []
+    attachments: list[AttachmentOut] = []
+    workflow: InstanceOut | None = None
+
+
+# ---------- 费用申请(事前审批) ----------
+APPLY_TYPES = {"general", "contract", "routine"}
+
+
+class ExpenseApplicationItemIn(BaseModel):
+    category: str = ""
+    account_id: int | None = None
+    sub_account: str = ""
+    amount: Decimal = Decimal("0")
+    note: str = ""
+
+
+class ExpenseApplicationItemOut(ExpenseApplicationItemIn):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    account_name: str = ""
+
+
+class ExpenseApplicationIn(BaseModel):
+    applicant_employee_id: int | None = None
+    org_unit_id: int | None = None
+    apply_type: str = "general"
+    reason: str = ""
+    note: str = ""
+    items: list[ExpenseApplicationItemIn] = Field(min_length=1)
+
+
+class ExpenseApplicationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    apply_no: str
+    applicant_employee_id: int | None
+    applicant_name: str = ""
+    org_unit_id: int | None
+    org_unit_name: str = ""
+    apply_type: str
+    reason: str
+    estimated_amount: Decimal
+    status: str
+    workflow_instance_id: int | None
+    note: str
+    created_at: datetime
+    items: list[ExpenseApplicationItemOut] = []
+    attachments: list[AttachmentOut] = []
+    claim_ids: list[int] = []
     workflow: InstanceOut | None = None
 
 

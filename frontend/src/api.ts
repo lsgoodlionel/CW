@@ -94,7 +94,9 @@ export interface Entry {
 
 export interface Attachment {
   id: number
-  voucher_id: number
+  voucher_id: number | null
+  expense_application_id?: number | null
+  expense_claim_id?: number | null
   kind: string
   original_name: string
   mime_type: string
@@ -226,6 +228,8 @@ export interface ExpenseClaim {
   applicant_name: string
   org_unit_id: number | null
   org_unit_name: string
+  application_id: number | null
+  application_no: string
   reason: string
   total_amount: number
   status: string
@@ -235,11 +239,55 @@ export interface ExpenseClaim {
   note: string
   created_at: string
   items: ExpenseItem[]
+  attachments: Attachment[]
+  workflow: WorkflowInstance | null
+}
+
+// 费用申请(事前审批)
+export interface ExpenseApplicationItem {
+  id?: number
+  category: string
+  account_id: number | null
+  sub_account: string
+  amount: number
+  note: string
+  account_name?: string
+}
+
+export interface ExpenseApplication {
+  id: number
+  apply_no: string
+  applicant_employee_id: number | null
+  applicant_name: string
+  org_unit_id: number | null
+  org_unit_name: string
+  apply_type: string
+  reason: string
+  estimated_amount: number
+  status: string
+  workflow_instance_id: number | null
+  note: string
+  created_at: string
+  items: ExpenseApplicationItem[]
+  attachments: Attachment[]
+  claim_ids: number[]
   workflow: WorkflowInstance | null
 }
 
 export const EXPENSE_STATUS_LABEL: Record<string, string> = {
   draft: '草稿', pending: '审批中', approved: '已通过', rejected: '已驳回', paid: '已生成凭证',
+}
+
+export const APPLY_STATUS_LABEL: Record<string, string> = {
+  draft: '草稿', pending: '审批中', approved: '已通过', rejected: '已驳回', closed: '已关联报销',
+}
+
+export const APPLY_TYPE_LABEL: Record<string, string> = {
+  general: '一般申请', contract: '合同', routine: '常规费用',
+}
+
+export const ATTACH_KIND_LABEL: Record<string, string> = {
+  invoice: '发票', receipt: '回单', contract: '合同', tax_payment: '完税证明', other: '其他',
 }
 
 export const APPROVER_TYPE_LABEL: Record<string, string> = {
