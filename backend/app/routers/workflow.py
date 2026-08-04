@@ -92,7 +92,55 @@ def _instance_out(db: Session, inst: models.WorkflowInstance) -> schemas.Instanc
     item.applicant_name = names.get(inst.applicant_employee_id, "") if inst.applicant_employee_id else ""
     for t, to in zip(inst.tasks, item.tasks):
         to.approver_name = names.get(t.approver_employee_id, "") if t.approver_employee_id else ""
+    item.steps = _build_step_chain(db, inst, names)
     return item
+
+
+def _build_step_chain(db: Session, inst: models.WorkflowInstance,
+                      names: dict[int, str]) -> list[schemas.InstanceStepOut]:
+    """合并「流程定义的全部步骤」与「实际审批任务」,得到含后续审批人的完整链。"""
+    steps = db.scalars(
+        select(models.WorkflowStep)
+        .where(models.WorkflowStep.definition_id == inst.definition_id)
+        .order_by(models.WorkflowStep.step_no)).all()
+    # 每一步取最后一条任务(同一步可能被驳回后重来)
+    task_by_step: dict[int, models.WorkflowTask] = {}
+    for t in sorted(inst.tasks, key=lambda x: x.id):
+        task_by_step[t.step_no] = t
+
+    chain: list[schemas.InstanceStepOut] = []
+    reached_end = inst.status in ("approved", "rejected")
+    for s in steps:
+        task = task_by_step.get(s.step_no)
+        approver_label = APPROVER_TYPES.get(s.approver_type, s.approver_type)
+        if task is not None:
+            if task.result == "approved":
+                state = "approved"
+            elif task.result == "rejected":
+                state = "rejected"
+            else:
+                # 有待办任务:整单已结束(被前面驳回)则视为未进行,否则为当前步
+                state = "skipped" if inst.status == "rejected" else "current"
+            approver_name = (names.get(task.approver_employee_id, "")
+                             if task.approver_employee_id else "")
+            chain.append(schemas.InstanceStepOut(
+                step_no=s.step_no, name=s.name or f"第{s.step_no}步",
+                approver_type=s.approver_type,
+                approver_name=approver_name or f"({approver_label})",
+                state=state, comment=task.comment, acted_at=task.acted_at,
+                is_current=(state == "current")))
+        else:
+            # 尚未生成任务的后续步骤:预计审批人 + 待审批/未进行
+            expect_id = workflow_svc.resolve_approver(db, s, inst.applicant_employee_id)
+            expect_name = names.get(expect_id, "") if expect_id else ""
+            state = "skipped" if reached_end else "upcoming"
+            chain.append(schemas.InstanceStepOut(
+                step_no=s.step_no, name=s.name or f"第{s.step_no}步",
+                approver_type=s.approver_type,
+                approver_name=(f"{expect_name}(预计)" if expect_name
+                               else f"预计:{approver_label}"),
+                state=state))
+    return chain
 
 
 @router.post("/instances", response_model=schemas.InstanceOut, status_code=201)

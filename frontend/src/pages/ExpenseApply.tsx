@@ -6,7 +6,8 @@ import {
 import { PlusOutlined, DeleteOutlined, UploadOutlined, PaperClipOutlined } from '@ant-design/icons'
 import {
   http, ExpenseApplication, Attachment, AccountTreeNode, Employee, OrgUnit,
-  APPLY_STATUS_LABEL, APPLY_TYPE_LABEL, ATTACH_KIND_LABEL, WF_STATUS_LABEL,
+  APPLY_STATUS_LABEL, APPLY_TYPE_LABEL, ATTACH_KIND_LABEL,
+  STEP_STATE_LABEL, STEP_STATE_COLOR,
 } from '../api'
 
 const STATUS_COLOR: Record<string, string> = {
@@ -257,13 +258,15 @@ export default function ExpenseApply() {
             )}
             {detail.workflow && (
               <>
-                <Divider orientation="left" plain>审批轨迹</Divider>
-                <Timeline items={detail.workflow.tasks.map((t) => ({
-                  color: t.result === 'approved' ? 'green' : t.result === 'rejected' ? 'red' : 'blue',
+                <Divider orientation="left" plain>审批流程</Divider>
+                <Timeline items={detail.workflow.steps.map((s) => ({
+                  color: STEP_STATE_COLOR[s.state] || 'gray',
                   children: (
-                    <div>
-                      <b>{t.step_name}</b> — {t.approver_name || '未指派'} <Tag>{WF_STATUS_LABEL[t.result] || t.result}</Tag>
-                      {t.comment && <div style={{ color: '#666' }}>意见:{t.comment}</div>}
+                    <div style={{ opacity: s.state === 'upcoming' || s.state === 'skipped' ? 0.65 : 1 }}>
+                      <b>{s.step_no}. {s.name}</b> — {s.approver_name || '未指派'}
+                      {' '}<Tag color={STEP_STATE_COLOR[s.state]}>{STEP_STATE_LABEL[s.state] || s.state}</Tag>
+                      {s.is_current && <Tag color="blue">当前</Tag>}
+                      {s.comment && <div style={{ color: '#666' }}>意见:{s.comment}</div>}
                     </div>
                   ),
                 }))} />

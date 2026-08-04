@@ -6,7 +6,7 @@ import {
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import {
   http, WorkflowDef, WorkflowInstance, Employee, ROLE_LABEL,
-  APPROVER_TYPE_LABEL, WF_STATUS_LABEL,
+  APPROVER_TYPE_LABEL, WF_STATUS_LABEL, STEP_STATE_LABEL, STEP_STATE_COLOR,
 } from '../api'
 
 const STATUS_COLOR: Record<string, string> = {
@@ -241,14 +241,15 @@ function ApprovalCenter({ defs, employees }: { defs: WorkflowDef[]; employees: E
           <>
             <p><b>{detail.title}</b> · 申请人 {detail.applicant_name || '-'} ·
               <Tag color={STATUS_COLOR[detail.status]} style={{ marginLeft: 6 }}>{WF_STATUS_LABEL[detail.status]}</Tag></p>
-            <Timeline items={detail.tasks.map((t) => ({
-              color: t.result === 'approved' ? 'green' : t.result === 'rejected' ? 'red' : 'blue',
+            <Timeline items={detail.steps.map((s) => ({
+              color: STEP_STATE_COLOR[s.state] || 'gray',
               children: (
-                <div>
-                  <b>{t.step_name}</b> — {t.approver_name || '未指派'}
-                  {' '}<Tag>{WF_STATUS_LABEL[t.result] || t.result}</Tag>
-                  {t.comment && <div style={{ color: '#666' }}>意见:{t.comment}</div>}
-                  {t.acted_at && <div style={{ color: '#999', fontSize: 12 }}>{t.acted_at.slice(0, 19).replace('T', ' ')}</div>}
+                <div style={{ opacity: s.state === 'upcoming' || s.state === 'skipped' ? 0.65 : 1 }}>
+                  <b>{s.step_no}. {s.name}</b> — {s.approver_name || '未指派'}
+                  {' '}<Tag color={STEP_STATE_COLOR[s.state]}>{STEP_STATE_LABEL[s.state] || s.state}</Tag>
+                  {s.is_current && <Tag color="blue">当前</Tag>}
+                  {s.comment && <div style={{ color: '#666' }}>意见:{s.comment}</div>}
+                  {s.acted_at && <div style={{ color: '#999', fontSize: 12 }}>{s.acted_at.slice(0, 19).replace('T', ' ')}</div>}
                 </div>
               ),
             }))} />

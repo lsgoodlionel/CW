@@ -197,6 +197,17 @@ export interface WorkflowTask {
   acted_at: string | null
 }
 
+export interface InstanceStep {
+  step_no: number
+  name: string
+  approver_type: string
+  approver_name: string
+  state: string   // approved / rejected / current / upcoming / skipped
+  comment: string
+  acted_at: string | null
+  is_current: boolean
+}
+
 export interface WorkflowInstance {
   id: number
   definition_id: number
@@ -209,6 +220,14 @@ export interface WorkflowInstance {
   current_step_no: number
   created_at: string
   tasks: WorkflowTask[]
+  steps: InstanceStep[]
+}
+
+export const STEP_STATE_LABEL: Record<string, string> = {
+  approved: '已通过', rejected: '已驳回', current: '审批中', upcoming: '待审批', skipped: '未进行',
+}
+export const STEP_STATE_COLOR: Record<string, string> = {
+  approved: 'green', rejected: 'red', current: 'blue', upcoming: 'gray', skipped: 'gray',
 }
 
 export interface ExpenseItem {

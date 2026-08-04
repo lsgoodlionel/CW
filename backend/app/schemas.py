@@ -322,6 +322,19 @@ class TaskOut(BaseModel):
     acted_at: datetime | None
 
 
+class InstanceStepOut(BaseModel):
+    """完整流程链的一步(合并流程定义步骤 + 实际审批任务)。"""
+    step_no: int
+    name: str
+    approver_type: str = ""
+    approver_name: str = ""     # 已办为实际审批人;未到步骤为预计审批人
+    # state: approved 已通过 / rejected 已驳回 / current 审批中 / upcoming 待审批 / skipped 未进行
+    state: str
+    comment: str = ""
+    acted_at: datetime | None = None
+    is_current: bool = False
+
+
 class InstanceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -335,6 +348,7 @@ class InstanceOut(BaseModel):
     current_step_no: int
     created_at: datetime
     tasks: list[TaskOut] = []
+    steps: list[InstanceStepOut] = []
 
 
 # ---------- 费用报销 ----------
