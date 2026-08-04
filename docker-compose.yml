@@ -21,6 +21,9 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-finance}:${POSTGRES_PASSWORD:-finance}@db:5432/${POSTGRES_DB:-finance}
       UPLOAD_DIR: /data/uploads
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      REQUIRE_AUTH: ${REQUIRE_AUTH:-true}
+      AUTH_SECRET: ${AUTH_SECRET:-change-me-please-set-AUTH_SECRET}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
     volumes:
       - uploads:/data/uploads
     depends_on:

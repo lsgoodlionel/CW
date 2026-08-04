@@ -180,15 +180,19 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 - API `/api/expense/claims` CRUD + `/submit` + `/make-voucher`;前端「费用报销」页(建单/明细/提交/详情+审批轨迹/生成凭证)。
 - 备份纳入(v7,员工/部门/科目/流程实例/凭证按 ref 映射)。
 
-### 7.3 用户模块 + RBAC 权限
-- 模型:`users`(用户名/密码哈希/关联员工/启用)、`roles`(角色)、`permissions`(权限点:view/create/edit/delete/approve × 模块)、`role_permissions`、`user_roles`。
-- 按职位授权;后台用户管理;操作权限包括查看/新建/删除/编辑/审批等。
-- 落地方式:后端加登录(JWT/Session)、依赖注入 `current_user` + 权限校验装饰器;前端登录页 + 路由守卫 + 按权限显隐按钮。
-- **决策点**:是否对现有全部页面强制登录(影响现网使用方式)。
+### 7.3 用户模块 + RBAC 权限 ✅ 已实现(全站强制登录)
+- 模型:`users`(用户名/密码哈希/关联员工/超管标志/启用)、`roles`、`role_permissions`(perm='module:action')、`user_roles`。
+- 鉴权:`auth_svc`(PBKDF2 密码哈希 + HMAC 签名令牌,均标准库)、`auth_mw.AuthMiddleware`(全站强制登录 + 按路径 `classify_perm` 权限校验,超管放行)。
+- 权限目录:模块(凭证/科目/往来/人员/流程/报销/报表/账簿/企业/数据/日志/用户)× 动作(查看/新建/编辑/删除/审批);角色勾选授权。
+- API:`/api/auth/login|me|change-password|permission-catalog`;`/api/users`(CRUD+重置密码+分配角色)、`/api/roles`(CRUD+权限)。
+- 前端:登录页、令牌注入与 401 跳转、路由守卫、按权限过滤菜单、Header 改密/退出、「用户与权限」管理页(用户/角色两页,权限矩阵勾选)。
+- 配置:`REQUIRE_AUTH`(默认 true)、`AUTH_SECRET`(生产必改)、`ADMIN_PASSWORD`(初始超管密码,默认 admin123)。
+- 操作日志新增 `operator`(操作人);备份 v8 含用户/角色(密码哈希一并备份)。
 
-### 7.4 超级管理员
-- 系统内置超管(最高权限),可创建**子管理员**并授予单一/批量权限;权限管理界面(角色×权限矩阵、用户×角色)。
-- 依赖 7.3 的 RBAC 基座。
+### 7.4 超级管理员 ✅ 已实现
+- 内置超管 `admin`(首次启动创建),拥有全部权限(`permissions=['*']`,中间件直接放行)。
+- 可创建**子管理员**:给用户勾选 `user` 模块权限或授予超管标志(仅超管可授予/取消超管;至少保留一个超管;内置 admin 不可删除)。
+- 角色×权限矩阵 + 用户×角色 分配即「单一/批量权限管理」。
 
 ## 8. 关键设计决策与已知限制
 

@@ -23,9 +23,9 @@ from .. import models
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-EXPORT_VERSION = 7
-# 1:基础 2:客户/关联 3:二级科目 4:往来/人员 5:日志/多岗 6:审批流程 7:费用报销
-SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7}
+EXPORT_VERSION = 8
+# 1-7 见历史;8:用户/角色/权限
+SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8}
 
 
 def _company_dict(c: models.CompanyInfo | None) -> dict:
@@ -139,11 +139,24 @@ def export_data(db: Session = Depends(get_db)):
             for c in db.scalars(select(models.ExpenseClaim)
                                 .options(selectinload(models.ExpenseClaim.items))).all()
         ],
+        "roles": [
+            {"name": r.name, "note": r.note, "is_system": r.is_system,
+             "perms": [p.perm for p in r.permissions]}
+            for r in db.scalars(select(models.Role)
+                                .options(selectinload(models.Role.permissions))).all()
+        ],
+        "users": [
+            {"username": u.username, "password_hash": u.password_hash,
+             "display_name": u.display_name, "employee_ref": u.employee_id,
+             "is_super_admin": u.is_super_admin, "is_active": u.is_active,
+             "role_names": [r.name for r in u.roles]}
+            for u in db.scalars(select(models.User)).all()
+        ],
         "operation_logs": [
             {"created_at": lg.created_at.isoformat() if lg.created_at else None,
              "action_type": lg.action_type, "action": lg.action, "method": lg.method,
              "path": lg.path, "entity_id": lg.entity_id, "summary": lg.summary,
-             "detail": lg.detail, "status_code": lg.status_code,
+             "operator": lg.operator, "detail": lg.detail, "status_code": lg.status_code,
              "duration_ms": lg.duration_ms, "ip": lg.ip}
             for lg in db.scalars(
                 select(models.OperationLog).order_by(models.OperationLog.id)).all()
@@ -259,6 +272,10 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     db.execute(delete(models.Employee))
     db.execute(delete(models.OrgUnit))
     db.execute(delete(models.OperationLog))
+    db.execute(delete(models.UserRole))
+    db.execute(delete(models.RolePermission))
+    db.execute(delete(models.User))
+    db.execute(delete(models.Role))
 
     # 2. 企业信息
     company = db.get(models.CompanyInfo, 1)
@@ -388,7 +405,33 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
             ref_to_instance[wi["ref"]] = inst
     db.flush()
 
-    # 3e. 操作日志(审计流水)
+    # 3e. 角色 + 用户(用户按 role_name/employee_ref 映射)
+    name_to_role: dict[str, models.Role] = {}
+    for r in payload.get("roles", []):
+        role = models.Role(name=r["name"], note=r.get("note", ""),
+                           is_system=r.get("is_system", False))
+        for p in r.get("perms", []):
+            role.permissions.append(models.RolePermission(perm=p))
+        db.add(role)
+        name_to_role[r["name"]] = role
+    db.flush()
+    for u in payload.get("users", []):
+        emp = ref_to_emp.get(u.get("employee_ref"))
+        user = models.User(
+            username=u["username"], password_hash=u.get("password_hash", ""),
+            display_name=u.get("display_name", ""),
+            employee_id=emp.id if emp else None,
+            is_super_admin=u.get("is_super_admin", False),
+            is_active=u.get("is_active", True))
+        db.add(user)
+        db.flush()
+        for rn in u.get("role_names", []):
+            role = name_to_role.get(rn)
+            if role:
+                db.add(models.UserRole(user_id=user.id, role_id=role.id))
+    db.flush()
+
+    # 3f. 操作日志(审计流水)
     for lg in payload.get("operation_logs", []):
         ts = lg.get("created_at")
         db.add(models.OperationLog(
@@ -396,6 +439,7 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
             action_type=lg.get("action_type", "other"), action=lg.get("action", ""),
             method=lg.get("method", ""), path=lg.get("path", ""),
             entity_id=lg.get("entity_id", ""), summary=lg.get("summary", ""),
+            operator=lg.get("operator", ""),
             detail=lg.get("detail", ""), status_code=lg.get("status_code", 0),
             duration_ms=lg.get("duration_ms", 0), ip=lg.get("ip", "")))
     db.flush()

@@ -201,6 +201,7 @@ class OperationLog(Base):
     status_code: Mapped[int] = mapped_column(Integer, default=0)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
     ip: Mapped[str] = mapped_column(String(50), default="")
+    operator: Mapped[str] = mapped_column(String(50), default="")  # 操作人(登录用户名)
     detail: Mapped[str] = mapped_column(Text, default="")   # 变更详情(提交内容/差异 JSON)
 
 
@@ -243,6 +244,60 @@ class Employee(Base):
     positions: Mapped[list["EmployeePosition"]] = relationship(
         back_populates="employee", cascade="all, delete-orphan",
         order_by="EmployeePosition.sort_no",
+    )
+
+
+class User(Base):
+    """系统用户(登录账号)。可关联员工;超管拥有全部权限。"""
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(200))
+    display_name: Mapped[str] = mapped_column(String(60), default="")
+    employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("employees.id", ondelete="SET NULL"), nullable=True
+    )
+    is_super_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    roles: Mapped[list["Role"]] = relationship(secondary="user_roles", lazy="selectin")
+
+
+class Role(Base):
+    """角色(权限集合),可授予多个用户。"""
+    __tablename__ = "roles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    note: Mapped[str] = mapped_column(String(200), default="")
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    permissions: Mapped[list["RolePermission"]] = relationship(
+        cascade="all, delete-orphan", lazy="selectin",
+    )
+
+
+class RolePermission(Base):
+    """角色权限点:perm 形如 'voucher:create'。"""
+    __tablename__ = "role_permissions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    role_id: Mapped[int] = mapped_column(
+        ForeignKey("roles.id", ondelete="CASCADE"), index=True
+    )
+    perm: Mapped[str] = mapped_column(String(50))
+
+
+class UserRole(Base):
+    __tablename__ = "user_roles"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    role_id: Mapped[int] = mapped_column(
+        ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True
     )
 
 

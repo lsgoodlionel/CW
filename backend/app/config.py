@@ -17,5 +17,11 @@ class Settings(BaseSettings):
     # 允许跨域来源(逗号分隔)
     cors_origins: str = "*"
 
+    # 鉴权:是否全站强制登录、令牌签名密钥与有效期、初始超管密码
+    require_auth: bool = True
+    auth_secret: str = "change-me-please-set-AUTH_SECRET"
+    token_ttl_hours: int = 12
+    admin_password: str = "admin123"
+
 
 settings = Settings()

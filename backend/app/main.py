@@ -8,9 +8,10 @@ from fastapi.responses import JSONResponse
 from .config import settings
 from .init_db import init_db
 from .oplog import OperationLogMiddleware
+from .auth_mw import AuthMiddleware
 from .routers import (
     company, accounts, vouchers, attachments, reports, data_io, ledgers, logs,
-    customers, personnel, workflow, expense,
+    customers, personnel, workflow, expense, auth, users,
 )
 
 
@@ -34,6 +35,8 @@ app.add_middleware(
 )
 # 操作日志中间件(记录数据变更与导入导出/下载行为)
 app.add_middleware(OperationLogMiddleware)
+# 鉴权中间件(全站强制登录 + 权限校验)——最后添加使其最外层,先于日志运行
+app.add_middleware(AuthMiddleware)
 
 
 @app.get("/api/health", tags=["system"])
@@ -53,3 +56,5 @@ app.include_router(customers.router)
 app.include_router(personnel.router)
 app.include_router(workflow.router)
 app.include_router(expense.router)
+app.include_router(auth.router)
+app.include_router(users.router)

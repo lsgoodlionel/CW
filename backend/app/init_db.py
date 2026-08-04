@@ -19,6 +19,7 @@ def init_db() -> None:
         _seed_subaccounts(db)
         _backfill_entry_sub_account_id(db)
         _backfill_employee_positions(db)
+        _seed_auth(db)
         db.commit()
     finally:
         db.close()
@@ -37,6 +38,7 @@ _ADDED_COLUMNS = {
     ],
     "operation_logs": [
         ("detail", "TEXT DEFAULT ''"),
+        ("operator", "VARCHAR(50) DEFAULT ''"),
     ],
     "company_info": [
         ("tax_number", "VARCHAR(40) DEFAULT ''"),
@@ -81,6 +83,38 @@ def _seed_accounts(db) -> None:
 def _seed_company(db) -> None:
     if db.get(models.CompanyInfo, 1) is None:
         db.add(models.CompanyInfo(id=1, name="我的小微企业"))
+
+
+def _seed_auth(db) -> None:
+    """首次创建超级管理员与默认角色。幂等。"""
+    from . import auth_svc
+    from .config import settings
+    if db.scalar(select(models.User.id).limit(1)) is None:
+        admin = models.User(
+            username="admin", display_name="超级管理员",
+            password_hash=auth_svc.hash_password(settings.admin_password),
+            is_super_admin=True, is_active=True)
+        db.add(admin)
+        print(f"[init] 已创建超级管理员 admin(初始密码来自 ADMIN_PASSWORD,"
+              f"默认 admin123),请登录后立即修改。", flush=True)
+    if db.scalar(select(models.Role.id).limit(1)) is None:
+        readonly = models.Role(name="只读查看", note="所有模块仅查看", is_system=True)
+        for m in auth_svc.MODULES:
+            readonly.permissions.append(models.RolePermission(perm=f"{m}:view"))
+        db.add(readonly)
+        finance = models.Role(name="财务操作", note="凭证/科目/往来/报表/账簿/报销 常规操作", is_system=True)
+        for m in ("voucher", "account", "customer", "expense"):
+            for a in ("view", "create", "edit", "delete"):
+                finance.permissions.append(models.RolePermission(perm=f"{m}:{a}"))
+        for m in ("report", "ledger", "company"):
+            finance.permissions.append(models.RolePermission(perm=f"{m}:view"))
+        db.add(finance)
+        approver = models.Role(name="审批人", note="审批流程与报销审批", is_system=True)
+        for m in ("workflow", "expense"):
+            approver.permissions.append(models.RolePermission(perm=f"{m}:view"))
+            approver.permissions.append(models.RolePermission(perm=f"{m}:approve"))
+        db.add(approver)
+    db.commit()
 
 
 def _seed_subaccounts(db) -> None:

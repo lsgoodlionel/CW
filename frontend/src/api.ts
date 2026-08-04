@@ -3,9 +3,45 @@ import { message } from 'antd'
 
 export const http = axios.create({ baseURL: '/api', timeout: 30000 })
 
+// ---------- 登录令牌 ----------
+const TOKEN_KEY = 'cw_token'
+export const getToken = () => localStorage.getItem(TOKEN_KEY)
+export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t)
+export const clearToken = () => localStorage.removeItem(TOKEN_KEY)
+
+export interface AuthUser {
+  id: number
+  username: string
+  display_name: string
+  is_super_admin: boolean
+  roles: string[]
+  permissions: string[]   // 超管为 ['*']
+}
+
+export function hasPerm(user: AuthUser | null, module: string, action: string): boolean {
+  if (!user) return false
+  if (user.is_super_admin || user.permissions.includes('*')) return true
+  return user.permissions.includes(`${module}:${action}`)
+}
+
+http.interceptors.request.use((config) => {
+  const t = getToken()
+  if (t) config.headers.Authorization = `Bearer ${t}`
+  return config
+})
+
 http.interceptors.response.use(
   (res) => res,
   (err) => {
+    const status = err?.response?.status
+    if (status === 401) {
+      clearToken()
+      if (!location.pathname.startsWith('/login')) {
+        message.error('登录已过期,请重新登录')
+        setTimeout(() => { location.href = '/login' }, 500)
+      }
+      return Promise.reject(err)
+    }
     const detail = err?.response?.data?.detail
     const text =
       typeof detail === 'string'

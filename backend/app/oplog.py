@@ -219,11 +219,13 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
         duration_ms = int((time.perf_counter() - start) * 1000)
         atype, label, entity_id = rule
         client = request.client.host if request.client else ""
+        user = getattr(request.state, "user", None)
+        operator = getattr(user, "username", "") if user else ""
         try:
             db = SessionLocal()
             db.add(models.OperationLog(
                 action_type=atype, action=label, method=method, path=path,
-                entity_id=entity_id, summary=summary, detail=detail,
+                entity_id=entity_id, summary=summary, detail=detail, operator=operator,
                 status_code=response.status_code, duration_ms=duration_ms, ip=client,
             ))
             db.commit()

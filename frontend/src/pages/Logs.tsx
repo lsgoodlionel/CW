@@ -13,6 +13,7 @@ interface LogItem {
   action_type_label: string
   action: string
   summary: string
+  operator: string
   detail: string
   status_code: number
   duration_ms: number
@@ -80,7 +81,8 @@ export default function Logs() {
       render: (v: string) => v.slice(0, 19).replace('T', ' ') },
     { title: '类型', dataIndex: 'action_type', width: 90,
       render: (v: string, r: LogItem) => <Tag color={TYPE_COLOR[v] || 'default'}>{r.action_type_label}</Tag> },
-    { title: '操作', dataIndex: 'action', width: 180 },
+    { title: '操作', dataIndex: 'action', width: 170 },
+    { title: '操作人', dataIndex: 'operator', width: 90, render: (v: string) => v || '-' },
     { title: '摘要', dataIndex: 'summary', ellipsis: true, render: (v: string) => v || '-' },
     { title: '状态', dataIndex: 'status_code', width: 70,
       render: (v: number) => <Tag color={v < 400 ? 'green' : 'red'}>{v}</Tag> },
