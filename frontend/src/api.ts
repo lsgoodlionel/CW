@@ -25,13 +25,6 @@ export function hasPerm(user: AuthUser | null, module: string, action: string): 
   return user.permissions.includes(`${module}:${action}`)
 }
 
-// 是否可进入审批中心:拥有任一单据的审批权限
-export function canApprove(user: AuthUser | null): boolean {
-  return hasPerm(user, 'workflow', 'approve')
-    || hasPerm(user, 'expense', 'approve')
-    || hasPerm(user, 'expense_apply', 'approve')
-}
-
 http.interceptors.request.use((config) => {
   const t = getToken()
   if (t) config.headers.Authorization = `Bearer ${t}`

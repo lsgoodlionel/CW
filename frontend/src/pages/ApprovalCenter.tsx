@@ -33,9 +33,9 @@ export default function ApprovalCenter() {
   const [submitForm] = Form.useForm()
   const [reassignTo, setReassignTo] = useState<number | undefined>()
 
-  // 能否管理流程(改派/撤销/删除):超管或拥有流程编辑权限
+  // 能否管理审批(改派/撤销/删除):超管或拥有审批中心的管理/删除权限
   const canManage = Boolean(me?.is_super_admin
-    || hasPerm(me, 'workflow', 'edit') || hasPerm(me, 'workflow', 'create'))
+    || hasPerm(me, 'approval', 'edit') || hasPerm(me, 'approval', 'delete'))
 
   // 当前审批人身份默认取登录账号绑定的员工
   useEffect(() => {

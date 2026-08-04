@@ -23,7 +23,7 @@ import Logs from './pages/Logs'
 import UsersAdmin from './pages/Users'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
-import { http, getToken, clearToken, AuthUser, hasPerm, canApprove } from './api'
+import { http, getToken, clearToken, AuthUser, hasPerm } from './api'
 
 const { Sider, Header, Content } = Layout
 
@@ -37,7 +37,7 @@ const MENU = [
   { key: '/ledgers', icon: <BookOutlined />, label: '会计账簿', module: 'ledger' },
   { key: '/reports', icon: <BarChartOutlined />, label: '财务报表', module: 'report' },
   { key: '/workflow', icon: <PartitionOutlined />, label: '流程设计', module: 'workflow' },
-  { key: '/approvals', icon: <AuditOutlined />, label: '审批中心', module: '__approve__' },
+  { key: '/approvals', icon: <AuditOutlined />, label: '审批中心', module: 'approval' },
   { key: '/expense-apply', icon: <FileDoneOutlined />, label: '费用申请', module: 'expense_apply' },
   { key: '/expense', icon: <SolutionOutlined />, label: '费用报销', module: 'expense' },
   { key: '/logs', icon: <HistoryOutlined />, label: '操作日志', module: 'logs' },
@@ -71,10 +71,7 @@ export default function App() {
     )
   }
 
-  const visibleMenu = MENU.filter((m) =>
-    !m.module ? true
-      : m.module === '__approve__' ? canApprove(user)
-        : hasPerm(user, m.module, 'view'))
+  const visibleMenu = MENU.filter((m) => !m.module || hasPerm(user, m.module, 'view'))
   const selectedKey =
     visibleMenu.map((m) => m.key)
       .filter((k) => k !== '/' && location.pathname.startsWith(k))

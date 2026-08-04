@@ -20,6 +20,7 @@ def init_db() -> None:
         _backfill_entry_sub_account_id(db)
         _backfill_employee_positions(db)
         _seed_auth(db)
+        _backfill_approval_perms(db)
         _seed_workflow(db)
         db.commit()
     finally:
@@ -129,11 +130,11 @@ def _seed_auth(db) -> None:
         for m in ("voucher", "account", "customer", "expense_apply", "expense"):
             for a in ("view", "create", "edit", "delete"):
                 finance.permissions.append(models.RolePermission(perm=f"{m}:{a}"))
-        for m in ("report", "ledger", "company"):
+        for m in ("report", "ledger", "company", "approval"):
             finance.permissions.append(models.RolePermission(perm=f"{m}:view"))
         db.add(finance)
-        approver = models.Role(name="审批人", note="审批流程与申请/报销审批", is_system=True)
-        for m in ("workflow", "expense_apply", "expense"):
+        approver = models.Role(name="审批人", note="审批中心:申请/报销审批", is_system=True)
+        for m in ("approval", "expense_apply", "expense"):
             approver.permissions.append(models.RolePermission(perm=f"{m}:view"))
             approver.permissions.append(models.RolePermission(perm=f"{m}:approve"))
         db.add(approver)
@@ -156,6 +157,32 @@ def _seed_subaccounts(db) -> None:
                 name=sub_name, note=note, sort_no=idx, is_active=True,
             ))
     db.commit()
+
+
+def _backfill_approval_perms(db) -> None:
+    """审批中心从流程设计拆分后,为已有角色补齐 approval:* 权限(依据其 workflow:* 权限)。幂等。
+
+    映射:workflow:view→approval:view,workflow:approve→approval:approve,
+    workflow:create/edit→approval:edit,workflow:delete→approval:delete。
+    确保旧「审批人/只读」等角色在权限拆分后仍能进入审批中心并审批。
+    """
+    mapping = {"view": "view", "approve": "approve",
+               "create": "edit", "edit": "edit", "delete": "delete"}
+    roles = db.scalars(select(models.Role)).all()
+    changed = False
+    for role in roles:
+        perms = {p.perm for p in role.permissions}
+        for p in list(perms):
+            if not p.startswith("workflow:"):
+                continue
+            action = p.split(":", 1)[1]
+            target = f"approval:{mapping.get(action, action)}"
+            if target not in perms:
+                role.permissions.append(models.RolePermission(perm=target))
+                perms.add(target)
+                changed = True
+    if changed:
+        db.commit()
 
 
 def _seed_workflow(db) -> None:
