@@ -173,10 +173,12 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 - 备份已纳入(v6,员工按 ref 映射)。
 - **待 #4 上线后**:审批中心的「当前审批人身份」由手动选择改为登录用户自动识别。
 
-### 7.2 费用报销申请单(复用 7.1)
-- 模型:`expense_claims`(申请人/部门/事由/明细/合计/关联凭证/流程实例)+ `expense_items`(费用类别/金额/发票附件)。
-- 流程:提交 → 按报销流程审批 → 通过后可一键生成记账凭证(借 管理费用/相关费用,贷 银行存款/其他应付款)。
-- 前端:报销申请页(填单+附发票)、我的申请、待我审批。
+### 7.2 费用报销申请单 ✅ 已实现
+- 模型:`expense_claims`(单号/申请人/部门/事由/合计/状态/流程实例/凭证)+ `expense_items`(费用类别/费用科目 account_id/明细科目/金额/备注)。
+- 流程:建单(草稿)→ 提交(按 biz_type=expense 的启用流程发起审批实例)→ 审批(在「审批流程·审批中心」处理)→ 通过后「生成凭证」(借 各费用科目/贷 银行存款,复用二级科目自动建)→ 已生成凭证(paid)。
+- 状态与流程实例同步(读时 `_sync_status`)。
+- API `/api/expense/claims` CRUD + `/submit` + `/make-voucher`;前端「费用报销」页(建单/明细/提交/详情+审批轨迹/生成凭证)。
+- 备份纳入(v7,员工/部门/科目/流程实例/凭证按 ref 映射)。
 
 ### 7.3 用户模块 + RBAC 权限
 - 模型:`users`(用户名/密码哈希/关联员工/启用)、`roles`(角色)、`permissions`(权限点:view/create/edit/delete/approve × 模块)、`role_permissions`、`user_roles`。

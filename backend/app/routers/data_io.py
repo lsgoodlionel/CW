@@ -23,9 +23,9 @@ from .. import models
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-EXPORT_VERSION = 6
-# 1:基础 2:客户/关联 3:二级科目 4:往来类型/人员 5:操作日志/一人多岗 6:审批流程
-SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6}
+EXPORT_VERSION = 7
+# 1:基础 2:客户/关联 3:二级科目 4:往来/人员 5:日志/多岗 6:审批流程 7:费用报销
+SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7}
 
 
 def _company_dict(c: models.CompanyInfo | None) -> dict:
@@ -113,7 +113,7 @@ def export_data(db: Session = Depends(get_db)):
                                 .options(selectinload(models.WorkflowDefinition.steps))).all()
         ],
         "workflow_instances": [
-            {"definition_ref": ins.definition_id, "biz_type": ins.biz_type,
+            {"ref": ins.id, "definition_ref": ins.definition_id, "biz_type": ins.biz_type,
              "biz_id": ins.biz_id, "title": ins.title,
              "applicant_ref": ins.applicant_employee_id, "status": ins.status,
              "current_step_no": ins.current_step_no,
@@ -125,6 +125,19 @@ def export_data(db: Session = Depends(get_db)):
                        for t in ins.tasks]}
             for ins in db.scalars(select(models.WorkflowInstance)
                                   .options(selectinload(models.WorkflowInstance.tasks))).all()
+        ],
+        "expense_claims": [
+            {"claim_no": c.claim_no, "applicant_ref": c.applicant_employee_id,
+             "org_unit_ref": c.org_unit_id, "reason": c.reason,
+             "total_amount": str(c.total_amount), "status": c.status,
+             "workflow_instance_ref": c.workflow_instance_id,
+             "voucher_ref": c.voucher_id, "note": c.note,
+             "created_at": c.created_at.isoformat() if c.created_at else None,
+             "items": [{"category": it.category, "account_code": acc_code.get(it.account_id, ""),
+                        "sub_account": it.sub_account, "amount": str(it.amount),
+                        "note": it.note} for it in c.items]}
+            for c in db.scalars(select(models.ExpenseClaim)
+                                .options(selectinload(models.ExpenseClaim.items))).all()
         ],
         "operation_logs": [
             {"created_at": lg.created_at.isoformat() if lg.created_at else None,
@@ -236,6 +249,8 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     db.execute(delete(models.SubAccount))
     db.execute(delete(models.Account))
     db.execute(delete(models.Customer))
+    db.execute(delete(models.ExpenseItem))
+    db.execute(delete(models.ExpenseClaim))
     db.execute(delete(models.WorkflowTask))
     db.execute(delete(models.WorkflowInstance))
     db.execute(delete(models.WorkflowStep))
@@ -346,6 +361,7 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
         if wd.get("ref") is not None:
             ref_to_def[wd["ref"]] = d
     db.flush()
+    ref_to_instance: dict[int, models.WorkflowInstance] = {}
     for wi in payload.get("workflow_instances", []):
         d = ref_to_def.get(wi.get("definition_ref"))
         if d is None:
@@ -368,6 +384,8 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
                 result=t.get("result", "pending"), comment=t.get("comment", ""),
                 acted_at=datetime.fromisoformat(at) if at else None))
         db.add(inst)
+        if wi.get("ref") is not None:
+            ref_to_instance[wi["ref"]] = inst
     db.flush()
 
     # 3e. 操作日志(审计流水)
@@ -453,6 +471,31 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
             note=link.get("note", ""),
         ))
         link_count += 1
+
+    # 5. 费用报销单(引用员工/部门/科目/流程实例/凭证,均按 ref 映射)
+    for c in payload.get("expense_claims", []):
+        app_emp = ref_to_emp.get(c.get("applicant_ref"))
+        unit = ref_to_unit.get(c.get("org_unit_ref"))
+        inst = ref_to_instance.get(c.get("workflow_instance_ref"))
+        vch = ref_to_voucher.get(c.get("voucher_ref"))
+        ts = c.get("created_at")
+        claim = models.ExpenseClaim(
+            claim_no=c.get("claim_no", ""),
+            applicant_employee_id=app_emp.id if app_emp else None,
+            org_unit_id=unit.id if unit else None, reason=c.get("reason", ""),
+            total_amount=Decimal(str(c.get("total_amount", "0"))),
+            status=c.get("status", "draft"),
+            workflow_instance_id=inst.id if inst else None,
+            voucher_id=vch.id if vch else None, note=c.get("note", ""),
+            created_at=datetime.fromisoformat(ts) if ts else None)
+        for it in c.get("items", []):
+            acc = code_to_account.get(it.get("account_code"))
+            claim.items.append(models.ExpenseItem(
+                category=it.get("category", ""),
+                account_id=acc.id if acc else None,
+                sub_account=it.get("sub_account", ""),
+                amount=Decimal(str(it.get("amount", "0"))), note=it.get("note", "")))
+        db.add(claim)
 
     db.commit()
     return {

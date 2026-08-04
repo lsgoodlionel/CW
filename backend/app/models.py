@@ -246,6 +246,55 @@ class Employee(Base):
     )
 
 
+class ExpenseClaim(Base):
+    """费用报销申请单(复用审批流程,通过后可生成记账凭证)。"""
+    __tablename__ = "expense_claims"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    claim_no: Mapped[str] = mapped_column(String(40), index=True)
+    applicant_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("employees.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    org_unit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("org_units.id", ondelete="SET NULL"), nullable=True
+    )
+    reason: Mapped[str] = mapped_column(String(200), default="")   # 报销事由
+    total_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)
+    # draft 草稿 / pending 审批中 / approved 已通过 / rejected 已驳回 / paid 已生成凭证
+    status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
+    workflow_instance_id: Mapped[int | None] = mapped_column(
+        ForeignKey("workflow_instances.id", ondelete="SET NULL"), nullable=True
+    )
+    voucher_id: Mapped[int | None] = mapped_column(
+        ForeignKey("vouchers.id", ondelete="SET NULL"), nullable=True
+    )
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    items: Mapped[list["ExpenseItem"]] = relationship(
+        back_populates="claim", cascade="all, delete-orphan", order_by="ExpenseItem.id",
+    )
+
+
+class ExpenseItem(Base):
+    """报销明细行。account_id/sub_account 用于生成凭证的费用科目。"""
+    __tablename__ = "expense_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    claim_id: Mapped[int] = mapped_column(
+        ForeignKey("expense_claims.id", ondelete="CASCADE"), index=True
+    )
+    category: Mapped[str] = mapped_column(String(60), default="")   # 费用类别
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("accounts.id"), nullable=True
+    )
+    sub_account: Mapped[str] = mapped_column(String(100), default="")  # 明细科目
+    amount: Mapped[Decimal] = mapped_column(MONEY, default=0)
+    note: Mapped[str] = mapped_column(String(200), default="")
+
+    claim: Mapped["ExpenseClaim"] = relationship(back_populates="items")
+
+
 class WorkflowDefinition(Base):
     """审批流程定义(可复用于报销等业务单据)。"""
     __tablename__ = "workflow_definitions"

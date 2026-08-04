@@ -173,6 +173,39 @@ export interface WorkflowInstance {
   tasks: WorkflowTask[]
 }
 
+export interface ExpenseItem {
+  id?: number
+  category: string
+  account_id: number | null
+  sub_account: string
+  amount: number
+  note: string
+  account_name?: string
+}
+
+export interface ExpenseClaim {
+  id: number
+  claim_no: string
+  applicant_employee_id: number | null
+  applicant_name: string
+  org_unit_id: number | null
+  org_unit_name: string
+  reason: string
+  total_amount: number
+  status: string
+  workflow_instance_id: number | null
+  voucher_id: number | null
+  voucher_no: string
+  note: string
+  created_at: string
+  items: ExpenseItem[]
+  workflow: WorkflowInstance | null
+}
+
+export const EXPENSE_STATUS_LABEL: Record<string, string> = {
+  draft: '草稿', pending: '审批中', approved: '已通过', rejected: '已驳回', paid: '已生成凭证',
+}
+
 export const APPROVER_TYPE_LABEL: Record<string, string> = {
   employee: '指定员工', role: '按角色', department_head: '部门负责人', any: '任一管理层',
 }

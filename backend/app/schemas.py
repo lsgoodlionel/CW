@@ -335,6 +335,49 @@ class InstanceOut(BaseModel):
     tasks: list[TaskOut] = []
 
 
+# ---------- 费用报销 ----------
+class ExpenseItemIn(BaseModel):
+    category: str = ""
+    account_id: int | None = None
+    sub_account: str = ""
+    amount: Decimal = Decimal("0")
+    note: str = ""
+
+
+class ExpenseItemOut(ExpenseItemIn):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    account_name: str = ""
+
+
+class ExpenseClaimIn(BaseModel):
+    applicant_employee_id: int | None = None
+    org_unit_id: int | None = None
+    reason: str = ""
+    note: str = ""
+    items: list[ExpenseItemIn] = Field(min_length=1)
+
+
+class ExpenseClaimOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    claim_no: str
+    applicant_employee_id: int | None
+    applicant_name: str = ""
+    org_unit_id: int | None
+    org_unit_name: str = ""
+    reason: str
+    total_amount: Decimal
+    status: str
+    workflow_instance_id: int | None
+    voucher_id: int | None
+    voucher_no: str = ""
+    note: str
+    created_at: datetime
+    items: list[ExpenseItemOut] = []
+    workflow: InstanceOut | None = None
+
+
 # ---------- 凭证关联 ----------
 RELATION_TYPES = {"advance", "on_account", "write_off", "receivable", "reversal", "other"}
 

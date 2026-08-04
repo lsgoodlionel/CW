@@ -36,6 +36,11 @@ _RULES: list[tuple[str, str, str, str]] = [
     (r"PUT", r"^/api/workflow/definitions/(\d+)$", "workflow", "修改审批流程 #{id}"),
     (r"DELETE", r"^/api/workflow/definitions/(\d+)$", "workflow", "删除审批流程 #{id}"),
     (r"POST", r"^/api/workflow/instances$", "workflow", "发起审批"),
+    (r"POST", r"^/api/expense/claims$", "expense", "新建报销单"),
+    (r"PUT", r"^/api/expense/claims/(\d+)$", "expense", "修改报销单 #{id}"),
+    (r"DELETE", r"^/api/expense/claims/(\d+)$", "expense", "删除报销单 #{id}"),
+    (r"POST", r"^/api/expense/claims/(\d+)/submit$", "expense", "提交报销单 #{id}"),
+    (r"POST", r"^/api/expense/claims/(\d+)/make-voucher$", "expense", "报销单生成凭证 #{id}"),
     (r"POST", r"^/api/workflow/tasks/(\d+)/approve$", "workflow", "审批通过 #{id}"),
     (r"POST", r"^/api/workflow/tasks/(\d+)/reject$", "workflow", "审批驳回 #{id}"),
     (r"POST", r"^/api/personnel/employees$", "personnel", "新增员工"),
@@ -61,8 +66,8 @@ _RULES: list[tuple[str, str, str, str]] = [
 ACTION_TYPES = {
     "voucher": "凭证", "account": "科目", "attachment": "附件",
     "customer": "往来单位", "personnel": "人员", "workflow": "审批流程",
-    "company": "企业信息", "report": "报表", "ledger": "账簿",
-    "data": "数据", "other": "其他",
+    "expense": "费用报销", "company": "企业信息", "report": "报表",
+    "ledger": "账簿", "data": "数据", "other": "其他",
 }
 
 
