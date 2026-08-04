@@ -36,6 +36,7 @@ def _to_dict(log: models.OperationLog) -> dict:
         "path": log.path,
         "entity_id": log.entity_id,
         "summary": log.summary,
+        "detail": log.detail,
         "status_code": log.status_code,
         "duration_ms": log.duration_ms,
         "ip": log.ip,

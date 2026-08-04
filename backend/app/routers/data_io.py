@@ -23,8 +23,9 @@ from .. import models
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-EXPORT_VERSION = 4
-SUPPORTED_VERSIONS = {1, 2, 3, 4}  # 1:基础 2:客户/关联 3:二级科目 4:往来类型/人员
+EXPORT_VERSION = 5
+# 1:基础 2:客户/关联 3:二级科目 4:往来类型/人员 5:操作日志/一人多岗
+SUPPORTED_VERSIONS = {1, 2, 3, 4, 5}
 
 
 def _company_dict(c: models.CompanyInfo | None) -> dict:
@@ -100,6 +101,15 @@ def export_data(db: Session = Depends(get_db)):
             {"source_ref": link.source_id, "target_ref": link.target_id,
              "relation_type": link.relation_type, "note": link.note}
             for link in links
+        ],
+        "operation_logs": [
+            {"created_at": lg.created_at.isoformat() if lg.created_at else None,
+             "action_type": lg.action_type, "action": lg.action, "method": lg.method,
+             "path": lg.path, "entity_id": lg.entity_id, "summary": lg.summary,
+             "detail": lg.detail, "status_code": lg.status_code,
+             "duration_ms": lg.duration_ms, "ip": lg.ip}
+            for lg in db.scalars(
+                select(models.OperationLog).order_by(models.OperationLog.id)).all()
         ],
         "vouchers": [],
     }
@@ -205,6 +215,7 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     db.execute(delete(models.EmployeePosition))
     db.execute(delete(models.Employee))
     db.execute(delete(models.OrgUnit))
+    db.execute(delete(models.OperationLog))
 
     # 2. 企业信息
     company = db.get(models.CompanyInfo, 1)
@@ -285,6 +296,18 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
                 role_type=e.get("role_type", "staff"),
                 position=e.get("position", ""), sort_no=1))
         db.add(emp)
+    db.flush()
+
+    # 3e. 操作日志(审计流水)
+    for lg in payload.get("operation_logs", []):
+        ts = lg.get("created_at")
+        db.add(models.OperationLog(
+            created_at=datetime.fromisoformat(ts) if ts else None,
+            action_type=lg.get("action_type", "other"), action=lg.get("action", ""),
+            method=lg.get("method", ""), path=lg.get("path", ""),
+            entity_id=lg.get("entity_id", ""), summary=lg.get("summary", ""),
+            detail=lg.get("detail", ""), status_code=lg.get("status_code", 0),
+            duration_ms=lg.get("duration_ms", 0), ip=lg.get("ip", "")))
     db.flush()
 
     # 4. 凭证 + 分录 + 附件

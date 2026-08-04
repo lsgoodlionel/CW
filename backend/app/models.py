@@ -201,6 +201,7 @@ class OperationLog(Base):
     status_code: Mapped[int] = mapped_column(Integer, default=0)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
     ip: Mapped[str] = mapped_column(String(50), default="")
+    detail: Mapped[str] = mapped_column(Text, default="")   # 变更详情(提交内容/差异 JSON)
 
 
 class OrgUnit(Base):

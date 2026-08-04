@@ -68,26 +68,118 @@ def classify(method: str, path: str) -> tuple[str, str, str] | None:
     return None
 
 
-async def _body_summary(request: Request, method: str) -> str:
-    """从 JSON 请求体提取简短摘要(如凭证摘要、科目名),失败则空。"""
+# 路径 → (模型名, 固定id或None) 用于抓取「修改前」快照
+_ENTITY_RULES: list[tuple[str, str, int | None]] = [
+    (r"^/api/vouchers/(\d+)$", "Voucher", None),
+    (r"^/api/accounts/subaccounts/(\d+)$", "SubAccount", None),
+    (r"^/api/accounts/(\d+)$", "Account", None),
+    (r"^/api/customers/(\d+)$", "Customer", None),
+    (r"^/api/personnel/employees/(\d+)$", "Employee", None),
+    (r"^/api/personnel/org-units/(\d+)$", "OrgUnit", None),
+    (r"^/api/company$", "CompanyInfo", 1),
+]
+_REDACT = ("password", "token", "secret")
+_MAX_DETAIL = 4000
+
+
+def _jsonable(value):
+    from decimal import Decimal
+    from datetime import date, datetime
+    if isinstance(value, (Decimal,)):
+        return float(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
+
+
+def _snapshot(obj) -> dict:
+    """取 ORM 对象的列值快照(排除时间戳,脱敏)。"""
+    from sqlalchemy import inspect as sa_inspect
+    out = {}
+    for col in sa_inspect(obj).mapper.column_attrs:
+        k = col.key
+        if k in ("created_at", "updated_at"):
+            continue
+        if any(s in k.lower() for s in _REDACT):
+            out[k] = "***"
+            continue
+        out[k] = _jsonable(getattr(obj, k))
+    return out
+
+
+def _model_for(path: str):
+    for pattern, model_name, fixed_id in _ENTITY_RULES:
+        m = re.fullmatch(pattern, path)
+        if m:
+            obj_id = fixed_id if fixed_id is not None else int(m.group(1))
+            return getattr(models, model_name), obj_id
+    return None, None
+
+
+def _before_snapshot(method: str, path: str) -> dict | None:
+    """更新/删除前抓取实体快照。"""
+    if method not in ("PUT", "PATCH", "DELETE"):
+        return None
+    model, obj_id = _model_for(path)
+    if model is None:
+        return None
+    try:
+        db = SessionLocal()
+        obj = db.get(model, obj_id)
+        snap = _snapshot(obj) if obj is not None else None
+        db.close()
+        return snap
+    except Exception:
+        return None
+
+
+async def _parse_body(request: Request, method: str) -> tuple[str, dict | None]:
+    """解析 JSON 请求体,返回 (摘要, 提交内容 dict)。"""
     if method not in ("POST", "PUT", "PATCH"):
-        return ""
-    ctype = request.headers.get("content-type", "")
-    if "application/json" not in ctype:
-        return ""
+        return "", None
+    if "application/json" not in request.headers.get("content-type", ""):
+        return "", None
     try:
         raw = await request.body()
-        if not raw or len(raw) > 100_000:
-            return ""
+        if not raw or len(raw) > 200_000:
+            return "", None
         data = json.loads(raw)
     except (ValueError, UnicodeDecodeError):
-        return ""
+        return "", None
     if not isinstance(data, dict):
-        return ""
+        return "", None
+    summary = ""
     for key in ("note", "name", "voucher_no", "voucher_date"):
         if data.get(key):
-            return f"{key}={data[key]}"[:180]
-    return ""
+            summary = f"{key}={data[key]}"[:180]
+            break
+    redacted = {k: ("***" if any(s in k.lower() for s in _REDACT) else v)
+                for k, v in data.items()}
+    return summary, redacted
+
+
+def _build_detail(method: str, before: dict | None, submitted: dict | None) -> str:
+    """组装变更详情:提交内容 + 修改前后差异。"""
+    detail: dict = {}
+    if method == "DELETE" and before:
+        detail["删除前"] = before
+    elif before is not None and submitted:
+        # 更新:逐字段对比生成差异
+        changes = {}
+        for k, new_val in submitted.items():
+            if k in before and before.get(k) != new_val:
+                changes[k] = {"改前": before.get(k), "改后": new_val}
+        if changes:
+            detail["变更"] = changes
+        detail["提交内容"] = submitted
+    elif submitted:
+        detail["提交内容"] = submitted
+    if not detail:
+        return ""
+    try:
+        return json.dumps(detail, ensure_ascii=False, default=str)[:_MAX_DETAIL]
+    except (TypeError, ValueError):
+        return ""
 
 
 class OperationLogMiddleware(BaseHTTPMiddleware):
@@ -96,13 +188,21 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         rule = classify(method, path)
 
-        # 提前读取 body(会缓存,不影响下游),供摘要提取
-        summary = await _body_summary(request, method) if rule else ""
+        summary, submitted = ("", None)
+        before = None
+        if rule is not None:
+            summary, submitted = await _parse_body(request, method)
+            before = _before_snapshot(method, path)
 
         start = time.perf_counter()
         response = await call_next(request)
         if rule is None:
             return response
+
+        # 仅对成功的写操作记录详情(失败请求不产生变更)
+        detail = ""
+        if response.status_code < 400:
+            detail = _build_detail(method, before, submitted)
 
         duration_ms = int((time.perf_counter() - start) * 1000)
         atype, label, entity_id = rule
@@ -111,7 +211,7 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
             db = SessionLocal()
             db.add(models.OperationLog(
                 action_type=atype, action=label, method=method, path=path,
-                entity_id=entity_id, summary=summary,
+                entity_id=entity_id, summary=summary, detail=detail,
                 status_code=response.status_code, duration_ms=duration_ms, ip=client,
             ))
             db.commit()

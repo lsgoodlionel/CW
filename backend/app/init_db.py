@@ -35,6 +35,9 @@ _ADDED_COLUMNS = {
     "customers": [
         ("party_type", "VARCHAR(20) DEFAULT 'enterprise'"),
     ],
+    "operation_logs": [
+        ("detail", "TEXT DEFAULT ''"),
+    ],
     "company_info": [
         ("tax_number", "VARCHAR(40) DEFAULT ''"),
         ("reg_address", "VARCHAR(200) DEFAULT ''"),

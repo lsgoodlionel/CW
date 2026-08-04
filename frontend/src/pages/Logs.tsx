@@ -13,6 +13,7 @@ interface LogItem {
   action_type_label: string
   action: string
   summary: string
+  detail: string
   status_code: number
   duration_ms: number
   ip: string
@@ -20,7 +21,19 @@ interface LogItem {
 
 const TYPE_COLOR: Record<string, string> = {
   voucher: 'blue', account: 'geekblue', attachment: 'cyan', company: 'purple',
+  customer: 'gold', personnel: 'magenta',
   report: 'green', ledger: 'lime', data: 'volcano', other: 'default',
+}
+
+function DetailView({ detail }: { detail: string }) {
+  let obj: unknown
+  try { obj = JSON.parse(detail) } catch { obj = detail }
+  return (
+    <pre style={{ margin: 0, padding: 8, background: '#fafafa', borderRadius: 4,
+      whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 12 }}>
+      {typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2)}
+    </pre>
+  )
 }
 
 export default function Logs() {
@@ -97,6 +110,10 @@ export default function Logs() {
       </Space>
 
       <Table rowKey="id" size="small" loading={loading} columns={columns} dataSource={items}
+        expandable={{
+          expandedRowRender: (r) => <DetailView detail={r.detail} />,
+          rowExpandable: (r) => Boolean(r.detail),
+        }}
         pagination={{ current: page, total, pageSize: 30, showTotal: (t) => `共 ${t} 条`, onChange: setPage }} />
     </Card>
   )
