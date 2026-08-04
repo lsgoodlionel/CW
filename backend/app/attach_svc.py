@@ -5,8 +5,9 @@ from pathlib import Path
 from . import models
 from .config import settings
 
-# invoice 发票 / receipt 银行回单 / contract 合同 / tax_payment 完税证明 / other 其他
-ALLOWED_KINDS = {"invoice", "receipt", "contract", "tax_payment", "other"}
+# invoice 发票 / receipt 银行回单 / contract 合同 / tax_payment 完税证明
+# approval 审批记录(系统生成) / other 其他
+ALLOWED_KINDS = {"invoice", "receipt", "contract", "tax_payment", "approval", "other"}
 
 
 def upload_root() -> Path:

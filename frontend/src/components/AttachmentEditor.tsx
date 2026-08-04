@@ -24,7 +24,10 @@ export default function AttachmentEditor({
 }: Props) {
   const [kind, setKind] = useState(defaultKind)
   const [flights, setFlights] = useState<InFlight[]>([])
-  const kindOpts = Object.entries(ATTACH_KIND_LABEL).map(([value, label]) => ({ value, label }))
+  // 审批记录为系统生成,不在手动上传类型中提供
+  const kindOpts = Object.entries(ATTACH_KIND_LABEL)
+    .filter(([value]) => value !== 'approval')
+    .map(([value, label]) => ({ value, label }))
 
   const doUpload = async (file: File) => {
     let id = ownerId

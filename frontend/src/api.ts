@@ -317,7 +317,8 @@ export const APPLY_TYPE_LABEL: Record<string, string> = {
 }
 
 export const ATTACH_KIND_LABEL: Record<string, string> = {
-  invoice: '发票', receipt: '回单', contract: '合同', tax_payment: '完税证明', other: '其他',
+  invoice: '发票', receipt: '回单', contract: '合同', tax_payment: '完税证明',
+  approval: '审批记录', other: '其他',
 }
 
 export const APPROVER_TYPE_LABEL: Record<string, string> = {

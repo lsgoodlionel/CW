@@ -7,7 +7,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
-from .. import models, schemas, workflow_svc, subaccounts_svc, attach_svc
+from .. import models, schemas, workflow_svc, subaccounts_svc, attach_svc, approval_doc
 from .attachments import read_upload
 
 router = APIRouter(prefix="/api/expense", tags=["expense"])
@@ -219,6 +219,17 @@ def make_voucher(claim_id: int, credit_account_code: str = Query("1002"),
         app = db.get(models.ExpenseApplication, claim.application_id)
         if app and app.status == "approved":
             app.status = "closed"
+
+    # 自动生成"费用审批记录单"PDF,作为凭证附件归档(含事前申请+报销审批轨迹)
+    try:
+        pdf = approval_doc.build_claim_approval_pdf(db, claim)
+        fname = f"审批记录单-{claim.claim_no}.pdf"
+        stored = attach_svc.store_bytes(str(voucher.id), fname, pdf)
+        db.add(attach_svc.make_attachment(
+            kind="approval", original_name=fname, stored_path=stored,
+            mime_type="application/pdf", size_bytes=len(pdf), voucher_id=voucher.id))
+    except Exception as exc:  # 记录单生成失败不阻断凭证生成
+        print(f"[approval_doc] 生成审批记录单失败(claim {claim.id}): {exc}", flush=True)
 
     db.commit()
     return get_claim(claim_id, db)
