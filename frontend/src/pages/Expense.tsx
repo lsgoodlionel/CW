@@ -6,10 +6,11 @@ import {
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
-  http, ExpenseClaim, ExpenseApplication, AccountTreeNode, Employee, OrgUnit,
+  http, ExpenseClaim, ExpenseApplication, Attachment, AccountTreeNode, Employee, OrgUnit,
   APPROVER_TYPE_LABEL, EXPENSE_STATUS_LABEL, APPLY_TYPE_LABEL,
   STEP_STATE_LABEL, STEP_STATE_COLOR,
 } from '../api'
+import AttachmentEditor, { StagedFile, uploadStaged } from '../components/AttachmentEditor'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'default', pending: 'processing', approved: 'success', rejected: 'error', paid: 'gold',
@@ -38,6 +39,8 @@ export default function Expense() {
   const [editing, setEditing] = useState<ExpenseClaim | null>(null)
   const [form] = Form.useForm()
   const [detail, setDetail] = useState<ExpenseClaim | null>(null)
+  const [staged, setStaged] = useState<StagedFile[]>([])
+  const [existingAtt, setExistingAtt] = useState<Attachment[]>([])
 
   const load = useCallback(() => {
     setLoading(true)
@@ -87,17 +90,26 @@ export default function Expense() {
   }
 
   const openEdit = (c: ExpenseClaim | null) => {
-    setEditing(c); form.resetFields()
+    setEditing(c); form.resetFields(); setStaged([])
+    setExistingAtt(c ? c.attachments : [])
     if (c) form.setFieldsValue({ ...c, items: c.items })
     else form.setFieldsValue({ items: [{ amount: 0 }] })
     setOpen(true)
   }
   const save = async () => {
     const v = await form.validateFields()
-    if (editing) await http.put(`/expense/claims/${editing.id}`, v)
-    else await http.post('/expense/claims', v)
+    const r = editing
+      ? await http.put<ExpenseClaim>(`/expense/claims/${editing.id}`, v)
+      : await http.post<ExpenseClaim>('/expense/claims', v)
+    if (staged.length) {
+      await uploadStaged(http, '/expense/claims', r.data.id, staged)
+    }
     message.success('已保存'); setOpen(false); load()
   }
+  const deleteExisting = (aid: number) =>
+    http.delete(`/attachments/${aid}`).then(() => {
+      setExistingAtt((prev) => prev.filter((a) => a.id !== aid)); message.success('附件已删除')
+    })
   const submit = (id: number) =>
     http.post(`/expense/claims/${id}/submit`).then(() => { message.success('已提交审批'); load() })
   const remove = (id: number) =>
@@ -115,7 +127,7 @@ export default function Expense() {
     { title: '申请人', dataIndex: 'applicant_name', width: 90, render: (v: string) => v || '-' },
     { title: '事由', dataIndex: 'reason', ellipsis: true },
     { title: '金额', dataIndex: 'total_amount', width: 110, align: 'right' as const,
-      render: (v: number) => `¥${v.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` },
+      render: (v: number | string) => `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` },
     { title: '状态', dataIndex: 'status', width: 100,
       render: (s: string) => <Tag color={STATUS_COLOR[s]}>{EXPENSE_STATUS_LABEL[s] || s}</Tag> },
     { title: '凭证', dataIndex: 'voucher_no', width: 130,
@@ -224,6 +236,9 @@ export default function Expense() {
               </>
             )}
           </Form.List>
+          <Divider orientation="left" plain>报销附件(发票/回单等,生成凭证时自动同步)</Divider>
+          <AttachmentEditor existing={existingAtt} staged={staged} onStagedChange={setStaged}
+            onDeleteExisting={editing ? deleteExisting : undefined} defaultKind="invoice" />
         </Form>
       </Modal>
 
@@ -240,11 +255,11 @@ export default function Expense() {
                 { title: '类别', dataIndex: 'category', render: (v: string) => v || '-' },
                 { title: '科目', dataIndex: 'account_name' },
                 { title: '明细', dataIndex: 'sub_account', render: (v: string) => v || '-' },
-                { title: '金额', dataIndex: 'amount', align: 'right' as const, render: (v: number) => v.toFixed(2) },
+                { title: '金额', dataIndex: 'amount', align: 'right' as const, render: (v: number | string) => Number(v).toFixed(2) },
               ]} summary={() => (
                 <Table.Summary.Row>
                   <Table.Summary.Cell index={0} colSpan={3}><b>合计</b></Table.Summary.Cell>
-                  <Table.Summary.Cell index={3} align="right"><b>{detail.total_amount.toFixed(2)}</b></Table.Summary.Cell>
+                  <Table.Summary.Cell index={3} align="right"><b>{Number(detail.total_amount).toFixed(2)}</b></Table.Summary.Cell>
                 </Table.Summary.Row>
               )} />
             {detail.attachments && detail.attachments.length > 0 && (

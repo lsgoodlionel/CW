@@ -2,12 +2,13 @@
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
-from .. import models, schemas, workflow_svc, subaccounts_svc
+from .. import models, schemas, workflow_svc, subaccounts_svc, attach_svc
+from .attachments import read_upload
 
 router = APIRouter(prefix="/api/expense", tags=["expense"])
 
@@ -221,6 +222,25 @@ def make_voucher(claim_id: int, credit_account_code: str = Query("1002"),
 
     db.commit()
     return get_claim(claim_id, db)
+
+
+@router.post("/claims/{claim_id}/attachments", response_model=schemas.AttachmentOut, status_code=201)
+async def upload_claim_attachment(claim_id: int, kind: str = Form("other"),
+                                  file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """上传报销单附件(发票/回单等);生成凭证时会同步到凭证附件。"""
+    claim = db.get(models.ExpenseClaim, claim_id)
+    if claim is None:
+        raise HTTPException(status_code=404, detail="报销单不存在")
+    content = await read_upload(file, kind)
+    stored = attach_svc.store_bytes(f"claim_{claim_id}", file.filename or "", content)
+    attachment = attach_svc.make_attachment(
+        kind=kind, original_name=file.filename or stored.name, stored_path=stored,
+        mime_type=file.content_type or "", size_bytes=len(content),
+        expense_claim_id=claim_id)
+    db.add(attachment)
+    db.commit()
+    db.refresh(attachment)
+    return attachment
 
 
 @router.get("/active-workflow")

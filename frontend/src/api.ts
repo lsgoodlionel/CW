@@ -14,6 +14,7 @@ export interface AuthUser {
   username: string
   display_name: string
   is_super_admin: boolean
+  employee_id: number | null
   roles: string[]
   permissions: string[]   // 超管为 ['*']
 }
@@ -22,6 +23,13 @@ export function hasPerm(user: AuthUser | null, module: string, action: string): 
   if (!user) return false
   if (user.is_super_admin || user.permissions.includes('*')) return true
   return user.permissions.includes(`${module}:${action}`)
+}
+
+// 是否可进入审批中心:拥有任一单据的审批权限
+export function canApprove(user: AuthUser | null): boolean {
+  return hasPerm(user, 'workflow', 'approve')
+    || hasPerm(user, 'expense', 'approve')
+    || hasPerm(user, 'expense_apply', 'approve')
 }
 
 http.interceptors.request.use((config) => {

@@ -4,7 +4,7 @@ import {
   DashboardOutlined, FileTextOutlined, ProfileOutlined, BarChartOutlined,
   SettingOutlined, BookOutlined, HistoryOutlined, TeamOutlined, IdcardOutlined,
   PartitionOutlined, SolutionOutlined, SafetyCertificateOutlined, UserOutlined,
-  LogoutOutlined, KeyOutlined, FileDoneOutlined,
+  LogoutOutlined, KeyOutlined, FileDoneOutlined, AuditOutlined,
 } from '@ant-design/icons'
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
@@ -14,6 +14,7 @@ import Accounts from './pages/Accounts'
 import Customers from './pages/Customers'
 import Personnel from './pages/Personnel'
 import Workflow from './pages/Workflow'
+import ApprovalCenter from './pages/ApprovalCenter'
 import Expense from './pages/Expense'
 import ExpenseApply from './pages/ExpenseApply'
 import Reports from './pages/Reports'
@@ -22,7 +23,7 @@ import Logs from './pages/Logs'
 import UsersAdmin from './pages/Users'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
-import { http, getToken, clearToken, AuthUser, hasPerm } from './api'
+import { http, getToken, clearToken, AuthUser, hasPerm, canApprove } from './api'
 
 const { Sider, Header, Content } = Layout
 
@@ -35,7 +36,8 @@ const MENU = [
   { key: '/accounts', icon: <ProfileOutlined />, label: '会计科目', module: 'account' },
   { key: '/ledgers', icon: <BookOutlined />, label: '会计账簿', module: 'ledger' },
   { key: '/reports', icon: <BarChartOutlined />, label: '财务报表', module: 'report' },
-  { key: '/workflow', icon: <PartitionOutlined />, label: '审批流程', module: 'workflow' },
+  { key: '/workflow', icon: <PartitionOutlined />, label: '流程设计', module: 'workflow' },
+  { key: '/approvals', icon: <AuditOutlined />, label: '审批中心', module: '__approve__' },
   { key: '/expense-apply', icon: <FileDoneOutlined />, label: '费用申请', module: 'expense_apply' },
   { key: '/expense', icon: <SolutionOutlined />, label: '费用报销', module: 'expense' },
   { key: '/logs', icon: <HistoryOutlined />, label: '操作日志', module: 'logs' },
@@ -69,7 +71,10 @@ export default function App() {
     )
   }
 
-  const visibleMenu = MENU.filter((m) => !m.module || hasPerm(user, m.module, 'view'))
+  const visibleMenu = MENU.filter((m) =>
+    !m.module ? true
+      : m.module === '__approve__' ? canApprove(user)
+        : hasPerm(user, m.module, 'view'))
   const selectedKey =
     visibleMenu.map((m) => m.key)
       .filter((k) => k !== '/' && location.pathname.startsWith(k))
@@ -120,6 +125,7 @@ export default function App() {
             <Route path="/ledgers" element={<Ledgers />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/workflow" element={<Workflow />} />
+            <Route path="/approvals" element={<ApprovalCenter />} />
             <Route path="/expense-apply" element={<ExpenseApply />} />
             <Route path="/expense" element={<Expense />} />
             <Route path="/logs" element={<Logs />} />

@@ -9,6 +9,7 @@ import {
   APPLY_STATUS_LABEL, APPLY_TYPE_LABEL, ATTACH_KIND_LABEL,
   STEP_STATE_LABEL, STEP_STATE_COLOR,
 } from '../api'
+import AttachmentEditor, { StagedFile, uploadStaged } from '../components/AttachmentEditor'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'default', pending: 'processing', approved: 'success', rejected: 'error', closed: 'gold',
@@ -36,6 +37,8 @@ export default function ExpenseApply() {
   const [form] = Form.useForm()
   const [detail, setDetail] = useState<ExpenseApplication | null>(null)
   const [uploadKind, setUploadKind] = useState('contract')
+  const [staged, setStaged] = useState<StagedFile[]>([])
+  const [existingAtt, setExistingAtt] = useState<Attachment[]>([])
 
   const load = useCallback(() => {
     setLoading(true)
@@ -66,17 +69,26 @@ export default function ExpenseApply() {
   }, [])
 
   const openEdit = (a: ExpenseApplication | null) => {
-    setEditing(a); form.resetFields()
+    setEditing(a); form.resetFields(); setStaged([])
+    setExistingAtt(a ? a.attachments : [])
     if (a) form.setFieldsValue({ ...a, items: a.items })
     else form.setFieldsValue({ apply_type: 'general', items: [{ amount: 0 }] })
     setOpen(true)
   }
   const save = async () => {
     const v = await form.validateFields()
-    if (editing) await http.put(`/expense-apply/${editing.id}`, v)
-    else await http.post('/expense-apply', v)
+    const r = editing
+      ? await http.put<ExpenseApplication>(`/expense-apply/${editing.id}`, v)
+      : await http.post<ExpenseApplication>('/expense-apply', v)
+    if (staged.length) {
+      await uploadStaged(http, '/expense-apply', r.data.id, staged)
+    }
     message.success('已保存'); setOpen(false); load()
   }
+  const deleteExisting = (aid: number) =>
+    http.delete(`/attachments/${aid}`).then(() => {
+      setExistingAtt((prev) => prev.filter((a) => a.id !== aid)); message.success('附件已删除')
+    })
   const submit = (id: number) =>
     http.post(`/expense-apply/${id}/submit`).then(() => { message.success('已提交审批'); load() })
   const remove = (id: number) =>
@@ -111,7 +123,7 @@ export default function ExpenseApply() {
     { title: '申请人', dataIndex: 'applicant_name', width: 90, render: (v: string) => v || '-' },
     { title: '事由', dataIndex: 'reason', ellipsis: true },
     { title: '预计金额', dataIndex: 'estimated_amount', width: 110, align: 'right' as const,
-      render: (v: number) => `¥${v.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` },
+      render: (v: number | string) => `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` },
     { title: '附件', dataIndex: 'attachments', width: 60, align: 'center' as const,
       render: (a: Attachment[]) => a.length ? <Tag icon={<PaperClipOutlined />}>{a.length}</Tag> : '-' },
     { title: '状态', dataIndex: 'status', width: 100,
@@ -214,6 +226,9 @@ export default function ExpenseApply() {
               </>
             )}
           </Form.List>
+          <Divider orientation="left" plain>申请附件(合同/发票等,报销生成凭证时自动同步)</Divider>
+          <AttachmentEditor existing={existingAtt} staged={staged} onStagedChange={setStaged}
+            onDeleteExisting={editing ? deleteExisting : undefined} defaultKind="contract" />
         </Form>
       </Modal>
 
@@ -232,11 +247,11 @@ export default function ExpenseApply() {
                 { title: '类别', dataIndex: 'category', render: (v: string) => v || '-' },
                 { title: '科目', dataIndex: 'account_name' },
                 { title: '明细', dataIndex: 'sub_account', render: (v: string) => v || '-' },
-                { title: '预计金额', dataIndex: 'amount', align: 'right' as const, render: (v: number) => v.toFixed(2) },
+                { title: '预计金额', dataIndex: 'amount', align: 'right' as const, render: (v: number | string) => Number(v).toFixed(2) },
               ]} summary={() => (
                 <Table.Summary.Row>
                   <Table.Summary.Cell index={0} colSpan={3}><b>合计</b></Table.Summary.Cell>
-                  <Table.Summary.Cell index={3} align="right"><b>{detail.estimated_amount.toFixed(2)}</b></Table.Summary.Cell>
+                  <Table.Summary.Cell index={3} align="right"><b>{Number(detail.estimated_amount).toFixed(2)}</b></Table.Summary.Cell>
                 </Table.Summary.Row>
               )} />
 

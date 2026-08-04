@@ -26,6 +26,7 @@ def _user_info(db: Session, user: models.User) -> dict:
     return {
         "id": user.id, "username": user.username, "display_name": user.display_name,
         "is_super_admin": user.is_super_admin,
+        "employee_id": user.employee_id,
         "roles": [r.name for r in user.roles],
         "permissions": perms,
     }
