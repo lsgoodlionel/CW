@@ -254,6 +254,31 @@ async def upload_claim_attachment(claim_id: int, kind: str = Form("other"),
     return attachment
 
 
+@router.post("/claims/{claim_id}/regenerate-approval-doc",
+             response_model=schemas.ExpenseClaimOut)
+def regenerate_approval_doc(claim_id: int, db: Session = Depends(get_db)):
+    """为已生成凭证的报销单补生成/刷新「费用审批记录单」PDF 附件(替换旧的)。"""
+    claim = _load(db, claim_id)
+    if not claim.voucher_id:
+        raise HTTPException(status_code=400, detail="该报销单尚未生成凭证,无需补生成")
+    from pathlib import Path
+    # 先移除该凭证上已有的审批记录附件,避免重复堆积
+    olds = db.scalars(select(models.Attachment).where(
+        models.Attachment.voucher_id == claim.voucher_id,
+        models.Attachment.kind == "approval")).all()
+    for att in olds:
+        Path(att.stored_path).unlink(missing_ok=True)
+        db.delete(att)
+    pdf = approval_doc.build_claim_approval_pdf(db, claim)
+    fname = f"审批记录单-{claim.claim_no}.pdf"
+    stored = attach_svc.store_bytes(str(claim.voucher_id), fname, pdf)
+    db.add(attach_svc.make_attachment(
+        kind="approval", original_name=fname, stored_path=stored,
+        mime_type="application/pdf", size_bytes=len(pdf), voucher_id=claim.voucher_id))
+    db.commit()
+    return get_claim(claim_id, db)
+
+
 @router.get("/active-workflow")
 def active_workflow(db: Session = Depends(get_db)):
     """报销当前使用的审批流程(供报销页展示,可到审批流程页修改)。"""

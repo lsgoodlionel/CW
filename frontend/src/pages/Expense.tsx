@@ -121,6 +121,10 @@ export default function Expense() {
     http.post(`/expense/claims/${id}/make-voucher`).then((r) => {
       message.success(`已生成凭证 ${r.data.voucher_no}`); load()
     })
+  const regenDoc = (id: number) =>
+    http.post(`/expense/claims/${id}/regenerate-approval-doc`).then((r) => {
+      message.success('已补生成审批记录单'); if (detail?.id === id) setDetail(r.data)
+    })
 
   const accOpts = accounts.map((a) => ({ value: a.id, label: `${a.code} ${a.name}` }))
 
@@ -146,6 +150,11 @@ export default function Expense() {
             </Popconfirm>
           </>}
           {r.status === 'approved' && <a onClick={() => makeVoucher(r.id)}>生成凭证</a>}
+          {r.status === 'paid' && (
+            <Popconfirm title="重新生成审批记录单并挂到凭证附件?" onConfirm={() => regenDoc(r.id)}>
+              <a>补生成审批单</a>
+            </Popconfirm>
+          )}
           <a onClick={() => setDetail(r)}>详情</a>
         </Space>
       ),
