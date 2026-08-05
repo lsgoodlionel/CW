@@ -44,6 +44,7 @@ function UserTab() {
   useEffect(() => { load() }, [load])
 
   const openEdit = (u: UserRow | null) => {
+    http.get<Role[]>('/roles').then((r) => setRoles(r.data))  // 同步最新角色
     setEditing(u); form.resetFields()
     if (u) form.setFieldsValue(u)
     else form.setFieldsValue({ is_super_admin: false, role_ids: [] })
@@ -240,6 +241,7 @@ function PresetTab() {
   useEffect(() => { load() }, [load])
 
   const openEdit = (p: Preset | null) => {
+    http.get<Role[]>('/roles').then((r) => setRoles(r.data))  // 同步最新角色
     setEditing(p); form.resetFields()
     if (p) form.setFieldsValue(p)
     setOpen(true)

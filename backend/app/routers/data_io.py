@@ -23,18 +23,18 @@ from .. import models
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-EXPORT_VERSION = 9
+EXPORT_VERSION = 10
 # 1-7 见历史;8:用户/角色/权限;9:费用申请 + 附件多归属(扁平附件表)
-SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9}
+# 10:企业信息导出全部字段(税号/地址/开户行/行业/本位币/准则/启用期间等)
+SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 
 
 def _company_dict(c: models.CompanyInfo | None) -> dict:
+    """导出企业信息全部字段(动态取列,新增字段自动纳入);id 除外。"""
     if c is None:
         return {}
-    return {
-        "name": c.name, "legal_person": c.legal_person, "accountant": c.accountant,
-        "auditor": c.auditor, "bookkeeper": c.bookkeeper, "recorder": c.recorder,
-    }
+    return {col.name: getattr(c, col.name)
+            for col in c.__table__.columns if col.name != "id"}
 
 
 @router.get("/export")

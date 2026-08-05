@@ -3,7 +3,9 @@ import { Row, Col, Card, Statistic, Spin, Empty, Segmented, DatePicker, Space, T
 import {
   BankOutlined, WalletOutlined, RiseOutlined, FallOutlined,
   AccountBookOutlined, FileTextOutlined, ArrowUpOutlined, ArrowDownOutlined,
+  AuditOutlined, SolutionOutlined, FileDoneOutlined, TeamOutlined, IdcardOutlined,
 } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid,
 } from 'recharts'
@@ -24,6 +26,17 @@ interface Dashboard {
   voucher_count: number
   expense_breakdown: { code: string; name: string; amount: number }[]
   trend: { month: string; revenue: number; net_profit: number }[]
+  ops: {
+    workflow_pending: number
+    apply_pending: number
+    apply_approved: number
+    claim_pending: number
+    claim_approved: number
+    claim_paid: number
+    customers: number
+    employees: number
+    attachments: number
+  }
 }
 
 const yuan = (n: number) =>
@@ -32,6 +45,7 @@ const yuan = (n: number) =>
 const EXP_COLORS = ['#1f6feb', '#52c41a', '#faad14', '#eb2f96', '#722ed1', '#13c2c2', '#fa541c']
 
 export default function Dashboard() {
+  const navigate = useNavigate()
   const [periodType, setPeriodType] = useState<PeriodType>('month')
   const [refDate, setRefDate] = useState<Dayjs>(dayjs())
   const [data, setData] = useState<Dashboard | null>(null)
@@ -127,6 +141,48 @@ export default function Dashboard() {
           </Card>
         </Col>
       </Row>
+
+      {/* 待办 / 运营概览(审批·费用·档案) */}
+      <Card size="small" title="待办 / 运营概览" style={{ marginTop: 16 }}>
+        <Row gutter={[16, 16]}>
+          <Col xs={12} lg={4}>
+            <Card size="small" hoverable onClick={() => navigate('/approvals')}>
+              <Statistic title="审批进行中" value={data.ops.workflow_pending}
+                valueStyle={{ color: data.ops.workflow_pending ? '#1f6feb' : undefined }}
+                prefix={<AuditOutlined />} />
+            </Card>
+          </Col>
+          <Col xs={12} lg={4}>
+            <Card size="small" hoverable onClick={() => navigate('/expense')}>
+              <Statistic title="待生成凭证" value={data.ops.claim_approved}
+                valueStyle={{ color: data.ops.claim_approved ? '#d48806' : undefined }}
+                prefix={<SolutionOutlined />} />
+            </Card>
+          </Col>
+          <Col xs={12} lg={4}>
+            <Card size="small" hoverable onClick={() => navigate('/expense')}>
+              <Statistic title="报销审批中" value={data.ops.claim_pending}
+                prefix={<SolutionOutlined />} />
+            </Card>
+          </Col>
+          <Col xs={12} lg={4}>
+            <Card size="small" hoverable onClick={() => navigate('/expense-apply')}>
+              <Statistic title="费用申请待审" value={data.ops.apply_pending}
+                prefix={<FileDoneOutlined />} />
+            </Card>
+          </Col>
+          <Col xs={12} lg={4}>
+            <Card size="small" hoverable onClick={() => navigate('/customers')}>
+              <Statistic title="往来单位" value={data.ops.customers} prefix={<TeamOutlined />} />
+            </Card>
+          </Col>
+          <Col xs={12} lg={4}>
+            <Card size="small" hoverable onClick={() => navigate('/personnel')}>
+              <Statistic title="在册员工" value={data.ops.employees} prefix={<IdcardOutlined />} />
+            </Card>
+          </Col>
+        </Row>
+      </Card>
 
       <Row gutter={16} style={{ marginTop: 16 }}>
         <Col xs={24} lg={14}>

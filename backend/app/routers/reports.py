@@ -361,6 +361,8 @@ def dashboard(
          for c, n in _EXPENSE_CODES.items() if b.net_debit(c) != 0),
         key=lambda x: -abs(x["amount"]))
 
+    ops = _ops_summary(db)
+
     return {
         "period": {"type": period_type, "label": label,
                    "start": start.isoformat(), "end": end.isoformat()},
@@ -377,4 +379,32 @@ def dashboard(
         "voucher_count": voucher_count,
         "expense_breakdown": expense_breakdown,
         "trend": _monthly_trend(db, months=6),
+        "ops": ops,
+    }
+
+
+def _ops_summary(db: Session) -> dict:
+    """运营/待办概览:审批、费用申请与报销、基础档案数量,反映最新功能状态。"""
+    def _count(model, *conds) -> int:
+        stmt = select(func.count(model.id))
+        for c in conds:
+            stmt = stmt.where(c)
+        return db.scalar(stmt) or 0
+
+    return {
+        "workflow_pending": _count(models.WorkflowInstance,
+                                   models.WorkflowInstance.status == "pending"),
+        "apply_pending": _count(models.ExpenseApplication,
+                                models.ExpenseApplication.status == "pending"),
+        "apply_approved": _count(models.ExpenseApplication,
+                                 models.ExpenseApplication.status == "approved"),
+        "claim_pending": _count(models.ExpenseClaim,
+                                models.ExpenseClaim.status == "pending"),
+        "claim_approved": _count(models.ExpenseClaim,
+                                 models.ExpenseClaim.status == "approved"),
+        "claim_paid": _count(models.ExpenseClaim,
+                             models.ExpenseClaim.status == "paid"),
+        "customers": _count(models.Customer),
+        "employees": _count(models.Employee),
+        "attachments": _count(models.Attachment),
     }
