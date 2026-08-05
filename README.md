@@ -298,6 +298,28 @@ APP_DIR=/opt/cw bash -c "$(curl -fsSL https://raw.githubusercontent.com/lsgoodli
 
 也可在仓库目录内运行 `./upgrade.sh`。数据库表结构变更在启动时自动建表。
 
+### 一键卸载(停用服务 + 删除数据)
+
+在服务器上一行命令卸载(**危险操作,不可恢复**;管道运行需显式确认 `ASSUME_YES=1`):
+
+```bash
+ASSUME_YES=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/uninstall.sh)"
+```
+
+卸载流程:**卸载前把数据导出到仓库目录之外做一次安全备份**(`$HOME/cw-uninstall-backups/`)→ 停止并删除容器 → 删除数据卷 `db_data`(数据库)与 `uploads`(附件)→ 删除本地构建镜像。
+
+在仓库目录内运行 `./uninstall.sh` 会以交互方式要求输入 `yes` 确认。可选环境变量:
+
+| 变量 | 作用 |
+|------|------|
+| `ASSUME_YES=1` | 跳过确认(管道/非交互卸载必须设置) |
+| `NO_BACKUP=1` | 跳过卸载前备份 |
+| `PURGE_DIR=1` | 连同代码目录一起删除(默认保留) |
+| `KEEP_IMAGES=1` | 保留本地构建镜像 |
+| `APP_DIR=/路径` | 自动定位失败时显式指定部署目录 |
+
+> 重装后可在「数据备份」页导入卸载前保留的备份 zip 恢复数据。
+
 **升级后界面没显示新功能?** 多为容器未重建或浏览器缓存,依次尝试:
 
 ```bash
