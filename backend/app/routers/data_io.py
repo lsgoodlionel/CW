@@ -640,6 +640,8 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
         attachment_count += 1
 
     db.commit()
+    # 恢复后确保仍有可登录的超级管理员(旧版本备份不含用户/角色,否则会被锁死)
+    _ensure_super_admin(db)
     return {
         "accounts": len(code_to_account),
         "customers": len(ref_to_customer),
@@ -647,3 +649,29 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
         "attachments": attachment_count,
         "links": link_count,
     }
+
+
+def _ensure_super_admin(db: Session) -> None:
+    """备份恢复后,若无可用超级管理员则重置默认 admin,并补齐默认角色。幂等。"""
+    from .. import auth_svc
+    from ..config import settings
+    from ..init_db import _seed_auth
+
+    has_super = db.scalar(select(models.User.id).where(
+        models.User.is_super_admin.is_(True), models.User.is_active.is_(True)).limit(1))
+    if has_super is None:
+        admin = db.scalar(select(models.User).where(models.User.username == "admin"))
+        if admin is None:
+            db.add(models.User(
+                username="admin", display_name="超级管理员",
+                password_hash=auth_svc.hash_password(settings.admin_password),
+                is_super_admin=True, is_active=True))
+        else:
+            admin.is_super_admin = True
+            admin.is_active = True
+            admin.password_hash = auth_svc.hash_password(settings.admin_password)
+        db.commit()
+        print("[restore] 备份中无可用超级管理员,已重置默认 admin"
+              "(密码来自 ADMIN_PASSWORD,默认 admin123),请登录后立即修改。", flush=True)
+    # 旧备份可能无角色:补齐系统默认角色(幂等)
+    _seed_auth(db)

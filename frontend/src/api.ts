@@ -37,11 +37,12 @@ http.interceptors.response.use(
     const status = err?.response?.status
     if (status === 401) {
       clearToken()
+      // 已在登录页(如登录失败):不跳转,继续走下方错误提示显示后端原因
       if (!location.pathname.startsWith('/login')) {
         message.error('登录已过期,请重新登录')
         setTimeout(() => { location.href = '/login' }, 500)
+        return Promise.reject(err)
       }
-      return Promise.reject(err)
     }
     const detail = err?.response?.data?.detail
     const text =
