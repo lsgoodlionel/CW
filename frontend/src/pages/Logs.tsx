@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { Card, Table, Tag, Select, Segmented, Button, Space } from 'antd'
 import { FilePdfOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { http } from '../api'
+import { http, withToken } from '../api'
 
 type ReportType = 'month' | 'quarter' | 'year'
 
@@ -71,7 +71,7 @@ export default function Logs() {
     if (reportType === 'month') p.month = month
     if (reportType === 'quarter') p.quarter = quarter
     const qs = new URLSearchParams(p as Record<string, string>).toString()
-    window.open(`/api/logs/export-pdf?${qs}`, '_blank')
+    window.open(withToken(`/api/logs/export-pdf?${qs}`), '_blank')
   }
 
   const years = Array.from({ length: 8 }, (_, i) => now.year() - i)

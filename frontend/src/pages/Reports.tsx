@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { Card, Tabs, Table, Tag, Segmented, Select, Button, Space } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { http } from '../api'
+import { http, withToken } from '../api'
 
 const yuan = (n: number | null) =>
   n === null || n === undefined
@@ -61,7 +61,7 @@ export default function Reports() {
 
   const exportExcel = () => {
     const qs = new URLSearchParams(params as Record<string, string>).toString()
-    window.open(`/api/reports/export-excel?${qs}`, '_blank')
+    window.open(withToken(`/api/reports/export-excel?${qs}`), '_blank')
   }
 
   const years = Array.from({ length: 8 }, (_, i) => now.year() - i)

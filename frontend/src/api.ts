@@ -322,10 +322,17 @@ export const ATTACH_KIND_LABEL: Record<string, string> = {
   approval: '费用审批记录', other: '其他',
 }
 
-// 附件预览/下载 URL(带令牌,供浏览器直接加载 img/iframe/a)
-export function fileUrl(attachmentId: number, mode: 'preview' | 'download'): string {
+// 给浏览器直接发起的下载/预览地址(window.open、a、img、iframe)附加令牌,
+// 因为这类请求不会带 Authorization 头,强制登录下会 401。
+export function withToken(url: string): string {
   const t = getToken()
-  return `/api/attachments/${attachmentId}/${mode}${t ? `?token=${encodeURIComponent(t)}` : ''}`
+  if (!t) return url
+  return url + (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(t)
+}
+
+// 附件预览/下载 URL(带令牌)
+export function fileUrl(attachmentId: number, mode: 'preview' | 'download'): string {
+  return withToken(`/api/attachments/${attachmentId}/${mode}`)
 }
 
 export const APPROVER_TYPE_LABEL: Record<string, string> = {

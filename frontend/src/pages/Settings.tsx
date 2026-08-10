@@ -3,7 +3,7 @@ import {
   Card, Form, Input, Button, message, Spin, Divider, Space, Upload, Typography, Modal, Row, Col,
 } from 'antd'
 import { DownloadOutlined, UploadOutlined, ExclamationCircleFilled } from '@ant-design/icons'
-import { http, Company } from '../api'
+import { http, Company, withToken } from '../api'
 
 const { Text, Paragraph } = Typography
 
@@ -95,7 +95,7 @@ function DataBackup() {
 
   const exportData = () => {
     // 直接以浏览器下载方式导出 zip 备份
-    window.open('/api/data/export', '_blank')
+    window.open(withToken('/api/data/export'), '_blank')
   }
 
   const doImport = (file: File) => {

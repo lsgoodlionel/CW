@@ -6,7 +6,7 @@ import {
 import {
   PlusOutlined, DownloadOutlined, UploadOutlined, FileExcelOutlined,
 } from '@ant-design/icons'
-import { http, AccountTreeNode, SubAccount, Category, CATEGORY_LABEL } from '../api'
+import { http, AccountTreeNode, SubAccount, Category, CATEGORY_LABEL, withToken } from '../api'
 
 const CAT_COLOR: Record<Category, string> = {
   asset: 'blue', liability: 'orange', equity: 'purple', cost: 'cyan', profit: 'green',
@@ -147,7 +147,7 @@ export default function Accounts() {
         <Space wrap>
           <Tooltip title="下载二级科目导入模板">
             <Button icon={<FileExcelOutlined />}
-              onClick={() => window.open('/api/accounts/subaccounts/template', '_blank')}>
+              onClick={() => window.open(withToken('/api/accounts/subaccounts/template'), '_blank')}>
               导入模板
             </Button>
           </Tooltip>
@@ -155,7 +155,7 @@ export default function Accounts() {
             <Button icon={<UploadOutlined />}>导入二级科目</Button>
           </Upload>
           <Button icon={<DownloadOutlined />}
-            onClick={() => window.open('/api/accounts/export-excel', '_blank')}>
+            onClick={() => window.open(withToken('/api/accounts/export-excel'), '_blank')}>
             导出全部科目
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setAccOpen(true)}>新增一级科目</Button>

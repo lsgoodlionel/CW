@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { Card, Select, Segmented, Button, Space, Table, Tag, Empty, Alert } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { http, Account } from '../api'
+import { http, Account, withToken } from '../api'
 
 type ReportType = 'month' | 'quarter' | 'year'
 
@@ -59,7 +59,7 @@ export default function Ledgers() {
   const exportExcel = (all: boolean) => {
     const p = { ...params, ledger_type: all ? 'all' : ledgerType }
     const qs = new URLSearchParams(p as Record<string, string>).toString()
-    window.open(`/api/ledgers/export-excel?${qs}`, '_blank')
+    window.open(withToken(`/api/ledgers/export-excel?${qs}`), '_blank')
   }
 
   const years = Array.from({ length: 8 }, (_, i) => now.year() - i)
