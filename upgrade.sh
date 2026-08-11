@@ -127,12 +127,20 @@ fi
 # 2. 记录当前版本
 BEFORE=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
-# 3. 拉取最新代码
+# 3. 拉取最新代码(部署目录以远程为准:硬同步到 origin/分支,避免本地改动导致中断)
 info "拉取最新代码(分支 ${BRANCH})..."
-git fetch --all --quiet
-git checkout "$BRANCH" --quiet 2>/dev/null || warn "切换到 ${BRANCH} 失败,使用当前分支。"
-if ! git pull --ff-only; then
-  err "git pull 失败。若本地有改动,请先 git stash 暂存后重试。"
+if ! git fetch --all --quiet; then
+  err "git fetch 失败,请检查网络或 GitHub 连通性。"
+  exit 1
+fi
+# 若对已跟踪文件有本地改动,先暂存备查(未跟踪文件/备份/数据卷不受影响)
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  warn "检测到本地改动,已 git stash 暂存(可用 git stash list / git stash pop 查看恢复)。"
+  git stash push -m "upgrade-autostash-$(date +%Y%m%d-%H%M%S)" >/dev/null 2>&1 || true
+fi
+git checkout "$BRANCH" --quiet 2>/dev/null || git checkout -B "$BRANCH" "origin/${BRANCH}" --quiet 2>/dev/null || true
+if ! git reset --hard "origin/${BRANCH}" >/dev/null 2>&1; then
+  err "无法同步到 origin/${BRANCH}(检查目录权限:安装用户与升级用户是否一致)。"
   exit 1
 fi
 AFTER=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
