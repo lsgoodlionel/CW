@@ -114,6 +114,29 @@ _do_backup() {  # $1=输出文件
   return 1
 }
 
+# 当 git 无法访问 github.com 时,改用 HTTPS 归档(codeload CDN)下载最新源码覆盖
+_fetch_tarball() {
+  command -v curl >/dev/null 2>&1 || return 1
+  command -v tar  >/dev/null 2>&1 || return 1
+  local tmp src
+  tmp="$(mktemp -d)" || return 1
+  if curl -fsSL "https://codeload.github.com/${REPO_MATCH}/tar.gz/refs/heads/${BRANCH}" \
+       2>/dev/null | tar xz -C "$tmp" 2>/dev/null; then
+    src="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)"
+    if [ -n "$src" ] && [ -f "$src/docker-compose.yml" ]; then
+      if command -v rsync >/dev/null 2>&1; then
+        rsync -a --exclude='.git' --exclude='.env' --exclude='backups' \
+              --exclude='.deployed_sha' "$src"/ "$REPO_DIR"/ 2>/dev/null
+      else
+        cp -R "$src"/. "$REPO_DIR"/ 2>/dev/null
+      fi
+      rm -f "$REPO_DIR/.deployed_sha" 2>/dev/null || true   # 强制后续重建
+      rm -rf "$tmp"; return 0
+    fi
+  fi
+  rm -rf "$tmp"; return 1
+}
+
 mkdir -p backups
 BACKUP_FILE="backups/finance-backup-$(date +%Y%m%d-%H%M%S).zip"
 if _do_backup "$BACKUP_FILE"; then
@@ -127,22 +150,35 @@ fi
 # 2. 记录当前版本
 BEFORE=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
-# 3. 拉取最新代码(部署目录以远程为准:硬同步到 origin/分支,避免本地改动导致中断)
+# 3. 拉取最新代码(部署目录以远程为准:硬同步到 origin/分支)。
+#    获取失败不终止升级——仍用当前本地代码重建容器,确保服务可用。
 info "拉取最新代码(分支 ${BRANCH})..."
-if ! git fetch --all --quiet; then
-  err "git fetch 失败,请检查网络或 GitHub 连通性。"
-  exit 1
+GIT_ERR="$(mktemp 2>/dev/null || echo /tmp/cw_git_err)"
+SYNC_OK=1
+if git fetch --all --quiet 2>"$GIT_ERR"; then
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    warn "检测到本地改动,已 git stash 暂存(可用 git stash list 查看)。"
+    git stash push -m "upgrade-autostash-$(date +%Y%m%d-%H%M%S)" >/dev/null 2>&1 || true
+  fi
+  git checkout "$BRANCH" --quiet 2>/dev/null \
+    || git checkout -B "$BRANCH" "origin/${BRANCH}" --quiet 2>/dev/null || true
+  git reset --hard "origin/${BRANCH}" >/dev/null 2>"$GIT_ERR" || SYNC_OK=0
+else
+  SYNC_OK=0
 fi
-# 若对已跟踪文件有本地改动,先暂存备查(未跟踪文件/备份/数据卷不受影响)
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  warn "检测到本地改动,已 git stash 暂存(可用 git stash list / git stash pop 查看恢复)。"
-  git stash push -m "upgrade-autostash-$(date +%Y%m%d-%H%M%S)" >/dev/null 2>&1 || true
+if [ "$SYNC_OK" != "1" ]; then
+  warn "git 方式获取失败,改用 HTTPS 归档下载最新代码..."
+  if _fetch_tarball; then
+    SYNC_OK=1
+    info "已通过归档下载更新到最新代码(将重建容器应用)。"
+  else
+    warn "获取最新代码失败,将用当前本地代码重建容器(不影响数据)。原因:"
+    sed 's/^/    /' "$GIT_ERR" 2>/dev/null | head -4
+    warn "多为服务器网络无法访问 GitHub;数据卷保留、服务仍会重建。"
+    warn "若为权限问题,可尝试:sudo chown -R \"\$USER\" \"${REPO_DIR}\" 后重试。"
+  fi
 fi
-git checkout "$BRANCH" --quiet 2>/dev/null || git checkout -B "$BRANCH" "origin/${BRANCH}" --quiet 2>/dev/null || true
-if ! git reset --hard "origin/${BRANCH}" >/dev/null 2>&1; then
-  err "无法同步到 origin/${BRANCH}(检查目录权限:安装用户与升级用户是否一致)。"
-  exit 1
-fi
+rm -f "$GIT_ERR" 2>/dev/null || true
 AFTER=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 # 已构建部署的版本(deploy.sh 记录);与代码不一致说明容器落后于代码,需重建
