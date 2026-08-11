@@ -39,7 +39,17 @@ def _company_dict(c: models.CompanyInfo | None) -> dict:
 
 @router.get("/export")
 def export_data(db: Session = Depends(get_db)):
-    """导出整站数据为 zip 备份文件。"""
+    """导出整站数据为 zip 备份文件(HTTP 下载)。"""
+    data = build_backup_zip(db)
+    filename = f"finance-backup-{datetime.now():%Y%m%d-%H%M%S}.zip"
+    return StreamingResponse(
+        io.BytesIO(data), media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def build_backup_zip(db: Session) -> bytes:
+    """构建整站备份 zip 的字节(供 HTTP 导出与命令行备份复用,不涉及鉴权)。"""
     company = db.get(models.CompanyInfo, 1)
     accounts = db.scalars(select(models.Account).order_by(models.Account.code)).all()
     account_code = {a.id: a.code for a in accounts}
@@ -223,13 +233,7 @@ def export_data(db: Session = Depends(get_db)):
         for arc_name, src in file_map:
             zf.write(src, arc_name)
     buffer.seek(0)
-
-    filename = f"finance-backup-{datetime.now():%Y%m%d-%H%M%S}.zip"
-    # 用 octet-stream 而非 application/zip,避免 Safari「下载后打开安全文件」自动解压成文件夹
-    return StreamingResponse(
-        buffer, media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    return buffer.read()
 
 
 def _find_member(zf: zipfile.ZipFile, target: str) -> str | None:

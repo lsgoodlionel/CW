@@ -103,11 +103,11 @@ if [ "${NO_BACKUP:-}" != "1" ]; then
   BACKUP_DIR="${BACKUP_DIR:-$HOME/cw-uninstall-backups}"
   mkdir -p "$BACKUP_DIR"
   BACKUP_FILE="$BACKUP_DIR/finance-backup-$(date +%Y%m%d-%H%M%S).zip"
-  if curl -fsS "http://localhost:${HTTP_PORT}/api/health" >/dev/null 2>&1 \
-     && curl -fsS "http://localhost:${HTTP_PORT}/api/data/export" -o "$BACKUP_FILE" 2>/dev/null; then
+  if $DOCKER_SUDO docker compose exec -T backend python -m app.backup_cli > "$BACKUP_FILE" 2>/dev/null \
+     && [ -s "$BACKUP_FILE" ]; then
     info "已备份当前数据 → $BACKUP_FILE(卸载后仍保留,可用于重装恢复)"
   else
-    warn "服务未在线或备份失败,跳过备份继续卸载。可加 NO_BACKUP=1 明确跳过。"
+    warn "备份失败(容器未运行或数据库不可用),跳过备份继续卸载。可加 NO_BACKUP=1 明确跳过。"
     rm -f "$BACKUP_FILE" 2>/dev/null || true
   fi
 else

@@ -86,19 +86,15 @@ if [ ! -w "$REPO_DIR/.git" ]; then
   warn "目录不可写,可能需要用安装时的用户或 sudo 运行。"
 fi
 
-# 1. 升级前自动备份(服务在线才可导出)
-HTTP_PORT=8080
-if [ -f .env ]; then
-  HTTP_PORT=$(grep -E '^HTTP_PORT=' .env | cut -d= -f2 || echo 8080)
-  HTTP_PORT=${HTTP_PORT:-8080}
-fi
+# 1. 升级前自动备份(容器内直连数据库导出,无需登录令牌)
 mkdir -p backups
 BACKUP_FILE="backups/finance-backup-$(date +%Y%m%d-%H%M%S).zip"
-if curl -fsS "http://localhost:${HTTP_PORT}/api/health" >/dev/null 2>&1 \
-   && curl -fsS "http://localhost:${HTTP_PORT}/api/data/export" -o "$BACKUP_FILE" 2>/dev/null; then
+if $DOCKER_SUDO docker compose exec -T backend python -m app.backup_cli > "$BACKUP_FILE" 2>/dev/null \
+   && [ -s "$BACKUP_FILE" ]; then
   info "已自动备份当前数据 → ${REPO_DIR}/${BACKUP_FILE}"
 else
-  warn "服务未在线或备份失败,继续升级(数据卷仍会保留)。"
+  rm -f "$BACKUP_FILE" 2>/dev/null || true
+  warn "备份失败(后端容器未运行或数据库不可用),继续升级(数据卷仍会保留)。"
 fi
 
 # 2. 记录当前版本
