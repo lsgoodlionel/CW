@@ -86,15 +86,42 @@ if [ ! -w "$REPO_DIR/.git" ]; then
   warn "目录不可写,可能需要用安装时的用户或 sudo 运行。"
 fi
 
-# 1. 升级前自动备份(容器内直连数据库导出,无需登录令牌)
+# 1. 升级前自动备份(优先容器内直连导出;回退到带令牌的 HTTP 导出)
+HTTP_PORT=8080
+if [ -f .env ]; then
+  HTTP_PORT=$(grep -E '^HTTP_PORT=' .env | cut -d= -f2 || echo 8080)
+  HTTP_PORT=${HTTP_PORT:-8080}
+fi
+
+_do_backup() {  # $1=输出文件
+  local out="$1" pw token
+  # 方式一:容器内命令行导出(本版本起支持,无需登录)
+  if $DOCKER_SUDO docker compose exec -T backend python -m app.backup_cli > "$out" 2>/dev/null \
+     && [ -s "$out" ]; then
+    return 0
+  fi
+  # 方式二(兼容旧镜像):用 .env 的 ADMIN_PASSWORD 登录取令牌后 HTTP 导出
+  pw=$(grep -E '^ADMIN_PASSWORD=' .env 2>/dev/null | cut -d= -f2 || true); pw=${pw:-admin123}
+  token=$(curl -fsS -X POST "http://localhost:${HTTP_PORT}/api/auth/login" \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"admin\",\"password\":\"${pw}\"}" 2>/dev/null \
+          | sed -n 's/.*"token":"\([^"]*\)".*/\1/p' || true)
+  if [ -n "$token" ] \
+     && curl -fsS "http://localhost:${HTTP_PORT}/api/data/export?token=${token}" -o "$out" 2>/dev/null \
+     && [ -s "$out" ]; then
+    return 0
+  fi
+  return 1
+}
+
 mkdir -p backups
 BACKUP_FILE="backups/finance-backup-$(date +%Y%m%d-%H%M%S).zip"
-if $DOCKER_SUDO docker compose exec -T backend python -m app.backup_cli > "$BACKUP_FILE" 2>/dev/null \
-   && [ -s "$BACKUP_FILE" ]; then
+if _do_backup "$BACKUP_FILE"; then
   info "已自动备份当前数据 → ${REPO_DIR}/${BACKUP_FILE}"
 else
   rm -f "$BACKUP_FILE" 2>/dev/null || true
-  warn "备份失败(后端容器未运行或数据库不可用),继续升级(数据卷仍会保留)。"
+  warn "升级前备份未成功(首次升级到本版本或管理员密码已改属正常),继续升级。"
+  warn "数据卷会完整保留、数据不丢;升级完成后可在「企业信息 → 数据备份」手动导出。"
 fi
 
 # 2. 记录当前版本
@@ -110,13 +137,21 @@ if ! git pull --ff-only; then
 fi
 AFTER=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
+# 已构建部署的版本(deploy.sh 记录);与代码不一致说明容器落后于代码,需重建
+DEPLOYED="$(cat .deployed_sha 2>/dev/null || echo "")"
+DEPLOYED_FULL=""
+[ -n "$DEPLOYED" ] && DEPLOYED_FULL="$(git rev-parse "$DEPLOYED" 2>/dev/null || echo "$DEPLOYED")"
+HEAD_FULL="$(git rev-parse HEAD 2>/dev/null || echo "")"
+
 if [ "$BEFORE" = "$AFTER" ]; then
   if [ "${FORCE:-}" = "1" ]; then
     warn "代码已是最新(${AFTER}),但按 FORCE=1 强制重建容器..."
+  elif [ -n "$HEAD_FULL" ] && [ "$HEAD_FULL" != "$DEPLOYED_FULL" ]; then
+    warn "代码已是最新(${AFTER}),但运行中的容器版本落后,自动重建以应用最新代码..."
   else
-    info "当前已是最新版本(${AFTER})。"
-    info "若界面未显示新功能(容器可能未重建),请强制重建:FORCE=1 重新执行本命令,"
-    info "并在浏览器按 Ctrl+Shift+R 强制刷新清除缓存。"
+    info "当前已是最新版本(${AFTER}),且容器已为该版本。"
+    info "若界面仍未显示新功能,请在浏览器按 Ctrl+Shift+R 强制刷新清除缓存;"
+    info "或用 FORCE=1 强制重建:FORCE=1 curl -fsSL .../upgrade.sh | bash"
     exit 0
   fi
 else

@@ -43,6 +43,9 @@ fi
 info "构建并启动容器(首次较慢)..."
 $DC up -d --build
 
+# 记录本次已构建部署的代码版本(供升级脚本判断容器是否落后于代码)
+git rev-parse HEAD > .deployed_sha 2>/dev/null || true
+
 # 4. 健康检查
 HTTP_PORT=$(grep -E '^HTTP_PORT=' .env | cut -d= -f2 || echo 8080)
 HTTP_PORT=${HTTP_PORT:-8080}
