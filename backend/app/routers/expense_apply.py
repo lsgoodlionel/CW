@@ -7,6 +7,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
+from ..schemas_read import ActiveWorkflowOut, ExpenseApplyMetaOut
 from .. import models, schemas, workflow_svc, attach_svc
 from .attachments import read_upload
 
@@ -86,13 +87,13 @@ def _apply_items(app: models.ExpenseApplication, items) -> None:
     app.estimated_amount = total
 
 
-@router.get("/meta")
+@router.get("/meta", response_model=ExpenseApplyMetaOut)
 def apply_meta():
     return {"status": STATUS_LABEL, "apply_types": APPLY_TYPE_LABEL,
             "categories": EXPENSE_CATEGORIES}
 
 
-@router.get("/active-workflow")
+@router.get("/active-workflow", response_model=ActiveWorkflowOut)
 def active_workflow(db: Session = Depends(get_db)):
     d = db.scalar(select(models.WorkflowDefinition)
                   .where(models.WorkflowDefinition.biz_type == "expense_apply",

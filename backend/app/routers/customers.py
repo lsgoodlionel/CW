@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import models, schemas
+from ..schemas_read import CustomerVouchersOut
 
 router = APIRouter(prefix="/api/customers", tags=["customers"])
 
@@ -82,7 +83,7 @@ def delete_customer(customer_id: int, db: Session = Depends(get_db)):
         db.commit()
 
 
-@router.get("/{customer_id}/vouchers")
+@router.get("/{customer_id}/vouchers", response_model=CustomerVouchersOut)
 def customer_vouchers(
     customer_id: int,
     page: int = Query(1, ge=1),

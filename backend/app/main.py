@@ -6,12 +6,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import settings
+from .schemas_read import HealthOut
 from .init_db import init_db
 from .oplog import OperationLogMiddleware
 from .auth_mw import AuthMiddleware
 from .routers import (
     company, accounts, vouchers, attachments, reports, data_io, ledgers, logs,
     customers, personnel, workflow, expense, expense_apply, auth, users, presets,
+    about,
 )
 
 
@@ -39,7 +41,7 @@ app.add_middleware(OperationLogMiddleware)
 app.add_middleware(AuthMiddleware)
 
 
-@app.get("/api/health", tags=["system"])
+@app.get("/api/health", tags=["system"], response_model=HealthOut)
 def health():
     return {"status": "ok"}
 
@@ -60,3 +62,4 @@ app.include_router(expense_apply.router)
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(presets.router)
+app.include_router(about.router)

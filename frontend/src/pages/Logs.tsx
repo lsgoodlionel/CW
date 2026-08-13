@@ -2,23 +2,9 @@ import { useEffect, useState, useMemo } from 'react'
 import { Card, Table, Tag, Select, Segmented, Button, Space } from 'antd'
 import { FilePdfOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { http, withToken } from '../api'
+import { http, withToken, LogItem } from '../api'
 
 type ReportType = 'month' | 'quarter' | 'year'
-
-interface LogItem {
-  id: number
-  created_at: string
-  action_type: string
-  action_type_label: string
-  action: string
-  summary: string
-  operator: string
-  detail: string
-  status_code: number
-  duration_ms: number
-  ip: string
-}
 
 const TYPE_COLOR: Record<string, string> = {
   voucher: 'blue', account: 'geekblue', attachment: 'cyan', company: 'purple',

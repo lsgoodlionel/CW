@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import models, oplog, oplog_pdf
+from ..schemas_read import LogPageOut
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])
 
@@ -44,7 +45,7 @@ def _to_dict(log: models.OperationLog) -> dict:
     }
 
 
-@router.get("")
+@router.get("", response_model=LogPageOut)
 def list_logs(
     action_type: str | None = None,
     year: int | None = None,

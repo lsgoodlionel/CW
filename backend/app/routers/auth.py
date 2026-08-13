@@ -6,6 +6,9 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import models, auth_svc
+from ..schemas_read import (
+    AuthUserOut, LoginOut, PermissionModuleOut, SuccessOut,
+)
 from ..auth_mw import current_user
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -32,7 +35,7 @@ def _user_info(db: Session, user: models.User) -> dict:
     }
 
 
-@router.post("/login")
+@router.post("/login", response_model=LoginOut)
 def login(payload: LoginIn, db: Session = Depends(get_db)):
     user = db.scalar(select(models.User).where(models.User.username == payload.username))
     if user is None or not user.is_active or not auth_svc.verify_password(payload.password, user.password_hash):
@@ -41,7 +44,7 @@ def login(payload: LoginIn, db: Session = Depends(get_db)):
     return {"token": token, "user": _user_info(db, user)}
 
 
-@router.get("/me")
+@router.get("/me", response_model=AuthUserOut)
 def me(request: Request, db: Session = Depends(get_db)):
     user = current_user(request)
     if user is None:
@@ -50,7 +53,7 @@ def me(request: Request, db: Session = Depends(get_db)):
     return _user_info(db, fresh)
 
 
-@router.post("/change-password")
+@router.post("/change-password", response_model=SuccessOut)
 def change_password(payload: ChangePwIn, request: Request, db: Session = Depends(get_db)):
     user = current_user(request)
     if user is None:
@@ -65,6 +68,6 @@ def change_password(payload: ChangePwIn, request: Request, db: Session = Depends
     return {"success": True}
 
 
-@router.get("/permission-catalog")
+@router.get("/permission-catalog", response_model=list[PermissionModuleOut])
 def permission_catalog():
     return auth_svc.catalog()

@@ -5,10 +5,9 @@ import {
 } from 'antd'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import {
-  http, WorkflowDef, Employee, ROLE_LABEL, ApproverCheck, APPROVER_TYPE_LABEL,
+  http, WorkflowDef, Employee, ROLE_LABEL, ApproverCheck, APPROVER_TYPE_LABEL, BIZ_TYPE_LABEL,
 } from '../api'
 
-const BIZ_LABEL: Record<string, string> = { general: '通用', expense_apply: '费用申请', expense: '费用报销' }
 
 export default function Workflow() {
   const [defs, setDefs] = useState<WorkflowDef[]>([])
@@ -83,7 +82,7 @@ function Design({ defs, employees, reload }: { defs: WorkflowDef[]; employees: E
       <Table rowKey="id" size="small" dataSource={defs} pagination={false}
         columns={[
           { title: '流程名称', dataIndex: 'name' },
-          { title: '业务类型', dataIndex: 'biz_type', width: 110, render: (v: string) => BIZ_LABEL[v] || v },
+          { title: '业务类型', dataIndex: 'biz_type', width: 110, render: (v: string) => BIZ_TYPE_LABEL[v] || v },
           {
             title: '审批步骤', dataIndex: 'steps',
             render: (steps: WorkflowDef['steps']) => (
@@ -116,7 +115,7 @@ function Design({ defs, employees, reload }: { defs: WorkflowDef[]; employees: E
             </Form.Item>
             <Form.Item name="biz_type" label="业务类型" rules={[{ required: true }]}>
               <Select style={{ width: 140 }}
-                options={Object.entries(BIZ_LABEL).map(([value, label]) => ({ value, label }))} />
+                options={Object.entries(BIZ_TYPE_LABEL).map(([value, label]) => ({ value, label }))} />
             </Form.Item>
           </Space>
           <Form.Item name="note" label="说明"><Input /></Form.Item>

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import models, reports_cn, report_excel
+from ..schemas_read import DashboardOut, OfficialReportsOut, TrialBalanceOut
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -32,7 +33,7 @@ def _resolve_period(report_type: str, year: int, month: int | None,
     return reports_cn.build_period(report_type, year, month, quarter)
 
 
-@router.get("/official")
+@router.get("/official", response_model=OfficialReportsOut)
 def official_reports(
     report_type: str = Query("month"),
     year: int = Query(...),
@@ -93,7 +94,7 @@ def _sum_by_account(db: Session, start: date | None, end: date | None):
     }
 
 
-@router.get("/trial-balance")
+@router.get("/trial-balance", response_model=TrialBalanceOut)
 def trial_balance(
     start: date | None = None,
     end: date | None = None,
@@ -326,7 +327,7 @@ def _period_range(period_type: str, ref: date) -> tuple[date, date, str]:
             f"{ref.year}年{ref.month:02d}月")
 
 
-@router.get("/dashboard")
+@router.get("/dashboard", response_model=DashboardOut)
 def dashboard(
     period_type: str = Query("month"),
     ref_date: date | None = None,

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import models, auth_svc
+from ..schemas_read import CreatedOut, RoleOut, SuccessOut, UserOut
 from ..auth_mw import current_user
 
 router = APIRouter(tags=["users"])
@@ -56,12 +57,12 @@ def _set_roles(db: Session, user: models.User, role_ids: list[int]) -> None:
             db.add(models.UserRole(user_id=user.id, role_id=rid))
 
 
-@router.get("/api/users")
+@router.get("/api/users", response_model=list[UserOut])
 def list_users(db: Session = Depends(get_db)):
     return [_user_out(u) for u in db.scalars(select(models.User).order_by(models.User.id)).all()]
 
 
-@router.post("/api/users", status_code=201)
+@router.post("/api/users", status_code=201, response_model=UserOut)
 def create_user(payload: UserCreate, request: Request, db: Session = Depends(get_db)):
     if db.scalar(select(models.User).where(models.User.username == payload.username)):
         raise HTTPException(status_code=409, detail="用户名已存在")
@@ -80,7 +81,7 @@ def create_user(payload: UserCreate, request: Request, db: Session = Depends(get
     return _user_out(user)
 
 
-@router.put("/api/users/{user_id}")
+@router.put("/api/users/{user_id}", response_model=UserOut)
 def update_user(user_id: int, payload: UserUpdate, request: Request, db: Session = Depends(get_db)):
     user = db.get(models.User, user_id)
     if user is None:
@@ -105,7 +106,7 @@ def update_user(user_id: int, payload: UserUpdate, request: Request, db: Session
     return _user_out(user)
 
 
-@router.post("/api/users/{user_id}/reset-password")
+@router.post("/api/users/{user_id}/reset-password", response_model=SuccessOut)
 def reset_password(user_id: int, payload: ResetPwIn, db: Session = Depends(get_db)):
     user = db.get(models.User, user_id)
     if user is None:
@@ -133,7 +134,7 @@ class RoleIn(BaseModel):
     perms: list[str] = []
 
 
-@router.get("/api/roles")
+@router.get("/api/roles", response_model=list[RoleOut])
 def list_roles(db: Session = Depends(get_db)):
     out = []
     for r in db.scalars(select(models.Role).order_by(models.Role.id)).all():
@@ -142,7 +143,7 @@ def list_roles(db: Session = Depends(get_db)):
     return out
 
 
-@router.post("/api/roles", status_code=201)
+@router.post("/api/roles", status_code=201, response_model=CreatedOut)
 def create_role(payload: RoleIn, db: Session = Depends(get_db)):
     if db.scalar(select(models.Role).where(models.Role.name == payload.name)):
         raise HTTPException(status_code=409, detail="角色名已存在")
@@ -154,7 +155,7 @@ def create_role(payload: RoleIn, db: Session = Depends(get_db)):
     return {"id": role.id}
 
 
-@router.put("/api/roles/{role_id}")
+@router.put("/api/roles/{role_id}", response_model=SuccessOut)
 def update_role(role_id: int, payload: RoleIn, db: Session = Depends(get_db)):
     role = db.get(models.Role, role_id)
     if role is None:

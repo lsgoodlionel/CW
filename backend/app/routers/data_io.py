@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..database import get_db
 from ..config import settings
 from .. import models
+from ..schemas_read import DataImportOut
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
@@ -251,7 +252,7 @@ def _find_member(zf: zipfile.ZipFile, target: str) -> str | None:
     return None
 
 
-@router.post("/import")
+@router.post("/import", response_model=DataImportOut)
 async def import_data(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """从 zip 备份恢复整站数据(整体替换现有数据)。"""
     raw = await file.read()

@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from .. import models
 from .personnel import ROLE_TYPES
+from ..schemas_read import (
+    AuthPresetOut, CreatedOut, PresetApplyOut, PresetResolveOut, SuccessOut,
+)
 
 router = APIRouter(prefix="/api/auth-presets", tags=["auth-presets"])
 
@@ -35,7 +38,7 @@ def _resolve_role_ids(db: Session, employee_id: int) -> list[int]:
     return sorted(role_ids)
 
 
-@router.get("")
+@router.get("", response_model=list[AuthPresetOut])
 def list_presets(db: Session = Depends(get_db)):
     units = {u.id: u.name for u in db.scalars(select(models.OrgUnit)).all()}
     roles = {r.id: r.name for r in db.scalars(select(models.Role)).all()}
@@ -51,7 +54,7 @@ def list_presets(db: Session = Depends(get_db)):
     return out
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, response_model=CreatedOut)
 def create_preset(payload: PresetIn, db: Session = Depends(get_db)):
     if db.get(models.Role, payload.role_id) is None:
         raise HTTPException(status_code=400, detail="系统角色不存在")
@@ -61,7 +64,7 @@ def create_preset(payload: PresetIn, db: Session = Depends(get_db)):
     return {"id": p.id}
 
 
-@router.put("/{preset_id}")
+@router.put("/{preset_id}", response_model=SuccessOut)
 def update_preset(preset_id: int, payload: PresetIn, db: Session = Depends(get_db)):
     p = db.get(models.AuthPreset, preset_id)
     if p is None:
@@ -81,13 +84,13 @@ def delete_preset(preset_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
-@router.get("/resolve")
+@router.get("/resolve", response_model=PresetResolveOut)
 def resolve(employee_id: int = Query(...), db: Session = Depends(get_db)):
     """按预设计算某员工应授予的系统角色(供用户表单一键填充)。"""
     return {"role_ids": _resolve_role_ids(db, employee_id)}
 
 
-@router.post("/apply")
+@router.post("/apply", response_model=PresetApplyOut)
 def apply_presets(db: Session = Depends(get_db)):
     """批量应用:对所有关联了员工的非超管用户,按预设覆盖其角色(无匹配则跳过)。"""
     users = db.scalars(select(models.User).where(

@@ -4,6 +4,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
+from ..schemas_read import PersonnelMetaOut
 from .. import models, schemas
 
 router = APIRouter(prefix="/api/personnel", tags=["personnel"])
@@ -193,7 +194,7 @@ def add_member(
     return _employee_out(emp, _unit_names(db))
 
 
-@router.get("/meta")
+@router.get("/meta", response_model=PersonnelMetaOut)
 def personnel_meta():
     """人员/往来单位的枚举标签。"""
     return {"role_types": ROLE_TYPES, "party_types": PARTY_LABEL}

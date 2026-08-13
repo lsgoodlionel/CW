@@ -6,14 +6,13 @@ import {
 import { PlusOutlined } from '@ant-design/icons'
 import {
   http, WorkflowDef, WorkflowInstance, Employee, AuthUser, ExpenseClaim, ExpenseApplication,
-  WF_STATUS_LABEL, STEP_STATE_LABEL, STEP_STATE_COLOR, ATTACH_KIND_LABEL, APPLY_TYPE_LABEL,
+  WF_STATUS_LABEL, STEP_STATE_LABEL, STEP_STATE_COLOR, ATTACH_KIND_LABEL, APPLY_TYPE_LABEL, BIZ_TYPE_LABEL,
   hasPerm, fileUrl,
 } from '../api'
 
 const STATUS_COLOR: Record<string, string> = {
   pending: 'processing', approved: 'success', rejected: 'error', cancelled: 'default',
 }
-const BIZ_LABEL: Record<string, string> = { general: '通用', expense_apply: '费用申请', expense: '费用报销' }
 
 type BizDoc =
   | { kind: 'expense'; data: ExpenseClaim }
@@ -121,7 +120,7 @@ export default function ApprovalCenter() {
 
   const cols = (withAction: boolean) => [
     { title: '标题', dataIndex: 'title', render: (v: string, r: WorkflowInstance) => <a onClick={() => openDetail(r)}>{v || `#${r.id}`}</a> },
-    { title: '类型', dataIndex: 'biz_type', width: 90, render: (v: string) => <Tag>{BIZ_LABEL[v] || v}</Tag> },
+    { title: '类型', dataIndex: 'biz_type', width: 90, render: (v: string) => <Tag>{BIZ_TYPE_LABEL[v] || v}</Tag> },
     { title: '申请人', dataIndex: 'applicant_name', width: 90, render: (v: string) => v || '-' },
     { title: '当前步', dataIndex: 'current_step_no', width: 70 },
     { title: '状态', dataIndex: 'status', width: 90,
@@ -170,7 +169,7 @@ export default function ApprovalCenter() {
         {detail && (
           <>
             <p><b>{detail.title}</b> · 申请人 {detail.applicant_name || '-'} ·
-              <Tag style={{ marginLeft: 6 }}>{BIZ_LABEL[detail.biz_type] || detail.biz_type}</Tag>
+              <Tag style={{ marginLeft: 6 }}>{BIZ_TYPE_LABEL[detail.biz_type] || detail.biz_type}</Tag>
               <Tag color={STATUS_COLOR[detail.status]}>{WF_STATUS_LABEL[detail.status]}</Tag></p>
 
             {bizDoc && <BizContent doc={bizDoc} />}
@@ -219,7 +218,7 @@ export default function ApprovalCenter() {
         <Form form={submitForm} layout="vertical">
           <Form.Item name="definition_id" label="选择流程" rules={[{ required: true }]}>
             <Select placeholder="选择审批流程"
-              options={defs.filter((d) => d.is_active).map((d) => ({ value: d.id, label: `${d.name} (${BIZ_LABEL[d.biz_type] || d.biz_type})` }))} />
+              options={defs.filter((d) => d.is_active).map((d) => ({ value: d.id, label: `${d.name} (${BIZ_TYPE_LABEL[d.biz_type] || d.biz_type})` }))} />
           </Form.Item>
           <Form.Item name="title" label="标题" rules={[{ required: true }]}>
             <Input placeholder="如 报销差旅费 500 元" />

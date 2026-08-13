@@ -4,15 +4,10 @@ import {
   message, Checkbox, Switch,
 } from 'antd'
 import { PlusOutlined, ThunderboltOutlined } from '@ant-design/icons'
-import { http, Employee, OrgUnit, ROLE_LABEL } from '../api'
-
-interface Role { id: number; name: string; note: string; is_system: boolean; perms: string[] }
-interface UserRow {
-  id: number; username: string; display_name: string; employee_id: number | null
-  is_super_admin: boolean; is_active: boolean; role_ids: number[]; role_names: string[]
-}
-interface CatAction { action: string; label: string }
-interface CatModule { module: string; label: string; actions: CatAction[] }
+import {
+  http, Employee, OrgUnit, ROLE_LABEL,
+  AuthPreset, PermissionModule, Role, UserRow,
+} from '../api'
 
 export default function Users() {
   return (
@@ -132,7 +127,7 @@ function UserTab() {
 
 function RoleTab() {
   const [roles, setRoles] = useState<Role[]>([])
-  const [catalog, setCatalog] = useState<CatModule[]>([])
+  const [catalog, setCatalog] = useState<PermissionModule[]>([])
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Role | null>(null)
   const [form] = Form.useForm()
@@ -140,7 +135,7 @@ function RoleTab() {
 
   const load = useCallback(() => {
     http.get<Role[]>('/roles').then((r) => setRoles(r.data))
-    http.get<CatModule[]>('/auth/permission-catalog').then((r) => setCatalog(r.data))
+    http.get<PermissionModule[]>('/auth/permission-catalog').then((r) => setCatalog(r.data))
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -153,7 +148,7 @@ function RoleTab() {
   const toggle = (perm: string, checked: boolean) => {
     setPerms((prev) => { const n = new Set(prev); checked ? n.add(perm) : n.delete(perm); return n })
   }
-  const toggleModule = (m: CatModule, checked: boolean) => {
+  const toggleModule = (m: PermissionModule, checked: boolean) => {
     setPerms((prev) => {
       const n = new Set(prev)
       m.actions.forEach((a) => { const p = `${m.module}:${a.action}`; checked ? n.add(p) : n.delete(p) })
@@ -220,27 +215,22 @@ function RoleTab() {
   )
 }
 
-interface Preset {
-  id: number; org_unit_id: number | null; org_unit_name: string
-  emp_role_type: string; emp_role_label: string; role_id: number; role_name: string; note: string
-}
-
 function PresetTab() {
-  const [presets, setPresets] = useState<Preset[]>([])
+  const [presets, setPresets] = useState<AuthPreset[]>([])
   const [roles, setRoles] = useState<Role[]>([])
   const [units, setUnits] = useState<OrgUnit[]>([])
   const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState<Preset | null>(null)
+  const [editing, setEditing] = useState<AuthPreset | null>(null)
   const [form] = Form.useForm()
 
   const load = useCallback(() => {
-    http.get<Preset[]>('/auth-presets').then((r) => setPresets(r.data))
+    http.get<AuthPreset[]>('/auth-presets').then((r) => setPresets(r.data))
     http.get<Role[]>('/roles').then((r) => setRoles(r.data))
     http.get<OrgUnit[]>('/personnel/org-units').then((r) => setUnits(r.data))
   }, [])
   useEffect(() => { load() }, [load])
 
-  const openEdit = (p: Preset | null) => {
+  const openEdit = (p: AuthPreset | null) => {
     http.get<Role[]>('/roles').then((r) => setRoles(r.data))  // 同步最新角色
     setEditing(p); form.resetFields()
     if (p) form.setFieldsValue(p)
@@ -278,7 +268,7 @@ function PresetTab() {
           { title: '授予系统角色', dataIndex: 'role_name', render: (v: string) => <Tag color="green">{v}</Tag> },
           { title: '说明', dataIndex: 'note', ellipsis: true, render: (v: string) => v || '-' },
           {
-            title: '操作', width: 110, render: (_: unknown, r: Preset) => (
+            title: '操作', width: 110, render: (_: unknown, r: AuthPreset) => (
               <Space>
                 <a onClick={() => openEdit(r)}>编辑</a>
                 <Popconfirm title="删除该预设?" onConfirm={() => remove(r.id)}>

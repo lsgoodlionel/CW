@@ -6,18 +6,13 @@ import {
 import { PlusOutlined, DeleteOutlined, PaperClipOutlined } from '@ant-design/icons'
 import {
   http, ExpenseApplication, Attachment, AccountTreeNode, Employee, OrgUnit,
-  APPLY_STATUS_LABEL, APPLY_TYPE_LABEL,
+  ActiveWorkflow, APPLY_STATUS_LABEL, APPLY_TYPE_LABEL,
   STEP_STATE_LABEL, STEP_STATE_COLOR,
 } from '../api'
 import AttachmentEditor from '../components/AttachmentEditor'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'default', pending: 'processing', approved: 'success', rejected: 'error', closed: 'gold',
-}
-
-interface ActiveWorkflow {
-  exists: boolean; id?: number; name?: string
-  steps?: { step_no: number; name: string; approver_type: string }[]
 }
 
 export default function ExpenseApply() {

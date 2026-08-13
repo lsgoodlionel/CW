@@ -4,7 +4,7 @@ import {
   DashboardOutlined, FileTextOutlined, ProfileOutlined, BarChartOutlined,
   SettingOutlined, BookOutlined, HistoryOutlined, TeamOutlined, IdcardOutlined,
   PartitionOutlined, SolutionOutlined, SafetyCertificateOutlined, UserOutlined,
-  LogoutOutlined, KeyOutlined, FileDoneOutlined, AuditOutlined,
+  LogoutOutlined, KeyOutlined, FileDoneOutlined, AuditOutlined, InfoCircleOutlined,
 } from '@ant-design/icons'
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
@@ -22,6 +22,7 @@ import Ledgers from './pages/Ledgers'
 import Logs from './pages/Logs'
 import UsersAdmin from './pages/Users'
 import Settings from './pages/Settings'
+import About from './pages/About'
 import Login from './pages/Login'
 import { http, getToken, clearToken, AuthUser, hasPerm } from './api'
 
@@ -43,6 +44,7 @@ const MENU = [
   { key: '/logs', icon: <HistoryOutlined />, label: '操作日志', module: 'logs' },
   { key: '/users', icon: <SafetyCertificateOutlined />, label: '用户与权限', module: 'user' },
   { key: '/settings', icon: <SettingOutlined />, label: '企业信息', module: 'company' },
+  { key: '/about', icon: <InfoCircleOutlined />, label: '关于系统', module: '' },
 ]
 
 export default function App() {
@@ -125,6 +127,7 @@ export default function App() {
             <Route path="/approvals" element={<ApprovalCenter />} />
             <Route path="/expense-apply" element={<ExpenseApply />} />
             <Route path="/expense" element={<Expense />} />
+            <Route path="/about" element={<About />} />
             <Route path="/logs" element={<Logs />} />
             <Route path="/users" element={<UsersAdmin />} />
             <Route path="/settings" element={<Settings />} />

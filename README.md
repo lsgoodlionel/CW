@@ -5,6 +5,8 @@
 > 数据模型源自《小企业会计财务原始记录.xlsx》;报表/账簿格式对齐税务报送与手工账官方模板。
 > 设计蓝图见 [docs/BLUEPRINT.md](docs/BLUEPRINT.md),报表口径见 [docs/REPORTS.md](docs/REPORTS.md)。
 > **开发接力 / 团队移交请看 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**(全量功能、数据模型、API、开发历程与待办规划)。
+> **微信小程序版**见 [WX/README.md](WX/README.md),与 Web 端共用同一后端;
+> 两端共享契约与升级同步规则见 [docs/SHARED-CONTRACT.md](docs/SHARED-CONTRACT.md)。
 
 ---
 
@@ -412,9 +414,16 @@ CW/
 │   ├── src/pages/                  Dashboard/VoucherList/VoucherEdit/Accounts/
 │   │                               Ledgers/Reports/Logs/Settings
 │   ├── src/components/             AttachmentPreview 等
+│   ├── src/shared/                 共享契约(自动生成,勿手改)
 │   ├── nginx.conf                  静态托管 + /api 反代
 │   └── Dockerfile
-├── docs/                        蓝图、报表说明、官方模板
+├── WX/                          微信小程序(Taro + React),复用同一后端
+│   ├── src/pages/ pkgBook/ pkgFlow/ pkgSys/   主包与三个分包
+│   ├── src/shared/                 共享契约(自动生成,勿手改)
+│   └── README.md                   构建、域名白名单、平台限制
+├── shared/contract/             Web 与小程序的共享契约(唯一事实源)
+├── scripts/sync-shared.mjs      契约同步 / 校验
+├── docs/                        蓝图、报表说明、多端同步、官方模板
 ├── docker-compose.yml
 ├── install.sh                   云端一键安装
 ├── deploy.sh                    构建启动

@@ -2,7 +2,10 @@ import { useEffect, useState, useMemo } from 'react'
 import { Card, Tabs, Table, Tag, Segmented, Select, Button, Space } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { http, withToken } from '../api'
+import {
+  http, withToken,
+  BalanceSheet, BalanceSheetRow, OfficialReports, Statement, TrialBalance,
+} from '../api'
 
 const yuan = (n: number | null) =>
   n === null || n === undefined
@@ -11,31 +14,14 @@ const yuan = (n: number | null) =>
 
 type ReportType = 'month' | 'quarter' | 'year'
 
-interface StmtRow { label: string; line: number | null; style: string; indent?: number; col1: number | null; col2: number | null }
-interface Statement { rows: StmtRow[]; col1_label: string; col2_label: string }
-interface BsRow { label: string; line: number | null; style: string; indent?: number; end: number | null; begin: number | null }
-interface BalanceSheet {
-  assets: BsRow[]; rights: BsRow[]
-  asset_total: number; right_total: number; balanced: boolean
-}
-interface Official {
-  period: { label: string }
-  balance_sheet: BalanceSheet
-  income: Statement
-  cashflow: Statement
-}
-
-interface TrialRow { code: string; name: string; debit: number; credit: number; balance: number }
-interface Trial { rows: TrialRow[]; total_debit: number; total_credit: number; balanced: boolean }
-
 export default function Reports() {
   const now = dayjs()
   const [reportType, setReportType] = useState<ReportType>('month')
   const [year, setYear] = useState(now.year())
   const [month, setMonth] = useState(now.month() + 1)
   const [quarter, setQuarter] = useState(Math.floor(now.month() / 3) + 1)
-  const [data, setData] = useState<Official | null>(null)
-  const [trial, setTrial] = useState<Trial | null>(null)
+  const [data, setData] = useState<OfficialReports | null>(null)
+  const [trial, setTrial] = useState<TrialBalance | null>(null)
 
   const params = useMemo(() => {
     const p: Record<string, string | number> = { report_type: reportType, year }
@@ -45,7 +31,7 @@ export default function Reports() {
   }, [reportType, year, month, quarter])
 
   useEffect(() => {
-    http.get<Official>('/reports/official', { params }).then((r) => setData(r.data))
+    http.get<OfficialReports>('/reports/official', { params }).then((r) => setData(r.data))
   }, [params])
 
   useEffect(() => {
@@ -56,7 +42,7 @@ export default function Reports() {
           : `${year}-${String(month).padStart(2, '0')}-01`
     const eMonth = reportType === 'year' ? 12 : reportType === 'quarter' ? quarter * 3 : month
     const e = dayjs(`${year}-${String(eMonth).padStart(2, '0')}-01`).endOf('month').format('YYYY-MM-DD')
-    http.get<Trial>('/reports/trial-balance', { params: { start: s, end: e } }).then((r) => setTrial(r.data))
+    http.get<TrialBalance>('/reports/trial-balance', { params: { start: s, end: e } }).then((r) => setTrial(r.data))
   }, [reportType, year, month, quarter])
 
   const exportExcel = () => {
@@ -118,7 +104,7 @@ function BalanceSheetView({ data }: { data: BalanceSheet }) {
   const merged = Array.from({ length: n }, (_, i) => ({
     key: i, a: data.assets[i], r: data.rights[i],
   }))
-  const cell = (row: BsRow | undefined, field: 'end' | 'begin') =>
+  const cell = (row: BalanceSheetRow | undefined, field: 'end' | 'begin') =>
     row && row[field] !== null ? yuan(row[field]) : ''
   return (
     <>
@@ -153,7 +139,7 @@ function StatementView({ data }: { data: Statement }) {
   )
 }
 
-function TrialView({ data }: { data: Trial | null }) {
+function TrialView({ data }: { data: TrialBalance | null }) {
   if (!data) return null
   return (
     <>

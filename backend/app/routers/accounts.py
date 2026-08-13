@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
 from .. import models, schemas, subaccounts_svc, account_excel
+from ..schemas_read import SubAccountImportOut
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
@@ -56,7 +57,7 @@ def subaccount_template(db: Session = Depends(get_db)):
     return _xlsx(account_excel.import_template(db), "二级科目导入模板.xlsx")
 
 
-@router.post("/subaccounts/import")
+@router.post("/subaccounts/import", response_model=SubAccountImportOut)
 async def subaccount_import(file: UploadFile = File(...), db: Session = Depends(get_db)):
     content = await file.read()
     try:

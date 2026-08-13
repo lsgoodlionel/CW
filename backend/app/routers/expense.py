@@ -7,6 +7,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
+from ..schemas_read import ActiveWorkflowOut, ExpenseMetaOut
 from .. import models, schemas, workflow_svc, subaccounts_svc, attach_svc, approval_doc
 from .attachments import read_upload
 
@@ -279,7 +280,7 @@ def regenerate_approval_doc(claim_id: int, db: Session = Depends(get_db)):
     return get_claim(claim_id, db)
 
 
-@router.get("/active-workflow")
+@router.get("/active-workflow", response_model=ActiveWorkflowOut)
 def active_workflow(db: Session = Depends(get_db)):
     """报销当前使用的审批流程(供报销页展示,可到审批流程页修改)。"""
     d = db.scalar(select(models.WorkflowDefinition)
@@ -302,6 +303,6 @@ EXPENSE_CATEGORIES = [
 ]
 
 
-@router.get("/meta")
+@router.get("/meta", response_model=ExpenseMetaOut)
 def expense_meta():
     return {"status": STATUS_LABEL, "categories": EXPENSE_CATEGORIES}

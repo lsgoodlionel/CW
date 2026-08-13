@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import ledgers, ledger_excel, reports_cn
+from ..schemas_read import LedgerOut, LedgerTypesOut
 
 router = APIRouter(prefix="/api/ledgers", tags=["ledgers"])
 
@@ -21,12 +22,12 @@ def _period(report_type: str, year: int, month: int | None, quarter: int | None)
     return reports_cn.build_period(report_type, year, month, quarter)
 
 
-@router.get("/types")
+@router.get("/types", responses={200: {"model": LedgerTypesOut}})
 def ledger_types():
     return ledgers.LEDGER_TYPES
 
 
-@router.get("")
+@router.get("", responses={200: {"model": LedgerOut}})
 def get_ledger(
     ledger_type: str = Query("general"),
     report_type: str = Query("month"),

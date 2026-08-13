@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
 from .. import models, schemas, workflow_svc
+from ..schemas_read import ApproverCheckOut, WorkflowMetaOut
 
 router = APIRouter(prefix="/api/workflow", tags=["workflow"])
 
@@ -288,12 +289,12 @@ def delete_instance(inst_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
-@router.get("/meta")
+@router.get("/meta", response_model=WorkflowMetaOut)
 def workflow_meta():
     return {"approver_types": APPROVER_TYPES, "biz_types": BIZ_TYPES, "status": STATUS_LABEL}
 
 
-@router.get("/approver-check")
+@router.get("/approver-check", response_model=ApproverCheckOut)
 def approver_check(db: Session = Depends(get_db)):
     """审批人就绪自检:是否有可审批的『管理层/股东』员工、启用流程里哪些步骤解析不到审批人。"""
     approver_count = db.scalar(

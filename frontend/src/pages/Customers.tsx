@@ -5,7 +5,7 @@ import {
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { http, Customer, PARTY_LABEL } from '../api'
+import { http, Customer, CustomerVoucherItem, PARTY_LABEL } from '../api'
 
 const FIELDS: { name: keyof Customer; label: string; required?: boolean }[] = [
   { name: 'name', label: '名称', required: true },
@@ -25,8 +25,6 @@ const PARTY_COLOR: Record<string, string> = {
   enterprise: 'blue', individual: 'green', supplier: 'orange', partner: 'purple',
 }
 
-interface HistItem { id: number; voucher_no: string; voucher_date: string; note: string; total_debit: number }
-
 export default function Customers() {
   const navigate = useNavigate()
   const [list, setList] = useState<Customer[]>([])
@@ -37,7 +35,7 @@ export default function Customers() {
   const [editing, setEditing] = useState<Customer | null>(null)
   const [form] = Form.useForm()
   const [detail, setDetail] = useState<Customer | null>(null)
-  const [hist, setHist] = useState<HistItem[]>([])
+  const [hist, setHist] = useState<CustomerVoucherItem[]>([])
   const [histSum, setHistSum] = useState(0)
 
   const load = useCallback(() => {
@@ -147,7 +145,7 @@ export default function Customers() {
             <Table rowKey="id" size="small" pagination={false} dataSource={hist}
               locale={{ emptyText: '暂无关联凭证' }}
               columns={[
-                { title: '凭证号', dataIndex: 'voucher_no', render: (v: string, r: HistItem) => <a onClick={() => navigate(`/vouchers/${r.id}`)}>{v}</a> },
+                { title: '凭证号', dataIndex: 'voucher_no', render: (v: string, r: CustomerVoucherItem) => <a onClick={() => navigate(`/vouchers/${r.id}`)}>{v}</a> },
                 { title: '日期', dataIndex: 'voucher_date', width: 110 },
                 { title: '摘要', dataIndex: 'note', ellipsis: true },
                 { title: '金额', dataIndex: 'total_debit', width: 110, align: 'right', render: (v: number) => v.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) },

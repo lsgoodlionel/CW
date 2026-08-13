@@ -10,34 +10,9 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid,
 } from 'recharts'
 import dayjs, { Dayjs } from 'dayjs'
-import { http } from '../api'
+import { http, DashboardData } from '../api'
 
 type PeriodType = 'day' | 'month' | 'quarter' | 'year'
-
-interface Dashboard {
-  period: { type: string; label: string; start: string; end: string }
-  money: { cash: number; bank: number; other: number; total: number }
-  receivable: number
-  payable: number
-  tax_payable: number
-  revenue: number
-  expense: number
-  net_profit: number
-  voucher_count: number
-  expense_breakdown: { code: string; name: string; amount: number }[]
-  trend: { month: string; revenue: number; net_profit: number }[]
-  ops: {
-    workflow_pending: number
-    apply_pending: number
-    apply_approved: number
-    claim_pending: number
-    claim_approved: number
-    claim_paid: number
-    customers: number
-    employees: number
-    attachments: number
-  }
-}
 
 const yuan = (n: number) =>
   '¥' + n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -48,7 +23,7 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const [periodType, setPeriodType] = useState<PeriodType>('month')
   const [refDate, setRefDate] = useState<Dayjs>(dayjs())
-  const [data, setData] = useState<Dashboard | null>(null)
+  const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
 
   const params = useMemo(() => ({
@@ -57,7 +32,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     setLoading(true)
-    http.get<Dashboard>('/reports/dashboard', { params })
+    http.get<DashboardData>('/reports/dashboard', { params })
       .then((r) => setData(r.data)).finally(() => setLoading(false))
   }, [params])
 

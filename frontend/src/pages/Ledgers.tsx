@@ -2,25 +2,9 @@ import { useEffect, useState, useMemo } from 'react'
 import { Card, Select, Segmented, Button, Space, Table, Tag, Empty, Alert } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { http, Account, withToken } from '../api'
+import { http, Account, withToken, Ledger, LedgerRow, LEDGER_TYPE_LABEL } from '../api'
 
 type ReportType = 'month' | 'quarter' | 'year'
-
-interface LedgerRow { cells: (string | number)[]; is_summary?: boolean }
-interface Group { title: string; opening: number; closing: number; rows: LedgerRow[]; columns?: string[] }
-interface Ledger {
-  ledger_type: string; title: string; period_label: string
-  columns: string[]; groups: Group[]; note?: string
-}
-
-const LEDGER_TYPES: Record<string, string> = {
-  general: '总分类账',
-  detail_three: '金额三栏式明细账',
-  cash_journal: '现金日记账',
-  bank_journal: '银行存款日记账',
-  detail_multi: '金额多栏式明细账',
-  qty_amount: '数量金额式明细账',
-}
 
 const fmt = (v: string | number) =>
   typeof v === 'number' ? v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : v
@@ -68,7 +52,7 @@ export default function Ledgers() {
     <Card>
       <Space wrap style={{ marginBottom: 16 }}>
         <Select value={ledgerType} style={{ width: 190 }} onChange={setLedgerType}
-          options={Object.entries(LEDGER_TYPES).map(([value, label]) => ({ value, label }))} />
+          options={Object.entries(LEDGER_TYPE_LABEL).map(([value, label]) => ({ value, label }))} />
         <Segmented value={reportType} onChange={(v) => setReportType(v as ReportType)}
           options={[{ label: '月', value: 'month' }, { label: '季', value: 'quarter' }, { label: '年', value: 'year' }]} />
         <Select value={year} style={{ width: 95 }} onChange={setYear}

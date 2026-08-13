@@ -7,18 +7,13 @@ import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
   http, ExpenseClaim, ExpenseApplication, Attachment, AccountTreeNode, Employee, OrgUnit,
-  APPROVER_TYPE_LABEL, EXPENSE_STATUS_LABEL, APPLY_TYPE_LABEL,
+  ActiveWorkflow, APPROVER_TYPE_LABEL, EXPENSE_STATUS_LABEL, APPLY_TYPE_LABEL,
   STEP_STATE_LABEL, STEP_STATE_COLOR, fileUrl,
 } from '../api'
 import AttachmentEditor from '../components/AttachmentEditor'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'default', pending: 'processing', approved: 'success', rejected: 'error', paid: 'gold',
-}
-
-interface ActiveWorkflow {
-  exists: boolean; id?: number; name?: string
-  steps?: { step_no: number; name: string; approver_type: string }[]
 }
 
 export default function Expense() {
