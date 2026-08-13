@@ -7,7 +7,7 @@ import { PlusOutlined, DeleteOutlined, PaperClipOutlined } from '@ant-design/ico
 import {
   http, ExpenseApplication, Attachment, AccountTreeNode, Employee, OrgUnit,
   ActiveWorkflow, APPLY_STATUS_LABEL, APPLY_TYPE_LABEL,
-  STEP_STATE_LABEL, STEP_STATE_COLOR,
+  STEP_STATE_LABEL, STEP_STATE_COLOR, formatYuan,
 } from '../api'
 import AttachmentEditor from '../components/AttachmentEditor'
 
@@ -101,7 +101,7 @@ export default function ExpenseApply() {
     { title: '申请人', dataIndex: 'applicant_name', width: 90, render: (v: string) => v || '-' },
     { title: '事由', dataIndex: 'reason', ellipsis: true },
     { title: '预计金额', dataIndex: 'estimated_amount', width: 110, align: 'right' as const,
-      render: (v: number | string) => `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` },
+      render: (v: string) => formatYuan(v) },
     { title: '附件', dataIndex: 'attachments', width: 60, align: 'center' as const,
       render: (a: Attachment[]) => a.length ? <Tag icon={<PaperClipOutlined />}>{a.length}</Tag> : '-' },
     { title: '状态', dataIndex: 'status', width: 100,

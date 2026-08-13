@@ -17,10 +17,26 @@ import { fileURLToPath } from 'node:url'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SOURCE_DIR = join(ROOT, 'shared', 'contract')
 
+/**
+ * 微信小程序在独立仓库 lsgoodlionel/CW-WX 里,位置不固定:
+ * 可能与本仓库并列(../CW-WX),也可能仍放在本仓库内(WX/)。
+ * 找不到就跳过 —— 小程序那边也能用自己的 `npm run contract:sync` 反向拉取。
+ */
+function findWeappRoot() {
+  const candidates = [
+    process.env.WEAPP_REPO,
+    resolve(ROOT, '..', 'CW-WX'),
+    join(ROOT, 'WX'),
+  ]
+  return candidates.find((dir) => dir && existsSync(join(dir, 'src', 'app.config.ts'))) || null
+}
+
+const weappRoot = findWeappRoot()
+
 /** 各端的落地目录。新增端只要在这里加一行。 */
 const TARGETS = [
   { name: 'Web 前端', dir: join(ROOT, 'frontend', 'src', 'shared') },
-  { name: '微信小程序', dir: join(ROOT, 'WX', 'src', 'shared') },
+  ...(weappRoot ? [{ name: '微信小程序', dir: join(weappRoot, 'src', 'shared') }] : []),
 ]
 
 const HEADER = `/**
@@ -47,6 +63,12 @@ function render(name) {
 const files = sourceFiles()
 const drift = []
 let written = 0
+
+if (!weappRoot) {
+  console.log('[sync-shared] 未找到小程序仓库(CW-WX),本次只同步 Web 前端。')
+  console.log('    如需一并同步:把 CW-WX 放到本仓库同级目录,或设 WEAPP_REPO=/path/to/CW-WX;')
+  console.log('    也可以在 CW-WX 里跑 npm run contract:sync 反向拉取。')
+}
 
 for (const target of TARGETS) {
   // 目标端不存在时跳过(例如只克隆了部分目录),不当作错误

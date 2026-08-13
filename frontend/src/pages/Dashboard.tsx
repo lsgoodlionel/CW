@@ -10,12 +10,11 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid,
 } from 'recharts'
 import dayjs, { Dayjs } from 'dayjs'
-import { http, DashboardData } from '../api'
+import { http, DashboardData, formatYuan as yuan } from '../api'
 
 type PeriodType = 'day' | 'month' | 'quarter' | 'year'
 
-const yuan = (n: number) =>
-  '¥' + n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+// 金额统一走共享实现,避免各页面各写一套(且能正确处理后端的字符串金额)
 
 const EXP_COLORS = ['#1f6feb', '#52c41a', '#faad14', '#eb2f96', '#722ed1', '#13c2c2', '#fa541c']
 

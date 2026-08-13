@@ -9,9 +9,8 @@
  * 只放「值 → 中文名」的映射。颜色 / 主题这类表现层映射留在各端自己的 UI 层,
  * 因为 antd 的色板与小程序自建组件的色板并不通用。
  */
-import type { Category } from './models'
-
-export const CATEGORY_LABEL: Record<Category, string> = {
+/** 后端把科目类别存成普通字符串,这里用 Record<string, …> 以便直接按接口值索引 */
+export const CATEGORY_LABEL: Record<string, string> = {
   asset: '资产类',
   liability: '负债类',
   equity: '权益类',

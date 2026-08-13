@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Table, Tag, Button, Space, Select, Input, Popconfirm, message } from 'antd'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { http, LinkedVoucher, VoucherListItem, RELATION_LABEL } from '../api'
+import { http, LinkedVoucher, VoucherListItem, RELATION_LABEL, formatAmount } from '../api'
 
 interface VoucherLinksProps {
   voucherId: number
@@ -84,7 +84,7 @@ export default function VoucherLinks({ voucherId, links, onChange }: VoucherLink
           { title: '摘要', dataIndex: 'voucher_note', ellipsis: true },
           {
             title: '金额', dataIndex: 'total_debit', width: 110, align: 'right',
-            render: (v: number) => v.toLocaleString('zh-CN', { minimumFractionDigits: 2 }),
+            render: (v: string) => formatAmount(v),
           },
           { title: '备注', dataIndex: 'note', width: 120, render: (v: string) => v || '-' },
           {

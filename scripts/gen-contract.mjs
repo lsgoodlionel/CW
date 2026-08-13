@@ -137,7 +137,53 @@ function docComment(node, indent = '  ') {
   return `${indent}/**\n${lines}\n${indent} */\n`
 }
 
-function renderSchema(name, node) {
+/**
+ * 判断每个 schema 是「请求体」还是「响应体」。
+ *
+ * 这一步决定字段该不该带 `?`:
+ *   · 请求体:客户端可以不传有默认值的字段 → 可选;
+ *   · 响应体:Pydantic 序列化时每个声明过的字段都会输出(没赋值就输出默认值)
+ *     → 一律必填,可空性用 `| null` 表达。
+ * 若不区分,像 `sub_accounts`、`attachment_count` 这些「后端一定会返回」的字段
+ * 会被生成成可选,前端被迫到处写 `?.` 和非空断言。
+ */
+function classifySchemas(spec) {
+  const schemas = spec.components?.schemas || {}
+  const request = new Set()
+  const response = new Set()
+
+  const collectRefs = (node, into, seen = new Set()) => {
+    if (!node || typeof node !== 'object') return
+    if (node.$ref) {
+      const n = refName(node.$ref)
+      if (seen.has(n)) return
+      seen.add(n)
+      into.add(n)
+      collectRefs(schemas[n], into, seen)
+      return
+    }
+    for (const v of Object.values(node)) {
+      if (v && typeof v === 'object') collectRefs(v, into, seen)
+    }
+  }
+
+  for (const ops of Object.values(spec.paths || {})) {
+    for (const op of Object.values(ops)) {
+      if (!op || typeof op !== 'object') continue
+      if (op.requestBody) collectRefs(op.requestBody, request)
+      if (op.responses) {
+        for (const [code, res] of Object.entries(op.responses)) {
+          // 校验错误体不算业务响应
+          if (code.startsWith('4') || code.startsWith('5')) continue
+          collectRefs(res, response)
+        }
+      }
+    }
+  }
+  return { request, response }
+}
+
+function renderSchema(name, node, responseOnly) {
   // 顶层枚举 → type 别名
   if (Array.isArray(node.enum) && node.enum.length) {
     return `export type ${name} = ${toType(node)}\n`
@@ -149,7 +195,7 @@ function renderSchema(name, node) {
   const required = new Set(node.required || [])
   const props = Object.entries(node.properties || {})
     .map(([key, prop]) => {
-      const optional = required.has(key) ? '' : '?'
+      const optional = responseOnly || required.has(key) ? '' : '?'
       return `${docComment(prop)}  ${quoteKey(key)}${optional}: ${toType(prop)}`
     })
     .join('\n')
@@ -193,7 +239,10 @@ const schemas = spec.components?.schemas || {}
 const names = Object.keys(schemas).filter((n) => !SKIP.test(n)).sort()
 if (names.length === 0) fail('规范里没有可用的 components.schemas')
 
-const body = names.map((n) => renderSchema(n, schemas[n])).join('\n')
+const { request, response } = classifySchemas(spec)
+const isResponseOnly = (n) => response.has(n) && !request.has(n)
+
+const body = names.map((n) => renderSchema(n, schemas[n], isResponseOnly(n))).join('\n')
 
 const header = `/**
  * ⚠️ 本文件由 scripts/gen-contract.mjs 从后端 OpenAPI 自动生成,请勿手改。

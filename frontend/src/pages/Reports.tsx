@@ -4,13 +4,11 @@ import { DownloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
   http, withToken,
-  BalanceSheet, BalanceSheetRow, OfficialReports, Statement, TrialBalance,
+  BalanceSheet, BalanceSheetRow, OfficialReports, Statement, TrialBalance, formatAmount,
 } from '../api'
 
-const yuan = (n: number | null) =>
-  n === null || n === undefined
-    ? ''
-    : n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+// 报表里的空值(分组标题行)要留白,不能显示 0.00
+const yuan = (n: number | null) => (n === null || n === undefined ? '' : formatAmount(n))
 
 type ReportType = 'month' | 'quarter' | 'year'
 
@@ -91,7 +89,7 @@ const styleFont = (s: string) =>
   ['total', 'grand', 'header', 'head'].includes(s) ? { fontWeight: 600 as const } : {}
 
 // 按层级缩进显示项目名称(还原模板上下级隶属关系)
-function LabelCell({ label, style, indent }: { label?: string; style?: string; indent?: number }) {
+function LabelCell({ label, style, indent }: { label?: string; style?: string; indent?: number | null }) {
   return (
     <span style={{ ...styleFont(style || ''), paddingLeft: (indent || 0) * 18, display: 'inline-block' }}>
       {label}

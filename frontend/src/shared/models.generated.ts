@@ -1,4 +1,9 @@
 /**
+ * ⚠️ 本文件由 scripts/sync-shared.mjs 自动生成,请勿直接修改。
+ * 源文件:shared/contract/models.generated.ts
+ * 修改流程:改 shared/contract/models.generated.ts → 跑 node scripts/sync-shared.mjs
+ */
+/**
  * ⚠️ 本文件由 scripts/gen-contract.mjs 从后端 OpenAPI 自动生成,请勿手改。
  *
  * 来源:backend/app/schemas.py + schemas_read.py(经 FastAPI 反射)

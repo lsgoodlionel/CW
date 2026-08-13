@@ -5,7 +5,7 @@ import {
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { http, Customer, CustomerVoucherItem, PARTY_LABEL } from '../api'
+import { http, Customer, CustomerVoucherItem, PARTY_LABEL, formatAmount, formatYuan } from '../api'
 
 const FIELDS: { name: keyof Customer; label: string; required?: boolean }[] = [
   { name: 'name', label: '名称', required: true },
@@ -141,14 +141,14 @@ export default function Customers() {
               <Descriptions.Item label="联系人">{detail.contact_person || '-'}</Descriptions.Item>
               <Descriptions.Item label="联系电话">{detail.contact_phone || '-'}</Descriptions.Item>
             </Descriptions>
-            <h4>往来业务历史(借方合计 ¥{histSum.toLocaleString('zh-CN', { minimumFractionDigits: 2 })})</h4>
+            <h4>往来业务历史(借方合计 {formatYuan(histSum)})</h4>
             <Table rowKey="id" size="small" pagination={false} dataSource={hist}
               locale={{ emptyText: '暂无关联凭证' }}
               columns={[
                 { title: '凭证号', dataIndex: 'voucher_no', render: (v: string, r: CustomerVoucherItem) => <a onClick={() => navigate(`/vouchers/${r.id}`)}>{v}</a> },
                 { title: '日期', dataIndex: 'voucher_date', width: 110 },
                 { title: '摘要', dataIndex: 'note', ellipsis: true },
-                { title: '金额', dataIndex: 'total_debit', width: 110, align: 'right', render: (v: number) => v.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) },
+                { title: '金额', dataIndex: 'total_debit', width: 110, align: 'right', render: (v: number) => formatAmount(v) },
               ]} />
           </>
         )}

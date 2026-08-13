@@ -5,7 +5,7 @@
 > 数据模型源自《小企业会计财务原始记录.xlsx》;报表/账簿格式对齐税务报送与手工账官方模板。
 > 设计蓝图见 [docs/BLUEPRINT.md](docs/BLUEPRINT.md),报表口径见 [docs/REPORTS.md](docs/REPORTS.md)。
 > **开发接力 / 团队移交请看 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**(全量功能、数据模型、API、开发历程与待办规划)。
-> **微信小程序版**见 [WX/README.md](WX/README.md),与 Web 端共用同一后端;
+> **微信小程序版**在独立仓库 [lsgoodlionel/CW-WX](https://github.com/lsgoodlionel/CW-WX),与本仓库共用同一后端;
 > 两端共享契约与升级同步规则见 [docs/SHARED-CONTRACT.md](docs/SHARED-CONTRACT.md)。
 
 ---
@@ -268,7 +268,23 @@ curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | H
 
 部署完成后访问 `http://<服务器IP>:<端口>`(默认 8080)。非 root 用户需具备 `sudo`。
 
-### 本地 Docker 部署
+### 本地桌面(Windows / macOS)一键安装客户端
+
+个人电脑上把系统当"本地客户端"用。前置:先安装 **Docker Desktop**(<https://www.docker.com/products/docker-desktop/>)。脚本会自动下载代码 → 构建 → 启动 → 打开浏览器;再次运行即"更新并启动"(数据保留在 Docker 数据卷,不丢)。
+
+**macOS**(终端一行,推荐):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install-mac.command | bash
+```
+
+或下载 [`install-mac.command`](install-mac.command) 后右键 → 打开(首次需在"系统设置 → 隐私与安全性"允许)。
+
+**Windows**:下载 [`install-windows.bat`](install-windows.bat) 后**双击运行**(Windows 10+ 自带 `curl`/`tar`,无需额外工具)。
+
+启动后自动打开 `http://localhost:8080`,初始账号 **admin / admin123**(请登录后修改)。停止:在 Docker Desktop 停止 CW 容器,或到安装目录执行 `docker compose stop`。
+
+### 本地 Docker 部署(开发/自定义)
 
 ```bash
 cp .env.example .env        # 按需修改端口/密码
@@ -417,11 +433,7 @@ CW/
 │   ├── src/shared/                 共享契约(自动生成,勿手改)
 │   ├── nginx.conf                  静态托管 + /api 反代
 │   └── Dockerfile
-├── WX/                          微信小程序(Taro + React),复用同一后端
-│   ├── src/pages/ pkgBook/ pkgFlow/ pkgSys/   主包与三个分包
-│   ├── src/shared/                 共享契约(自动生成,勿手改)
-│   └── README.md                   构建、域名白名单、平台限制
-├── shared/contract/             Web 与小程序的共享契约(唯一事实源)
+├── shared/contract/             Web 与小程序的共享契约(models.generated.ts 由后端 OpenAPI 生成)
 ├── scripts/sync-shared.mjs      契约同步 / 校验
 ├── docs/                        蓝图、报表说明、多端同步、官方模板
 ├── docker-compose.yml

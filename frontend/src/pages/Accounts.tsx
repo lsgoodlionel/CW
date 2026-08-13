@@ -6,9 +6,9 @@ import {
 import {
   PlusOutlined, DownloadOutlined, UploadOutlined, FileExcelOutlined,
 } from '@ant-design/icons'
-import { http, AccountTreeNode, SubAccount, Category, CATEGORY_LABEL, withToken } from '../api'
+import { http, AccountTreeNode, SubAccount, CATEGORY_LABEL, withToken } from '../api'
 
-const CAT_COLOR: Record<Category, string> = {
+const CAT_COLOR: Record<string, string> = {
   asset: 'blue', liability: 'orange', equity: 'purple', cost: 'cyan', profit: 'green',
 }
 
@@ -113,7 +113,7 @@ export default function Accounts() {
     { title: '一级科目名称', dataIndex: 'name' },
     {
       title: '类别', dataIndex: 'category', width: 100,
-      render: (c: Category) => <Tag color={CAT_COLOR[c]}>{CATEGORY_LABEL[c]}</Tag>,
+      render: (c: string) => <Tag color={CAT_COLOR[c]}>{CATEGORY_LABEL[c]}</Tag>,
     },
     { title: '方向', dataIndex: 'direction', width: 70, render: (d: string) => (d === 'debit' ? '借' : '贷') },
     {

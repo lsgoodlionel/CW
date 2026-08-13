@@ -110,6 +110,14 @@
 <div class="note">安装完成后,浏览器访问 <code>http://服务器IP:8080</code>(或你设定的端口)。本机测试为 <code>http://localhost:8080</code>。</div>
 <div class="warn"><b>若一行命令报 <code>bash: 行 1: 404: 未找到命令</code></b>:多为 GitHub raw 短暂缓存或命令被复制不全。请确认命令含 <code>-f</code> 后重试,或先下载再执行:<br>
 <code>curl -fsSL .../install.sh -o /tmp/install.sh && bash /tmp/install.sh</code></div>
+<h4>本地桌面(Windows / macOS)一键安装客户端</h4>
+<p>在个人电脑上把系统当"本地客户端"使用。<b>前置:先安装 Docker Desktop</b>(<code>docker.com/products/docker-desktop</code>)。安装脚本会自动下载代码 → 构建 → 启动 → 打开浏览器;再次运行即"更新并启动"(数据保留在 Docker 数据卷,不丢)。</p>
+<ul>
+  <li><b>macOS</b>:终端执行 <code>curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install-mac.command | bash</code>;或下载 <code>install-mac.command</code> 后右键 → 打开(首次需在“系统设置 → 隐私与安全性”允许)。</li>
+  <li><b>Windows</b>:下载 <code>install-windows.bat</code> 后<b>双击运行</b>(Windows 10+ 自带 curl/tar,无需额外工具)。</li>
+</ul>
+<div class="tip">启动后自动打开 <code>http://localhost:8080</code>,初始账号 admin / admin123。停止:在 Docker Desktop 停止 CW 容器,或到安装目录执行 <code>docker compose stop</code>。</div>
+
 <h4>手动部署(可选)</h4>
 <pre><code>git clone https://github.com/lsgoodlionel/CW.git &amp;&amp; cd CW
 ./deploy.sh          # 自动生成随机数据库密码的 .env 并构建启动</code></pre>

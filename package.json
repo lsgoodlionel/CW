@@ -1,8 +1,10 @@
 {
   "name": "cw-workspace",
   "private": true,
-  "description": "小企业财务记账系统 —— 仓库级脚本(共享契约同步)。Web 前端与小程序各自独立安装依赖。",
+  "description": "小企业财务记账系统 —— 仓库级脚本(从后端 OpenAPI 生成契约并同步到各端)。Web 前端与小程序各自独立安装依赖。",
   "scripts": {
+    "contract:gen": "node scripts/gen-contract.mjs && node scripts/sync-shared.mjs",
+    "contract:check": "node scripts/gen-contract.mjs --check && node scripts/sync-shared.mjs --check",
     "shared:sync": "node scripts/sync-shared.mjs",
     "shared:check": "node scripts/sync-shared.mjs --check"
   }

@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   http, ExpenseClaim, ExpenseApplication, Attachment, AccountTreeNode, Employee, OrgUnit,
   ActiveWorkflow, APPROVER_TYPE_LABEL, EXPENSE_STATUS_LABEL, APPLY_TYPE_LABEL,
-  STEP_STATE_LABEL, STEP_STATE_COLOR, fileUrl,
+  STEP_STATE_LABEL, STEP_STATE_COLOR, fileUrl, formatYuan,
 } from '../api'
 import AttachmentEditor from '../components/AttachmentEditor'
 
@@ -129,7 +129,7 @@ export default function Expense() {
     { title: '申请人', dataIndex: 'applicant_name', width: 90, render: (v: string) => v || '-' },
     { title: '事由', dataIndex: 'reason', ellipsis: true },
     { title: '金额', dataIndex: 'total_amount', width: 110, align: 'right' as const,
-      render: (v: number | string) => `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` },
+      render: (v: string) => formatYuan(v) },
     { title: '状态', dataIndex: 'status', width: 100,
       render: (s: string) => <Tag color={STATUS_COLOR[s]}>{EXPENSE_STATUS_LABEL[s] || s}</Tag> },
     { title: '凭证', dataIndex: 'voucher_no', width: 130,

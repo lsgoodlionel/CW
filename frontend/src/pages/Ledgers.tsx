@@ -2,12 +2,12 @@ import { useEffect, useState, useMemo } from 'react'
 import { Card, Select, Segmented, Button, Space, Table, Tag, Empty, Alert } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { http, Account, withToken, Ledger, LedgerRow, LEDGER_TYPE_LABEL } from '../api'
+import { http, Account, withToken, Ledger, LedgerRow, LEDGER_TYPE_LABEL, formatAmount } from '../api'
 
 type ReportType = 'month' | 'quarter' | 'year'
 
-const fmt = (v: string | number) =>
-  typeof v === 'number' ? v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : v
+const fmt = (v: string | number | null) =>
+  typeof v === 'number' ? formatAmount(v) : (v ?? '')
 
 export default function Ledgers() {
   const now = dayjs()

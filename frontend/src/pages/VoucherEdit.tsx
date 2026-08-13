@@ -10,14 +10,14 @@ import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import {
   http, Account, AccountTreeNode, Entry, Attachment, VoucherDetail, Customer,
-  LinkedVoucher, CATEGORY_LABEL, ATTACHMENT_KIND_LABEL, PARTY_LABEL,
+  LinkedVoucher, CATEGORY_LABEL, ATTACHMENT_KIND_LABEL, PARTY_LABEL, formatAmount as yuan, toAmount,
 } from '../api'
 import AttachmentPreview from '../components/AttachmentPreview'
 import VoucherLinks from '../components/VoucherLinks'
 
 const { Text } = Typography
 const emptyEntry = (): Entry => ({ summary: '', account_id: 0, sub_account: '', debit: 0, credit: 0 })
-const yuan = (n: number) => n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+// 金额格式化走共享实现
 
 const KIND_OPTIONS = Object.entries(ATTACHMENT_KIND_LABEL).map(([value, label]) => ({ value, label }))
 
@@ -68,14 +68,14 @@ export default function VoucherEdit() {
   const accountOptions = useMemo(() => {
     const groups: Record<string, { label: string; options: { label: string; value: number }[] }> = {}
     accounts.forEach((a) => {
-      const g = groups[a.category] || (groups[a.category] = { label: CATEGORY_LABEL[a.category], options: [] })
+      const g = groups[a.category] || (groups[a.category] = { label: CATEGORY_LABEL[a.category] || a.category, options: [] })
       g.options.push({ label: `${a.code} ${a.name}`, value: a.id })
     })
     return Object.values(groups)
   }, [accounts])
 
-  const totalDebit = entries.reduce((s, e) => s + (Number(e.debit) || 0), 0)
-  const totalCredit = entries.reduce((s, e) => s + (Number(e.credit) || 0), 0)
+  const totalDebit = entries.reduce((s, e) => s + toAmount(e.debit), 0)
+  const totalCredit = entries.reduce((s, e) => s + toAmount(e.credit), 0)
   // 允许红字(负数)冲销:借贷相等且不为零即可
   const balanced = totalDebit === totalCredit && totalDebit !== 0
 
@@ -151,7 +151,8 @@ export default function VoucherEdit() {
       status: 'posted',
       entries: valid.map((e) => ({
         summary: e.summary, account_id: e.account_id, sub_account: e.sub_account,
-        debit: e.debit, credit: e.credit,
+        // 编辑态可能仍是接口读回的字符串,提交前统一成数字
+        debit: toAmount(e.debit), credit: toAmount(e.credit),
       })),
     }
     setSaving(true)

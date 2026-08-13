@@ -5,7 +5,7 @@ import {
 import { PlusOutlined, PaperClipOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import type { Dayjs } from 'dayjs'
-import { http, VoucherListItem } from '../api'
+import { http, VoucherListItem, formatYuan } from '../api'
 
 const { RangePicker } = DatePicker
 
@@ -46,7 +46,7 @@ export default function VoucherList() {
     },
     {
       title: '借/贷合计', dataIndex: 'total_debit', width: 130,
-      render: (v: number) => `¥${v.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`,
+      render: (v: string) => formatYuan(v),
     },
     { title: '分录', dataIndex: 'entry_count', width: 60 },
     {
