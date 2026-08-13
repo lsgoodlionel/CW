@@ -24,3 +24,7 @@ frontend/tsconfig.tsbuildinfo
 *.tsbuildinfo
 .deployed_sha
 WX/
+/dist/
+/build/
+.buildvenv/
+packaging/_selftest.sh

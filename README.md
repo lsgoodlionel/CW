@@ -284,6 +284,19 @@ curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install-mac.co
 
 启动后自动打开 `http://localhost:8080`,初始账号 **admin / admin123**(请登录后修改)。停止:在 Docker Desktop 停止 CW 容器,或到安装目录执行 `docker compose stop`。
 
+### 无需 Docker 的原生安装包(Windows / macOS / Linux)
+
+把整个系统打包成**单个可执行文件**:一个进程同时提供后端 API、托管前端页面、用 **SQLite** 存数据(放到用户数据目录),运行后自动打开浏览器。**无需安装 Docker、Python 或数据库**。
+
+- **获取**:在 GitHub Releases 下载对应平台的 `CWFinance`(Windows 为 `CWFinance-windows.exe`),双击运行即可。首次运行会在用户数据目录创建 SQLite 库并初始化(初始账号 admin / admin123)。
+- **自行构建**(在目标操作系统上,需 Node 18+ 与 Python 3.11+):
+  - macOS / Linux:`./packaging/build-native.sh` → 产物 `dist/CWFinance`
+  - Windows(PowerShell):`./packaging/build-native.ps1` → 产物 `dist\CWFinance.exe`
+- **数据位置**:Windows `%APPDATA%\CWFinance`、macOS `~/Library/Application Support/CWFinance`、Linux `~/.local/share/CWFinance`(含 `cw.db` 与 `uploads/`)。可在「企业信息 → 数据备份」导出迁移。
+
+> 原生版适合**单机/单人**离线使用;多人并发或服务器部署仍推荐 Docker(PostgreSQL)版。二者数据可通过备份 zip 互导。
+> 三平台可执行文件由 GitHub Actions(`.github/workflows/native-build.yml`)在打 `v*` 标签时自动构建并发布。
+
 ### 本地 Docker 部署(开发/自定义)
 
 ```bash

@@ -1,0 +1,66 @@
+name: 构建原生安装包(无需 Docker)
+
+# 打标签(v*)时构建三平台可执行文件并发布到 Release;也可手动触发。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: CWFinance-windows.exe
+            bin: dist/CWFinance.exe
+          - os: macos-latest
+            artifact: CWFinance-macos
+            bin: dist/CWFinance
+          - os: ubuntu-latest
+            artifact: CWFinance-linux
+            bin: dist/CWFinance
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: 构建前端
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 安装依赖
+        run: |
+          python -m pip install -U pip wheel
+          python -m pip install -r backend/requirements.txt pyinstaller
+
+      - name: PyInstaller 打包
+        run: pyinstaller --clean -y packaging/cw.spec
+
+      - name: 重命名产物
+        shell: bash
+        run: |
+          mkdir -p out
+          cp "${{ matrix.bin }}" "out/${{ matrix.artifact }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: out/${{ matrix.artifact }}
+
+      - name: 发布到 Release(仅打标签时)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/${{ matrix.artifact }}

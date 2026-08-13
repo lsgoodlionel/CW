@@ -118,6 +118,15 @@
 </ul>
 <div class="tip">启动后自动打开 <code>http://localhost:8080</code>,初始账号 admin / admin123。停止:在 Docker Desktop 停止 CW 容器,或到安装目录执行 <code>docker compose stop</code>。</div>
 
+<h4>无需 Docker 的原生安装包(Windows / macOS / Linux)</h4>
+<p>把整个系统打包成<b>单个可执行文件</b>:一个进程同时跑后端、托管前端、用 <b>SQLite</b> 存数据(用户数据目录),运行后自动开浏览器。<b>无需安装 Docker / Python / 数据库</b>,适合单机离线使用。</p>
+<ul>
+  <li><b>获取</b>:GitHub Releases 下载对应平台的 <code>CWFinance</code>(Windows 为 <code>CWFinance-windows.exe</code>),双击运行。初始账号 admin / admin123。</li>
+  <li><b>自行构建</b>(目标系统需 Node 18+、Python 3.11+):macOS/Linux 运行 <code>packaging/build-native.sh</code>,Windows 运行 <code>packaging/build-native.ps1</code>。</li>
+  <li><b>数据位置</b>:Win <code>%APPDATA%\CWFinance</code> / mac <code>~/Library/Application Support/CWFinance</code> / Linux <code>~/.local/share/CWFinance</code>。可在「数据备份」导出迁移。</li>
+</ul>
+<div class="note">原生版适合单机/单人;多人或服务器仍建议用 Docker(PostgreSQL)版。两者数据可用备份 zip 互导。</div>
+
 <h4>手动部署(可选)</h4>
 <pre><code>git clone https://github.com/lsgoodlionel/CW.git &amp;&amp; cd CW
 ./deploy.sh          # 自动生成随机数据库密码的 .env 并构建启动</code></pre>
