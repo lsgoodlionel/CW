@@ -17,13 +17,10 @@ jobs:
         include:
           - os: windows-latest
             artifact: CWFinance-windows.exe
-            bin: dist/CWFinance.exe
           - os: macos-latest
-            artifact: CWFinance-macos
-            bin: dist/CWFinance
+            artifact: CWFinance-macos.zip
           - os: ubuntu-latest
             artifact: CWFinance-linux
-            bin: dist/CWFinance
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -48,11 +45,15 @@ jobs:
       - name: PyInstaller 打包
         run: pyinstaller --clean -y packaging/cw.spec
 
-      - name: 重命名产物
+      - name: 整理产物(各平台)
         shell: bash
         run: |
           mkdir -p out
-          cp "${{ matrix.bin }}" "out/${{ matrix.artifact }}"
+          case "${{ runner.os }}" in
+            Windows) cp dist/CWFinance.exe "out/${{ matrix.artifact }}" ;;
+            macOS)   ditto -c -k --keepParent dist/CWFinance.app "out/${{ matrix.artifact }}" ;;
+            Linux)   cp dist/CWFinance "out/${{ matrix.artifact }}" ;;
+          esac
 
       - uses: actions/upload-artifact@v4
         with:
