@@ -76,8 +76,10 @@ export default function VoucherEdit() {
 
   const totalDebit = entries.reduce((s, e) => s + toAmount(e.debit), 0)
   const totalCredit = entries.reduce((s, e) => s + toAmount(e.credit), 0)
-  // 允许红字(负数)冲销:借贷相等且不为零即可
-  const balanced = totalDebit === totalCredit && totalDebit !== 0
+  // 允许红字(负数)冲销:借贷相等且不为零即可。
+  // 按“分”取整比较,规避 310 + 401.91 = 711.9100000000001 这类浮点误差。
+  const cents = (n: number) => Math.round(n * 100)
+  const balanced = cents(totalDebit) === cents(totalCredit) && cents(totalDebit) !== 0
 
   const updateEntry = (idx: number, patch: Partial<Entry>) =>
     setEntries((prev) => prev.map((e, i) => (i === idx ? { ...e, ...patch } : e)))

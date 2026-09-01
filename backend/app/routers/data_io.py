@@ -283,17 +283,18 @@ async def import_data(file: UploadFile = File(...), db: Session = Depends(get_db
 def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     """在单个事务内清空并重建全部数据。附件文件落盘后再提交元数据。"""
     # 1. 清空(附件文件单独处理)
+    # 先删引用 accounts 的子表(凭证分录、费用明细),再删 accounts,避免外键冲突
     db.execute(delete(models.VoucherLink))
     db.execute(delete(models.VoucherEntry))
     db.execute(delete(models.Attachment))
+    db.execute(delete(models.ExpenseItem))
+    db.execute(delete(models.ExpenseApplicationItem))
+    db.execute(delete(models.ExpenseClaim))
+    db.execute(delete(models.ExpenseApplication))
     db.execute(delete(models.Voucher))
     db.execute(delete(models.SubAccount))
     db.execute(delete(models.Account))
     db.execute(delete(models.Customer))
-    db.execute(delete(models.ExpenseItem))
-    db.execute(delete(models.ExpenseClaim))
-    db.execute(delete(models.ExpenseApplicationItem))
-    db.execute(delete(models.ExpenseApplication))
     db.execute(delete(models.WorkflowTask))
     db.execute(delete(models.WorkflowInstance))
     db.execute(delete(models.WorkflowStep))
