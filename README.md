@@ -268,6 +268,14 @@ curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | H
 
 部署完成后访问 `http://<服务器IP>:<端口>`(默认 8080)。非 root 用户需具备 `sudo`。
 
+> **连不上 GitHub / 报「502 Bad Gateway」或「语法错误 `<head>`」?** 说明 `curl` 取到的是错误页而非脚本(服务器到 raw.githubusercontent 的网络不稳)。改用 **jsDelivr 镜像**并「先下载再执行」:
+>
+> ```bash
+> curl -fsSL https://cdn.jsdelivr.net/gh/lsgoodlionel/CW@main/install.sh -o /tmp/cw-install.sh && bash /tmp/cw-install.sh
+> ```
+>
+> 脚本内部拉取源码也已内置**超时 + 归档下载兜底**,git 不通时会自动改用 HTTPS 归档,不会卡死。
+
 ### 本地桌面(Windows / macOS)一键安装客户端
 
 个人电脑上把系统当"本地客户端"用。前置:先安装 **Docker Desktop**(<https://www.docker.com/products/docker-desktop/>)。脚本会自动下载代码 → 构建 → 启动 → 打开浏览器;再次运行即"更新并启动"(数据保留在 Docker 数据卷,不丢)。
@@ -320,6 +328,12 @@ curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/upgrade.sh | b
 ```
 
 升级流程:**自动备份当前数据** → 拉取最新代码(已最新则退出)→ 重建重启(**保留数据卷,数据不丢**)→ 健康检查。
+
+> **升级停在「已自动备份…」不动了?** 多为服务器连不上 github.com、`git fetch` 卡住。已加**超时兜底**:git 拉取超时会自动改用 HTTPS 归档下载,再不行就用当前代码重建,不会无限卡死。若你的服务器 raw 也报 502,用镜像执行升级:
+>
+> ```bash
+> curl -fsSL https://cdn.jsdelivr.net/gh/lsgoodlionel/CW@main/upgrade.sh -o /tmp/cw-up.sh && bash /tmp/cw-up.sh
+> ```
 
 自动定位失败时显式指定目录:
 

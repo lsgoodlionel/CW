@@ -47,7 +47,7 @@ fi
 # 3. 安装 Docker
 if ! command -v docker >/dev/null 2>&1; then
   info "安装 Docker(官方脚本)..."
-  curl -fsSL https://get.docker.com | $SUDO sh
+  curl -fsSL --connect-timeout 20 --max-time 300 --retry 2 https://get.docker.com | $SUDO sh
   $SUDO systemctl enable --now docker 2>/dev/null || true
 fi
 
@@ -59,15 +59,44 @@ if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose >/dev
     warn "compose 插件安装失败,请手动安装。"
 fi
 
-# 5. 克隆或更新代码
+# 5. 获取代码:优先 git(带超时);失败则用 HTTPS 归档下载(免 git,应对 GitHub 被墙/502/卡住)
+REPO_SLUG="lsgoodlionel/CW"
+GT=""; command -v timeout >/dev/null 2>&1 && GT="timeout 120"
+_dl_tarball() {
+  command -v tar >/dev/null 2>&1 || return 1
+  local tmp src url
+  tmp="$(mktemp -d)" || return 1
+  for url in \
+    "https://codeload.github.com/${REPO_SLUG}/tar.gz/refs/heads/${BRANCH}" \
+    "https://github.com/${REPO_SLUG}/archive/refs/heads/${BRANCH}.tar.gz"; do
+    if curl -fsSL --connect-timeout 20 --max-time 300 --retry 2 --retry-delay 2 \
+         "$url" -o "$tmp/s.tgz" 2>/dev/null \
+       && tar xzf "$tmp/s.tgz" -C "$tmp" 2>/dev/null; then
+      src="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -1)"
+      if [ -n "$src" ] && [ -f "$src/docker-compose.yml" ]; then
+        mkdir -p "$APP_DIR"; cp -R "$src"/. "$APP_DIR"/; rm -rf "$tmp"; return 0
+      fi
+    fi
+  done
+  rm -rf "$tmp"; return 1
+}
 if [ -d "$APP_DIR/.git" ]; then
-  info "检测到已存在安装,拉取最新代码:$APP_DIR"
-  git -C "$APP_DIR" fetch --all --quiet
-  git -C "$APP_DIR" checkout "$BRANCH" --quiet
-  git -C "$APP_DIR" pull --ff-only
+  info "检测到已存在安装,更新代码:$APP_DIR"
+  if $GT git -C "$APP_DIR" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch --all --quiet 2>/dev/null \
+     && git -C "$APP_DIR" reset --hard "origin/${BRANCH}" >/dev/null 2>&1; then
+    :
+  else
+    warn "git 更新失败/超时,改用归档下载覆盖最新代码..."
+    _dl_tarball || warn "归档下载也失败,使用现有代码继续。"
+  fi
 else
-  info "克隆仓库到:$APP_DIR"
-  git clone --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
+  info "获取代码到:$APP_DIR"
+  if $GT git clone --branch "$BRANCH" "$REPO_URL" "$APP_DIR" 2>/dev/null; then
+    :
+  else
+    warn "git clone 失败/超时(网络),改用 HTTPS 归档下载..."
+    _dl_tarball || { err "无法获取代码:git 与归档下载均失败。请检查服务器到 GitHub 的网络后重试。"; exit 1; }
+  fi
 fi
 
 cd "$APP_DIR"

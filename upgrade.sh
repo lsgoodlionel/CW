@@ -114,26 +114,31 @@ _do_backup() {  # $1=输出文件
   return 1
 }
 
-# 当 git 无法访问 github.com 时,改用 HTTPS 归档(codeload CDN)下载最新源码覆盖
+# 当 git 无法访问 github.com 时,改用 HTTPS 归档下载最新源码覆盖(带超时/重试/多镜像)
 _fetch_tarball() {
   command -v curl >/dev/null 2>&1 || return 1
   command -v tar  >/dev/null 2>&1 || return 1
-  local tmp src
+  local tmp src url
   tmp="$(mktemp -d)" || return 1
-  if curl -fsSL "https://codeload.github.com/${REPO_MATCH}/tar.gz/refs/heads/${BRANCH}" \
-       2>/dev/null | tar xz -C "$tmp" 2>/dev/null; then
-    src="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)"
-    if [ -n "$src" ] && [ -f "$src/docker-compose.yml" ]; then
-      if command -v rsync >/dev/null 2>&1; then
-        rsync -a --exclude='.git' --exclude='.env' --exclude='backups' \
-              --exclude='.deployed_sha' "$src"/ "$REPO_DIR"/ 2>/dev/null
-      else
-        cp -R "$src"/. "$REPO_DIR"/ 2>/dev/null
+  for url in \
+    "https://codeload.github.com/${REPO_MATCH}/tar.gz/refs/heads/${BRANCH}" \
+    "https://github.com/${REPO_MATCH}/archive/refs/heads/${BRANCH}.tar.gz"; do
+    if curl -fsSL --connect-timeout 20 --max-time 300 --retry 2 --retry-delay 2 \
+         "$url" -o "$tmp/src.tgz" 2>/dev/null \
+       && tar xzf "$tmp/src.tgz" -C "$tmp" 2>/dev/null; then
+      src="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)"
+      if [ -n "$src" ] && [ -f "$src/docker-compose.yml" ]; then
+        if command -v rsync >/dev/null 2>&1; then
+          rsync -a --exclude='.git' --exclude='.env' --exclude='backups' \
+                --exclude='.deployed_sha' "$src"/ "$REPO_DIR"/ 2>/dev/null
+        else
+          cp -R "$src"/. "$REPO_DIR"/ 2>/dev/null
+        fi
+        rm -f "$REPO_DIR/.deployed_sha" 2>/dev/null || true   # 强制后续重建
+        rm -rf "$tmp"; return 0
       fi
-      rm -f "$REPO_DIR/.deployed_sha" 2>/dev/null || true   # 强制后续重建
-      rm -rf "$tmp"; return 0
     fi
-  fi
+  done
   rm -rf "$tmp"; return 1
 }
 
@@ -155,7 +160,9 @@ BEFORE=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 info "拉取最新代码(分支 ${BRANCH})..."
 GIT_ERR="$(mktemp 2>/dev/null || echo /tmp/cw_git_err)"
 SYNC_OK=1
-if git fetch --all --quiet 2>"$GIT_ERR"; then
+# git fetch 加超时与低速中断,避免 github 不通时无限卡住(升级停在这一步)
+GT=""; command -v timeout >/dev/null 2>&1 && GT="timeout 90"
+if $GT git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch --all --quiet 2>"$GIT_ERR"; then
   if ! git diff --quiet || ! git diff --cached --quiet; then
     warn "检测到本地改动,已 git stash 暂存(可用 git stash list 查看)。"
     git stash push -m "upgrade-autostash-$(date +%Y%m%d-%H%M%S)" >/dev/null 2>&1 || true
