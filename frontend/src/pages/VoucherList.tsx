@@ -59,10 +59,11 @@ export default function VoucherList() {
       render: (n: number) => n > 0 ? <Tag color="purple">{n}</Tag> : '-',
     },
     {
-      title: '操作', width: 140,
+      title: '操作', width: 180,
       render: (_: unknown, r: VoucherListItem) => (
         <Space>
           <a onClick={() => navigate(`/vouchers/${r.id}`)}>编辑</a>
+          <a onClick={() => navigate(`/vouchers/new?copyFrom=${r.id}`)}>复制新建</a>
           <Popconfirm title="确认删除该凭证?" onConfirm={() => remove(r.id)}>
             <a style={{ color: '#cf1322' }}>删除</a>
           </Popconfirm>

@@ -6,7 +6,7 @@ import {
 import {
   DeleteOutlined, PlusOutlined, UploadOutlined, SaveOutlined, EyeOutlined, RollbackOutlined,
 } from '@ant-design/icons'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import {
   http, Account, AccountTreeNode, Entry, Attachment, VoucherDetail, Customer,
@@ -24,6 +24,8 @@ const KIND_OPTIONS = Object.entries(ATTACHMENT_KIND_LABEL).map(([value, label]) 
 export default function VoucherEdit() {
   const { id } = useParams()
   const isEdit = Boolean(id)
+  const [searchParams] = useSearchParams()
+  const copyFrom = searchParams.get('copyFrom')  // 复制自某条凭证生成新凭证
   const navigate = useNavigate()
   const [form] = Form.useForm()
   const [accounts, setAccounts] = useState<Account[]>([])
@@ -64,6 +66,24 @@ export default function VoucherEdit() {
       setLinks(v.links)
     })
   }, [id, isEdit, form])
+
+  // 新建时若带 copyFrom:复制该凭证的摘要/科目/金额,生成一条新凭证(日期取今天、单号留空、不带附件/关联)
+  useEffect(() => {
+    if (isEdit || !copyFrom) return
+    http.get<VoucherDetail>(`/vouchers/${copyFrom}`).then((r) => {
+      const v = r.data
+      form.setFieldsValue({
+        voucher_date: dayjs(), note: v.note,
+        voucher_no: '', customer_id: v.customer_id ?? undefined,
+      })
+      const copied = v.entries.map((e) => ({
+        summary: e.summary, account_id: e.account_id, sub_account: e.sub_account,
+        debit: e.debit, credit: e.credit,
+      }))
+      setEntries(copied.length ? copied : [emptyEntry(), emptyEntry()])
+      message.success('已复制凭证内容,请核对后保存生成新凭证')
+    })
+  }, [copyFrom, isEdit, form])
 
   const accountOptions = useMemo(() => {
     const groups: Record<string, { label: string; options: { label: string; value: number }[] }> = {}
@@ -216,7 +236,7 @@ export default function VoucherEdit() {
   }
 
   return (
-    <Card title={isEdit ? '编辑凭证' : '新建凭证'}
+    <Card title={isEdit ? '编辑凭证' : (copyFrom ? '复制新建凭证' : '新建凭证')}
       extra={<Button onClick={() => navigate('/vouchers')}>返回列表</Button>}>
       <Form form={form} layout="inline" initialValues={{ voucher_date: dayjs() }}
         style={{ marginBottom: 16, rowGap: 12 }}>
