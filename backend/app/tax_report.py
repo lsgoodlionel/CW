@@ -23,12 +23,121 @@ RATE = Decimal("0.25")           # 法定税率 25%
 SMALL_MICRO_RELIEF = Decimal("0.20")
 
 
-def _is_small_micro(db: Session) -> bool:
-    c = db.get(models.CompanyInfo, 1)
-    return bool(c and c.is_small_micro)
 _Q_TITLE = "中华人民共和国企业所得税月(季)度预缴纳税申报表(A类)"
 _A_TITLE = "中华人民共和国企业所得税年度纳税申报表(A类)"
 Z = Decimal("0")
+
+# 小型微利企业判断标准(2023-2027):同时满足以下条件
+SMALL_MICRO_TAXABLE_LIMIT = Decimal("3000000")     # 应纳税所得额 ≤ 300 万元
+SMALL_MICRO_STAFF_LIMIT = 300                       # 从业人数 ≤ 300 人
+SMALL_MICRO_ASSET_LIMIT = Decimal("50000000")      # 资产总额 ≤ 5000 万元
+# 小规模纳税人标准:连续 12 个月应征增值税销售额 ≤ 500 万元
+VAT_SMALL_SALES_LIMIT = Decimal("5000000")
+
+def _total_assets(db: Session, as_of: date) -> Decimal:
+    """资产总额:资产类科目(编码 1 开头)净额合计(借-贷,备抵科目自然抵减)。"""
+    b = reports_cn.balances_asof(db, as_of)
+    return sum((v for code, v in b._d.items() if code.startswith("1")), Z)
+
+
+def _active_headcount(db: Session) -> int:
+    """从业人数:人员档案中在职员工数(status=active)。"""
+    return db.query(models.Employee).filter(models.Employee.status == "active").count()
+
+
+def _vat_sales_12m(db: Session, as_of: date) -> Decimal:
+    """近 12 个月应征增值税销售额(主营+其他业务收入 6001/6051 贷方发生)。"""
+    start = date(as_of.year - 1, as_of.month, 1)
+    b = reports_cn.Balances(reports_cn._movement(db, start, as_of))
+    return b.net_credit("6001", "6051")
+
+
+def evaluate_small_micro(db: Session, taxable: Decimal, as_of: date, year: int) -> dict:
+    """按标准判断是否符合小型微利企业,返回各条件复核明细与原因。"""
+    c = db.get(models.CompanyInfo, 1)
+    begin_assets = _total_assets(db, date(year - 1, 12, 31))
+    end_assets = _total_assets(db, as_of)
+    assets_avg = ((begin_assets + end_assets) / 2).quantize(Decimal("0.01"))
+    staff = _active_headcount(db)
+    restricted = bool(c and c.restricted_industry)
+    checks = [
+        {"name": "年应纳税所得额", "value": float(taxable),
+         "limit": float(SMALL_MICRO_TAXABLE_LIMIT), "unit": "元",
+         "ok": taxable <= SMALL_MICRO_TAXABLE_LIMIT},
+        {"name": "从业人数", "value": staff, "limit": SMALL_MICRO_STAFF_LIMIT,
+         "unit": "人", "ok": staff <= SMALL_MICRO_STAFF_LIMIT},
+        {"name": "资产总额(年初年末平均)", "value": float(assets_avg),
+         "limit": float(SMALL_MICRO_ASSET_LIMIT), "unit": "元",
+         "ok": assets_avg <= SMALL_MICRO_ASSET_LIMIT},
+        {"name": "非国家限制或禁止行业", "value": "是" if not restricted else "否(限制/禁止行业)",
+         "limit": "-", "unit": "", "ok": not restricted},
+    ]
+    reasons = []
+    for ck in checks:
+        if not ck["ok"]:
+            if ck["name"] == "非国家限制或禁止行业":
+                reasons.append("企业从事国家限制或禁止行业")
+            else:
+                reasons.append(f"{ck['name']} {ck['value']}{ck['unit']} 超过标准 "
+                               f"{ck['limit']}{ck['unit']}")
+    return {"qualified": all(ck["ok"] for ck in checks), "checks": checks, "reasons": reasons}
+
+
+def small_micro_status(db: Session, taxable: Decimal, as_of: date, year: int) -> dict:
+    """综合自动判断与手动开关,返回本期是否按小型微利处理及复核信息。"""
+    c = db.get(models.CompanyInfo, 1)
+    info = evaluate_small_micro(db, taxable, as_of, year)
+    auto = bool(c and c.small_micro_auto)
+    if auto:
+        effective = info["qualified"]
+    else:
+        effective = bool(c and c.is_small_micro)
+    return {"mode": "auto" if auto else "manual", "effective": effective,
+            "qualified": info["qualified"], "checks": info["checks"],
+            "reasons": info["reasons"]}
+
+
+def evaluate_taxpayer_kind(db: Session, as_of: date) -> dict:
+    """增值税纳税人身份复核:按近12个月销售额判断应为一般/小规模,与设置对比。"""
+    c = db.get(models.CompanyInfo, 1)
+    sales = _vat_sales_12m(db, as_of)
+    should = "general" if sales > VAT_SMALL_SALES_LIMIT else "small"
+    current = (c.taxpayer_kind if c else "general") or "general"
+    mismatch = (current == "small" and should == "general")
+    reason = ""
+    if mismatch:
+        reason = (f"近12个月应征增值税销售额 {float(sales):.2f} 元 已超过小规模标准 "
+                  f"{float(VAT_SMALL_SALES_LIMIT):.0f} 元,应自超标当月1日起转登记为一般纳税人")
+    return {"sales_12m": float(sales), "limit": float(VAT_SMALL_SALES_LIMIT),
+            "should_be": should, "current": current, "mismatch": mismatch, "reason": reason}
+
+
+def quarterly_report_checks(db: Session, year: int, quarter: int) -> dict:
+    """季报复核信息:小型微利判断 + 增值税身份复核。"""
+    rows = {r[0]: r for r in compute_rows(db, year, quarter)}
+    taxable = rows["25"][2]
+    taxable = taxable if taxable > 0 else Z
+    end = _quarter_end(year, quarter)
+    return {"small_micro": small_micro_status(db, taxable, end, year),
+            "taxpayer": evaluate_taxpayer_kind(db, end)}
+
+
+def annual_report_checks(db: Session, year: int) -> dict:
+    """年报复核信息:小型微利判断 + 增值税身份复核 + 年度与四季度(Q4)口径核对。"""
+    rows = {r[0]: r for r in compute_annual_rows(db, year)}
+    taxable = rows["28"][3]
+    end = date(year, 12, 31)
+    q4 = {r[0]: r for r in compute_rows(db, year, 4)}
+    q4_profit = q4["25"][2]
+    reconcile = {
+        "annual_taxable": float(taxable), "q4_prepay_profit": float(q4_profit),
+        "diff": float(taxable - q4_profit),
+        "note": ("年报为全年汇算(含纳税调整、弥补亏损、税收优惠等),季报预缴为简化口径;"
+                 "若企业无上述调整事项,两者应一致,差异即由这些事项构成。"),
+    }
+    return {"small_micro": small_micro_status(db, taxable, end, year),
+            "taxpayer": evaluate_taxpayer_kind(db, end), "reconcile": reconcile}
+
 
 # 行(行次, [类别,] 项目, 金额, 层级)。层级 0 为主行次,1 为子行次(缩进一级)。
 
@@ -177,7 +286,8 @@ def compute_rows(db: Session, year: int, quarter: int):
     real_profit = a["total_profit"] - accel_reduce - exempt - income_relief   # 25 实际利润额
     taxable = real_profit if real_profit > 0 else Z
     tax_payable = (taxable * RATE).quantize(Decimal("0.01"))
-    micro = (taxable * SMALL_MICRO_RELIEF).quantize(Decimal("0.01")) if _is_small_micro(db) else Z
+    sm = small_micro_status(db, taxable, end, year)              # 小型微利复核(报表生成时按当前口径)
+    micro = (taxable * SMALL_MICRO_RELIEF).quantize(Decimal("0.01")) if sm["effective"] else Z
     relief = micro + pref["tax_relief"]                          # 28 减免所得税额(小微+其他优惠)
     after_relief = tax_payable - relief                          # 27-28
     rows = [
@@ -243,7 +353,8 @@ def compute_annual_rows(db: Session, year: int):
     taxable = adj_after - income_relief - loss_offset     # 28 应纳税所得额(27=0)
     taxable = taxable if taxable > 0 else Z
     tax_amount = (taxable * RATE).quantize(Decimal("0.01"))   # 30 应纳所得税额
-    micro = (taxable * SMALL_MICRO_RELIEF).quantize(Decimal("0.01")) if _is_small_micro(db) else Z
+    sm = small_micro_status(db, taxable, end, year)      # 小型微利复核
+    micro = (taxable * SMALL_MICRO_RELIEF).quantize(Decimal("0.01")) if sm["effective"] else Z
     relief = micro + pref["tax_relief"]                  # 31 减免所得税额(小微+其他优惠)
     payable = tax_amount - relief                         # 33 应纳税额=36 实际应纳(32/34/35=0)
     C1, C2 = "利润总额计算", "应纳税所得额计算"

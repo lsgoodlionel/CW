@@ -40,6 +40,11 @@ interface PrefRow {
   category: string; category_label: string; code: string; name: string
   amount: number; editable: boolean
 }
+interface SmCheckItem { name: string; value: number | string; limit: number | string; unit: string; ok: boolean }
+interface SmallMicroCheck { mode: string; effective: boolean; qualified: boolean; checks: SmCheckItem[]; reasons: string[] }
+interface TaxpayerCheck { sales_12m: number; limit: number; should_be: string; current: string; mismatch: boolean; reason: string }
+interface Reconcile { annual_taxable: number; q4_prepay_profit: number; diff: number; note: string }
+interface ReportChecks { small_micro: SmallMicroCheck; taxpayer: TaxpayerCheck; reconcile?: Reconcile }
 interface Schedules { A101010: CitRow[]; A102010: CitRow[]; A104000: A104Row[] }
 
 const STATUS_COLOR: Record<string, string> = { pending: 'default', filed: 'processing', paid: 'success' }
@@ -184,6 +189,63 @@ const renderLabel = (label: string, r: { level: number }) => {
 }
 const renderAmount = (v: number, r: CitRow) => (r.label.startsWith('税率') ? '25%' : formatYuan(v))
 
+// 小型微利 / 增值税身份 / 年度季度核对 复核提示面板
+function ReportCheckPanel({ checks, isAnnual }: { checks: ReportChecks; isAnnual: boolean }) {
+  const sm = checks.small_micro
+  const tk = checks.taxpayer
+  const fmtVal = (c: SmCheckItem) => (typeof c.value === 'number' ? formatYuan(c.value) : c.value)
+  const fmtLimit = (c: SmCheckItem) => (typeof c.limit === 'number' ? formatYuan(c.limit) : c.limit)
+
+  const smType = sm.effective ? 'success' : 'warning'
+  const smTitle = sm.mode === 'auto'
+    ? `自动复核:${sm.qualified ? '符合' : '不符合'}小型微利企业,本期按${sm.effective ? '小型微利优惠(实际税负5%)' : '法定25%'}计算`
+    : `手动模式:按手动值${sm.effective ? '(是)' : '(否)'}计算;自动复核结果为${sm.qualified ? '符合' : '不符合'}`
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <Alert type={smType} showIcon style={{ marginBottom: 8 }}
+        message={smTitle}
+        description={
+          <>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', margin: '6px 0' }}>
+              {sm.checks.map((c) => (
+                <span key={c.name} style={{ color: c.ok ? '#389e0d' : '#cf1322' }}>
+                  {c.ok ? '✓' : '✗'} {c.name}:{fmtVal(c)}{c.unit}
+                  {c.limit !== '-' && ` (标准 ≤ ${fmtLimit(c)}${c.unit})`}
+                </span>
+              ))}
+            </div>
+            {!sm.qualified && sm.reasons.length > 0 && (
+              <div style={{ color: '#cf1322' }}>
+                不满足原因:{sm.reasons.join(';')}。
+                {sm.mode === 'auto'
+                  ? '本计算周期已自动按非小型微利计算;如需固定,可在「企业信息」关闭自动判断并将小型微利设为否。'
+                  : '请在「企业信息」将小型微利手动值改为否,或开启自动判断。'}
+              </div>
+            )}
+            <div style={{ color: '#888', marginTop: 4 }}>
+              判断依据:同时满足 应纳税所得额≤300万、从业人数≤300、资产总额≤5000万、非国家限制或禁止行业。
+              数据口径:销售额/资产总额取自账套,从业人数取自人员档案在职数。
+            </div>
+          </>
+        } />
+      {tk.mismatch && (
+        <Alert type="warning" showIcon style={{ marginBottom: 8 }}
+          message="增值税纳税人身份复核:已超过小规模标准" description={tk.reason} />
+      )}
+      {!tk.mismatch && (
+        <Alert type="info" showIcon style={{ marginBottom: 8 }}
+          message={`增值税身份复核:近12个月销售额 ${formatYuan(tk.sales_12m)} 元,当前为${tk.current === 'general' ? '一般纳税人' : '小规模纳税人'},符合标准(小规模 ≤ ${formatYuan(tk.limit)} 元)。`} />
+      )}
+      {isAnnual && checks.reconcile && (
+        <Alert type="info" showIcon
+          message={`年度与季度核对:年报应纳税所得额 ${formatYuan(checks.reconcile.annual_taxable)} 元,第四季度预缴口径实际利润额 ${formatYuan(checks.reconcile.q4_prepay_profit)} 元,差异 ${formatYuan(checks.reconcile.diff)} 元。`}
+          description={checks.reconcile.note} />
+      )}
+    </div>
+  )
+}
+
 function TaxReports() {
   const now = dayjs()
   const [reportType, setReportType] = useState<'quarterly' | 'annual'>('quarterly')
@@ -191,15 +253,16 @@ function TaxReports() {
   const [quarter, setQuarter] = useState<number>(Math.floor((now.month()) / 3) + 1)
   const [preview, setPreview] = useState<CitRow[]>([])
   const [sched, setSched] = useState<Schedules | null>(null)
+  const [checks, setChecks] = useState<ReportChecks | null>(null)
 
   const isAnnual = reportType === 'annual'
   const loadPreview = useCallback(() => {
     if (isAnnual) {
-      http.get<{ rows: CitRow[]; schedules: Schedules }>('/tax/report/cit-annual/preview', { params: { year } })
-        .then((r) => { setPreview(r.data.rows); setSched(r.data.schedules) })
+      http.get<{ rows: CitRow[]; schedules: Schedules; checks: ReportChecks }>('/tax/report/cit-annual/preview', { params: { year } })
+        .then((r) => { setPreview(r.data.rows); setSched(r.data.schedules); setChecks(r.data.checks) })
     } else {
-      http.get<{ rows: CitRow[] }>('/tax/report/cit-quarterly/preview', { params: { year, quarter } })
-        .then((r) => { setPreview(r.data.rows); setSched(null) })
+      http.get<{ rows: CitRow[]; checks: ReportChecks }>('/tax/report/cit-quarterly/preview', { params: { year, quarter } })
+        .then((r) => { setPreview(r.data.rows); setSched(null); setChecks(r.data.checks) })
     }
   }, [isAnnual, year, quarter])
   useEffect(() => { loadPreview() }, [loadPreview])
@@ -251,6 +314,7 @@ function TaxReports() {
         message={isAnnual
           ? '年报按账套全年数据自动计算利润总额及应纳税额;境外所得、纳税调整、各类优惠、预缴税额及总分机构分摊等行次默认 0,导出后可结合各附表按实际手工调整再报送。'
           : '本表按账套数据自动计算本年累计(年初→季末);优惠、预缴、纳税调整等行次默认 0,导出后可在 Excel 中按实际手工调整再报送。'} />
+      {checks && <ReportCheckPanel checks={checks} isAnnual={isAnnual} />}
       {!isAnnual && (
         <Tabs size="small" items={[
           { key: 'main', label: 'A200000 主表', children: (

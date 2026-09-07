@@ -31,7 +31,9 @@ class CompanyFields(BaseModel):
     bookkeeper: str = ""
     recorder: str = ""
     taxpayer_kind: str = "general"     # general 一般纳税人 / small 小规模纳税人
-    is_small_micro: bool = False       # 是否小型微利企业
+    is_small_micro: bool = False       # 是否小型微利企业(手动值)
+    small_micro_auto: bool = True      # 小型微利自动判断开关
+    restricted_industry: bool = False  # 是否从事国家限制或禁止行业
 
 
 class CompanyOut(CompanyFields):

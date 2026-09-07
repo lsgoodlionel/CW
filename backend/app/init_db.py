@@ -68,6 +68,8 @@ _ADDED_COLUMNS = {
         ("start_period", "VARCHAR(20) DEFAULT ''"),
         ("taxpayer_kind", "VARCHAR(20) DEFAULT 'general'"),
         ("is_small_micro", "BOOLEAN DEFAULT FALSE"),
+        ("small_micro_auto", "BOOLEAN DEFAULT TRUE"),
+        ("restricted_industry", "BOOLEAN DEFAULT FALSE"),
     ],
 }
 

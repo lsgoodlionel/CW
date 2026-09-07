@@ -92,8 +92,22 @@ export default function Settings() {
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>
-              <Form.Item name="is_small_micro" label="小型微利企业" valuePropName="checked"
-                tooltip="启用后,企业所得税季报/年报按小型微利优惠自动计算减免所得税额(应纳税所得额×20%)">
+              <Form.Item name="is_small_micro" label="小型微利企业(手动值)" valuePropName="checked"
+                tooltip="自动判断关闭时以此手动值为准;开启自动判断时,报表按标准自动复核并可手动覆盖">
+                <Switch checkedChildren="是" unCheckedChildren="否" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col xs={24} md={12}>
+              <Form.Item name="small_micro_auto" label="小型微利自动判断" valuePropName="checked"
+                tooltip="开启后,报表生成时按标准(应纳税所得额≤300万、从业人数≤300、资产总额≤5000万、非限制行业)自动判断;关闭则用上方手动值">
+                <Switch checkedChildren="自动" unCheckedChildren="手动" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item name="restricted_industry" label="从事国家限制或禁止行业" valuePropName="checked"
+                tooltip="小型微利企业要求非国家限制或禁止行业;勾选则不符合小型微利条件">
                 <Switch checkedChildren="是" unCheckedChildren="否" />
               </Form.Item>
             </Col>

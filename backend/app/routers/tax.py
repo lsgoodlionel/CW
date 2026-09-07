@@ -117,7 +117,8 @@ def cit_quarterly_preview(year: int = Query(...), quarter: int = Query(..., ge=1
             "rows": [{"line_no": ln, "label": lb, "amount": float(amt), "level": lv}
                      for ln, lb, amt, lv in rows],
             "schedules": {"A201020": _a201020_rows(db, year),
-                          "preferences": _pref_rows(db, year)}}
+                          "preferences": _pref_rows(db, year)},
+            "checks": tax_report.quarterly_report_checks(db, year, quarter)}
 
 
 def _a201020_rows(db: Session, year: int) -> list[dict]:
@@ -192,7 +193,8 @@ def cit_annual_preview(year: int = Query(...), db: Session = Depends(get_db)):
             "schedules": {"A101010": a101010, "A102010": a102010,
                           "A104000": a104000, "A105000": a105000,
                           "A106000": a106000, "A105080": a105080, "A107012": a107012,
-                          "preferences": _pref_rows(db, year)}}
+                          "preferences": _pref_rows(db, year)},
+            "checks": tax_report.annual_report_checks(db, year)}
 
 
 def _a107_rows(db: Session, year: int) -> list[dict]:

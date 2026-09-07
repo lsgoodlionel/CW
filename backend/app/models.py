@@ -40,8 +40,12 @@ class CompanyInfo(Base):
     recorder: Mapped[str] = mapped_column(String(100), default="")
     # 增值税纳税人身份:general 一般纳税人 / small 小规模纳税人
     taxpayer_kind: Mapped[str] = mapped_column(String(20), default="general")
-    # 是否小型微利企业(影响企业所得税优惠税率)
+    # 是否小型微利企业(手动值;自动判断开启时以判断结果为准)
     is_small_micro: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 小型微利自动判断:True 报表生成时按标准自动判断,False 用手动值
+    small_micro_auto: Mapped[bool] = mapped_column(Boolean, default=True)
+    # 是否从事国家限制或禁止行业(影响小型微利判断)
+    restricted_industry: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Account(Base):
