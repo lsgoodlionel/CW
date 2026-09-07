@@ -46,6 +46,47 @@ def _active_headcount(db: Session) -> int:
     return db.query(models.Employee).filter(models.Employee.status == "active").count()
 
 
+def _avg_headcount(db: Session, year: int, as_of: date) -> Decimal:
+    """从业人数(季度平均):按人员档案 hire_date 推算该年各季末在职人数,取平均。
+    离职员工(status!=active)不计入;入职日期缺失视为期初已在职。"""
+    emps = db.query(models.Employee).all()
+    ends = [d for d in (date(year, 3, 31), date(year, 6, 30),
+                        date(year, 9, 30), date(year, 12, 31)) if d <= as_of] or [as_of]
+
+    def active_at(qe: date) -> int:
+        n = 0
+        for e in emps:
+            if e.status != "active":
+                continue
+            hd = None
+            if e.hire_date:
+                try:
+                    hd = date.fromisoformat(str(e.hire_date)[:10])
+                except ValueError:
+                    hd = None
+            if hd is None or hd <= qe:
+                n += 1
+        return n
+
+    counts = [active_at(qe) for qe in ends]
+    if not counts:
+        return Decimal("0")
+    return (Decimal(sum(counts)) / Decimal(len(counts))).quantize(Decimal("0.01"))
+
+
+def _prepaid_cit(db: Session, year: int) -> Decimal:
+    """本年累计已预缴企业所得税额:汇总「税务申报记录」中该年度企业所得税(cit)的已缴税额。"""
+    total = Z
+    for r in db.scalars(select(models.TaxFiling).where(models.TaxFiling.tax_type == "cit")).all():
+        y = r.period_start.year if r.period_start else None
+        if y is None and r.period:
+            digits = "".join(ch for ch in str(r.period)[:4] if ch.isdigit())
+            y = int(digits) if len(digits) == 4 else None
+        if y == year:
+            total += r.paid_amount or Z
+    return total
+
+
 def _vat_sales_12m(db: Session, as_of: date) -> Decimal:
     """近 12 个月应征增值税销售额(主营+其他业务收入 6001/6051 贷方发生)。"""
     start = date(as_of.year - 1, as_of.month, 1)
@@ -59,13 +100,13 @@ def evaluate_small_micro(db: Session, taxable: Decimal, as_of: date, year: int) 
     begin_assets = _total_assets(db, date(year - 1, 12, 31))
     end_assets = _total_assets(db, as_of)
     assets_avg = ((begin_assets + end_assets) / 2).quantize(Decimal("0.01"))
-    staff = _active_headcount(db)
+    staff = _avg_headcount(db, year, as_of)          # 从业人数(季度平均)
     restricted = bool(c and c.restricted_industry)
     checks = [
         {"name": "年应纳税所得额", "value": float(taxable),
          "limit": float(SMALL_MICRO_TAXABLE_LIMIT), "unit": "元",
          "ok": taxable <= SMALL_MICRO_TAXABLE_LIMIT},
-        {"name": "从业人数", "value": staff, "limit": SMALL_MICRO_STAFF_LIMIT,
+        {"name": "从业人数(季度平均)", "value": float(staff), "limit": SMALL_MICRO_STAFF_LIMIT,
          "unit": "人", "ok": staff <= SMALL_MICRO_STAFF_LIMIT},
         {"name": "资产总额(年初年末平均)", "value": float(assets_avg),
          "limit": float(SMALL_MICRO_ASSET_LIMIT), "unit": "元",
@@ -358,6 +399,8 @@ def compute_annual_rows(db: Session, year: int):
     micro = (taxable_tax * SMALL_MICRO_RELIEF).quantize(Decimal("0.01")) if sm["effective"] else Z
     relief = micro + pref["tax_relief"]                  # 31 减免所得税额(小微+其他优惠)
     payable = tax_amount - relief                         # 33 应纳税额=36 实际应纳(32/34/35=0)
+    prepaid = _prepaid_cit(db, year)                     # 37 本年累计已预缴(税务申报记录汇总)
+    net_pay = payable - prepaid                          # 38/45 本年应补(退)所得税额
     C1, C2 = "利润总额计算", "应纳税所得额计算"
     C3, C4 = "应纳税额计算", "实际应补(退)税额计算"
     rows = [
@@ -397,12 +440,12 @@ def compute_annual_rows(db: Session, year: int):
         ("34", "", "加:境外所得应纳所得税额(填写A108000)", Z),
         ("35", "", "减:境外所得抵免所得税额(填写A108000)", Z),
         ("36", "", "八、实际应纳所得税额(33+34-35)", payable),
-        ("37", C4, "减:本年累计预缴所得税额", Z),
-        ("38", "", "九、本年应补(退)所得税额(36-37)", payable),
+        ("37", C4, "减:本年累计预缴所得税额", prepaid),
+        ("38", "", "九、本年应补(退)所得税额(36-37)", net_pay),
         ("39", "", "其中:总机构分摊本年应补(退)所得税额(填写A109000)", Z),
         ("40", "", "财政集中分配本年应补(退)所得税额(填写A109000)", Z),
         ("41", "", "总机构主体生产经营部门分摊本年应补(退)所得税额(填写A109000)", Z),
-        ("45", "", "十、本年实际应补(退)所得税额", payable),
+        ("45", "", "十、本年实际应补(退)所得税额", net_pay),
     ]
     return [(n, cat, lb, v, _level(n)) for n, cat, lb, v in rows]
 
