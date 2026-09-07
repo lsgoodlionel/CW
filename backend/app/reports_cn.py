@@ -93,6 +93,7 @@ def _movement(db: Session, start: date | None, end: date | None) -> dict[str, De
         )
         .join(models.VoucherEntry, models.VoucherEntry.account_id == models.Account.id)
         .join(models.Voucher, models.Voucher.id == models.VoucherEntry.voucher_id)
+        .where(models.Voucher.status == "posted")   # 仅过账凭证进入账簿,排除草稿
         .group_by(models.Account.code)
     )
     if start:
@@ -115,6 +116,7 @@ def _movement_by_sub(db: Session, start: date | None, end: date | None
         .join(models.VoucherEntry, models.VoucherEntry.account_id == models.Account.id)
         .join(models.Voucher, models.Voucher.id == models.VoucherEntry.voucher_id)
         .where(models.VoucherEntry.sub_account != "")
+        .where(models.Voucher.status == "posted")
         .group_by(models.Account.code, models.VoucherEntry.sub_account)
     )
     if start:
@@ -207,16 +209,16 @@ def _asset_lines(b: Balances) -> dict[int, Decimal]:
     v[13] = b.net_debit("1411")                            # 周转材料
     v[14] = ZERO                                           # 其他流动资产
     v[15] = sum((v[i] for i in (1, 2, 3, 4, 5, 6, 7, 8, 9, 14)), ZERO)  # 流动资产合计
-    v[16] = b.net_debit("1501", "1503")                   # 长期债券投资
-    v[17] = b.net_debit("1511")                            # 长期股权投资
+    v[16] = b.net_debit("1501", "1503", "1502")           # 长期债券投资(减持有至到期投资减值准备1502)
+    v[17] = b.net_debit("1511", "1512")                    # 长期股权投资(减减值准备1512)
     v[18] = b.net_debit("1601")                            # 固定资产原价
     v[19] = -b.net_debit("1602")                           # 减:累计折旧(正数列示)
-    v[20] = v[18] - v[19]                                  # 固定资产账面价值
+    v[20] = v[18] - v[19] + b.net_debit("1603")           # 固定资产账面价值(再减减值准备1603,备抵为负)
     v[21] = b.net_debit("1604")                            # 在建工程
     v[22] = b.net_debit("1605")                            # 工程物资
     v[23] = b.net_debit("1606")                            # 固定资产清理
     v[24] = ZERO                                           # 生产性生物资产
-    v[25] = b.net_debit("1701", "1702", "1703")           # 无形资产(净)
+    v[25] = b.net_debit("1701", "1702", "1703", "1711")   # 无形资产(净)+ 商誉1711
     v[26] = b.net_debit("5301")                            # 开发支出
     v[27] = b.net_debit("1801")                            # 长期待摊费用
     v[28] = b.net_debit("1521", "1531", "1811", "1901")   # 其他非流动资产
@@ -233,8 +235,8 @@ def _right_lines(b: Balances, profit_net: Decimal) -> dict[int, Decimal]:
     v[34] = b.net_credit("2203")                           # 预收账款
     v[35] = b.net_credit("2211")                           # 应付职工薪酬
     v[36] = b.net_credit("2221")                           # 应交税费
-    v[37] = b.net_credit("2231")                           # 应付利息
-    v[38] = b.net_credit("2232")                           # 应付利润
+    v[37] = b.net_credit("2232")                           # 应付利息(科目2232)
+    v[38] = b.net_credit("2231")                           # 应付利润/股利(科目2231)
     v[39] = b.net_credit("2241")                           # 其他应付款
     v[40] = b.net_credit("2101", "2401")                   # 其他流动负债
     v[41] = sum((v[i] for i in range(31, 41)), ZERO)       # 流动负债合计
@@ -248,7 +250,8 @@ def _right_lines(b: Balances, profit_net: Decimal) -> dict[int, Decimal]:
     v[49] = b.net_credit("4002")                           # 资本公积
     v[50] = b.net_credit("4101")                           # 盈余公积
     v[51] = b.net_credit("4103", "4104") + profit_net      # 未分配利润
-    v[52] = sum((v[i] for i in (48, 49, 50, 51)), ZERO)    # 所有者权益合计
+    # 减:库存股(4201,权益借方,回购冲减所有者权益)
+    v[52] = sum((v[i] for i in (48, 49, 50, 51)), ZERO) - b.net_debit("4201")
     v[53] = v[47] + v[52]                                  # 负债和所有者权益总计
     return v
 
@@ -472,8 +475,8 @@ _CF_OUTFLOW = {
     "1601": 12, "1604": 12, "1605": 12, "1701": 12, "1801": 12,
     # 筹资
     "2001": 16, "2501": 16,
-    "2231": 17,
-    "2232": 18, "4104": 18,
+    "2232": 17,               # 应付利息→偿还借款利息支付的现金
+    "2231": 18, "4104": 18,   # 应付股利→分配股利/利润支付的现金
 }
 
 

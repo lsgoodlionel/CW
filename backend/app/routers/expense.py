@@ -190,12 +190,16 @@ def make_voucher(claim_id: int, credit_account_code: str = Query("1002"),
     if credit_acc is None:
         raise HTTPException(status_code=400, detail="贷方科目不存在")
 
+    # 校验:每笔非零金额的费用明细都必须已选科目,否则会漏记借方分录导致借贷不平
+    if any(it.amount and not it.account_id for it in claim.items):
+        raise HTTPException(status_code=400, detail="存在未选择费用科目的报销明细,无法生成凭证,请先补全科目")
+
     from .vouchers import _next_voucher_no
     voucher = models.Voucher(
         voucher_no=_next_voucher_no(db, date.today()), voucher_date=date.today(),
-        note=f"报销:{claim.reason or claim.claim_no}",
-        status="posted", total_debit=claim.total_amount, total_credit=claim.total_amount)
+        note=f"报销:{claim.reason or claim.claim_no}", status="posted")
     line = 1
+    debit_total = Decimal("0")
     for it in claim.items:
         if not it.account_id or it.amount == 0:
             continue
@@ -204,22 +208,28 @@ def make_voucher(claim_id: int, credit_account_code: str = Query("1002"),
             line_no=line, summary=it.category or claim.reason, account_id=it.account_id,
             sub_account=sub.name if sub else "", sub_account_id=sub.id if sub else None,
             debit=it.amount, credit=Decimal("0")))
+        debit_total += it.amount
         line += 1
     voucher.entries.append(models.VoucherEntry(
         line_no=line, summary="报销付款", account_id=credit_acc.id,
-        debit=Decimal("0"), credit=claim.total_amount))
+        debit=Decimal("0"), credit=debit_total))
+    # 合计按实际分录借方汇总,确保借贷平衡(而非直接用 claim.total_amount)
+    voucher.total_debit = debit_total
+    voucher.total_credit = debit_total
     db.add(voucher)
     db.flush()
     claim.voucher_id = voucher.id
     claim.status = "paid"
 
-    # 附件同步:把报销单及其关联费用申请、关联合同的附件挂到新生成的凭证上
+    # 附件同步:把报销单及其关联费用申请、关联合同的附件挂到新生成的凭证上。
+    # 合同附件可能已被同一合同的其它凭证归属,仅同步尚未归属任何凭证的(voucher_id 为空),避免抢占。
     owners = [models.Attachment.expense_claim_id == claim.id]
     if claim.application_id:
         owners.append(models.Attachment.expense_application_id == claim.application_id)
     if claim.contract_id:
         owners.append(models.Attachment.contract_id == claim.contract_id)
-    related = db.scalars(select(models.Attachment).where(or_(*owners))).all()
+    related = db.scalars(select(models.Attachment).where(
+        or_(*owners), models.Attachment.voucher_id.is_(None))).all()
     for att in related:
         att.voucher_id = voucher.id
     # 关联合同:自动建立凭证↔合同关联(便于合同履行台账追溯)

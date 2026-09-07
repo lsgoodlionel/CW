@@ -242,6 +242,14 @@ def delete_voucher(voucher_id: int, db: Session = Depends(get_db)):
     voucher = db.get(models.Voucher, voucher_id)
     if voucher is None:
         raise HTTPException(status_code=404, detail="凭证不存在")
+    # 红冲凭证与原凭证互为抵消,须成对存在;禁止单独删除任一方,避免账簿失衡
+    rev = db.scalar(select(models.VoucherLink).where(
+        models.VoucherLink.relation_type == "reversal",
+        or_(models.VoucherLink.source_id == voucher_id,
+            models.VoucherLink.target_id == voucher_id)))
+    if rev is not None:
+        raise HTTPException(status_code=409,
+                            detail="该凭证存在红字冲销关联,不能单独删除(请先解除冲销关联)")
     db.delete(voucher)
     db.commit()
 
@@ -310,7 +318,8 @@ def reverse_voucher(
     for e in origin.entries:
         reversal.entries.append(models.VoucherEntry(
             line_no=e.line_no, summary=e.summary, account_id=e.account_id,
-            sub_account=e.sub_account, debit=-e.debit, credit=-e.credit,
+            sub_account=e.sub_account, sub_account_id=e.sub_account_id,
+            debit=-e.debit, credit=-e.credit,
         ))
     db.add(reversal)
     db.flush()

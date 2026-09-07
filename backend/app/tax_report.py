@@ -8,7 +8,7 @@
 import io
 from calendar import monthrange
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -49,15 +49,15 @@ def compute_vat_small(db: Session, year: int, quarter: int,
     start = date(year, quarter * 3 - 2, 1)
     end = _quarter_end(year, quarter)
     sales = reports_cn.Balances(reports_cn._movement(db, start, end)).net_credit("6001", "6051")
-    rate = Decimal(str(rate)) if rate else VAT_RATE_DEFAULT
+    rate = Decimal(str(rate)) if rate is not None else VAT_RATE_DEFAULT
     free = sales <= VAT_FREE_QUARTER
-    gross_vat = (sales * rate).quantize(Decimal("0.01"))
+    gross_vat = (sales * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     relief = gross_vat if free else Z                 # 小微免征减征额
     vat = gross_vat - relief                           # 本期应纳(减免后)增值税
     half = Decimal("0.5") if half_surtax else Decimal("1")
-    city = (vat * SURTAX_CITY * half).quantize(Decimal("0.01"))
-    edu = (vat * SURTAX_EDU * half).quantize(Decimal("0.01"))
-    local = (vat * SURTAX_LOCAL_EDU * half).quantize(Decimal("0.01"))
+    city = (vat * SURTAX_CITY * half).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    edu = (vat * SURTAX_EDU * half).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    local = (vat * SURTAX_LOCAL_EDU * half).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     surtax = city + edu + local
     rows = [
         ("一、应征增值税不含税销售额", sales, ""),
@@ -160,7 +160,7 @@ def _avg_headcount(db: Session, year: int, as_of: date) -> Decimal:
     counts = [active_at(qe) for qe in ends]
     if not counts:
         return Decimal("0")
-    return (Decimal(sum(counts)) / Decimal(len(counts))).quantize(Decimal("0.01"))
+    return (Decimal(sum(counts)) / Decimal(len(counts))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def _prepaid_cit(db: Session, year: int) -> Decimal:
@@ -183,12 +183,18 @@ def _vat_sales_12m(db: Session, as_of: date) -> Decimal:
     return b.net_credit("6001", "6051")
 
 
+def _avg_assets(db: Session, year: int, as_of: date) -> Decimal:
+    """资产总额(季度平均):按该年各季末资产总额取平均,与从业人数口径一致。"""
+    ends = [d for d in (date(year, 3, 31), date(year, 6, 30),
+                        date(year, 9, 30), date(year, 12, 31)) if d <= as_of] or [as_of]
+    vals = [_total_assets(db, e) for e in ends]
+    return (sum(vals, Decimal("0")) / Decimal(len(vals))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 def evaluate_small_micro(db: Session, taxable: Decimal, as_of: date, year: int) -> dict:
     """按标准判断是否符合小型微利企业,返回各条件复核明细与原因。"""
     c = db.get(models.CompanyInfo, 1)
-    begin_assets = _total_assets(db, date(year - 1, 12, 31))
-    end_assets = _total_assets(db, as_of)
-    assets_avg = ((begin_assets + end_assets) / 2).quantize(Decimal("0.01"))
+    assets_avg = _avg_assets(db, year, as_of)
     staff = _avg_headcount(db, year, as_of)          # 从业人数(季度平均)
     restricted = bool(c and c.restricted_industry)
     checks = [
@@ -197,7 +203,7 @@ def evaluate_small_micro(db: Session, taxable: Decimal, as_of: date, year: int) 
          "ok": taxable <= SMALL_MICRO_TAXABLE_LIMIT},
         {"name": "从业人数(季度平均)", "value": float(staff), "limit": SMALL_MICRO_STAFF_LIMIT,
          "unit": "人", "ok": staff <= SMALL_MICRO_STAFF_LIMIT},
-        {"name": "资产总额(年初年末平均)", "value": float(assets_avg),
+        {"name": "资产总额(季度平均)", "value": float(assets_avg),
          "limit": float(SMALL_MICRO_ASSET_LIMIT), "unit": "元",
          "ok": assets_avg <= SMALL_MICRO_ASSET_LIMIT},
         {"name": "非国家限制或禁止行业", "value": "是" if not restricted else "否(限制/禁止行业)",
@@ -416,9 +422,9 @@ def compute_rows(db: Session, year: int, quarter: int):
     income_relief = pref["income_relief"]                         # 23 所得减免
     real_profit = a["total_profit"] - accel_reduce - exempt - income_relief   # 25 实际利润额
     taxable = real_profit if real_profit > 0 else Z
-    tax_payable = (taxable * RATE).quantize(Decimal("0.01"))
+    tax_payable = (taxable * RATE).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     sm = small_micro_status(db, taxable, end, year)              # 小型微利复核(报表生成时按当前口径)
-    micro = (taxable * SMALL_MICRO_RELIEF).quantize(Decimal("0.01")) if sm["effective"] else Z
+    micro = (taxable * SMALL_MICRO_RELIEF).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if sm["effective"] else Z
     relief = micro + pref["tax_relief"]                          # 28 减免所得税额(小微+其他优惠)
     after_relief = tax_payable - relief                          # 27-28
     rows = [
@@ -483,9 +489,9 @@ def compute_annual_rows(db: Session, year: int):
     loss_offset = a106_offset_total(db, year)             # 26 弥补以前年度亏损(A106000)
     taxable = adj_after - income_relief - loss_offset     # 28 应纳税所得额(27=0),可为负(亏损)
     taxable_tax = taxable if taxable > 0 else Z           # 计税基数:亏损按 0
-    tax_amount = (taxable_tax * RATE).quantize(Decimal("0.01"))   # 30 应纳所得税额
+    tax_amount = (taxable_tax * RATE).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)   # 30 应纳所得税额
     sm = small_micro_status(db, taxable_tax, end, year)  # 小型微利复核(应纳税所得额口径)
-    micro = (taxable_tax * SMALL_MICRO_RELIEF).quantize(Decimal("0.01")) if sm["effective"] else Z
+    micro = (taxable_tax * SMALL_MICRO_RELIEF).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if sm["effective"] else Z
     relief = micro + pref["tax_relief"]                  # 31 减免所得税额(小微+其他优惠)
     payable = tax_amount - relief                         # 33 应纳税额=36 实际应纳(32/34/35=0)
     prepaid = _prepaid_cit(db, year)                     # 37 本年累计已预缴(税务申报记录汇总)
@@ -804,7 +810,7 @@ def compute_a106000(db: Session, report_year: int):
     rows = []
     sum_loss = sum_pending = sum_offset = sum_carry = Z
     for idx, (ln, item) in enumerate(_A106_ITEMS):
-        occur_year = report_year - (11 - idx)   # 行1→-10 … 行10→-1,行11→本年
+        occur_year = report_year - (10 - idx)   # 行1(idx0)→前十年 … 行10→前一年,行11(idx10)→本年
         r = recs.get(ln)
         loss = r.loss_amount if r else Z
         pending = r.pending_amount if r else Z
@@ -984,11 +990,11 @@ def compute_a107012(db: Session, report_year: int):
     for total, members in _A107_SUBTOTALS:
         v[total] = sum((v[m] for m in members), Z)
     # 特殊公式行
-    v["40"] = v["2"] + (v["36"] * Decimal("0.8")).quantize(Decimal("0.01")) + v["38"]
+    v["40"] = v["2"] + (v["36"] * Decimal("0.8")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) + v["38"]
     v["45"] = v["41"] + v["43"] + v["44"]
     v["47"] = v["45"] - v["46"]
-    ratio = v["50"] if v["50"] else Decimal("1")
-    v["51"] = ((v["47"] - v["48"] - v["49"]) * ratio).quantize(Decimal("0.01"))
+    ratio = v["50"]   # 行50 已在读取时对未录入置默认 1;显式录入 0(不加计)须保留
+    v["51"] = ((v["47"] - v["48"] - v["49"]) * ratio).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return [(ln, item, v[ln], lv, kind in _RD_INPUT)
             for ln, item, lv, kind in _A107_ROWS]
 
@@ -1073,8 +1079,8 @@ def compute_a105060(db: Session, report_year: int):
     revenue = _core_amounts(db, start, end)["revenue"]           # 营业收入基数
     v = {}
     v["1"] = recs.get("1", Z)
-    v["2"] = recs.get("2") if recs.get("2") else Decimal("0.15")  # 扣除率默认 15%
-    v["3"] = (revenue * v["2"]).quantize(Decimal("0.01"))        # 扣除限额
+    v["2"] = recs.get("2") if recs.get("2") is not None else Decimal("0.15")  # 扣除率默认15%;显式0(如烟草不得扣除)须保留
+    v["3"] = (revenue * v["2"]).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)        # 扣除限额
     v["4"] = recs.get("4", Z)
     v["5"] = min(v["1"] + v["4"], v["3"])                        # 本年可扣除
     v["6"] = v["1"] - v["5"]                                     # 纳税调整(通常调增)
