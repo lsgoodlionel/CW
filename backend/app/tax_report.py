@@ -18,6 +18,14 @@ from sqlalchemy.orm import Session
 from . import models, reports_cn
 
 RATE = Decimal("0.25")           # 法定税率 25%
+# 小型微利企业优惠:应纳税所得额减按 25% 计入、按 20% 征收(实际税负 5%),
+# 相对法定 25% 的减免率 = 25% - 5% = 20%(简化按全额适用,不分 300 万档)
+SMALL_MICRO_RELIEF = Decimal("0.20")
+
+
+def _is_small_micro(db: Session) -> bool:
+    c = db.get(models.CompanyInfo, 1)
+    return bool(c and c.is_small_micro)
 _Q_TITLE = "中华人民共和国企业所得税月(季)度预缴纳税申报表(A类)"
 _A_TITLE = "中华人民共和国企业所得税年度纳税申报表(A类)"
 Z = Decimal("0")
@@ -70,6 +78,8 @@ def compute_rows(db: Session, year: int, quarter: int):
     taxable = a["total_profit"] if a["total_profit"] > 0 else Z    # 简化:暂无纳税调整
     tax_payable = (taxable * RATE).quantize(Decimal("0.01"))
     real_profit = a["total_profit"]                               # 实际利润额=利润总额(无调整)
+    relief = (taxable * SMALL_MICRO_RELIEF).quantize(Decimal("0.01")) if _is_small_micro(db) else Z
+    after_relief = tax_payable - relief                          # 27-28
     rows = [
         ("1", "营业收入", a["revenue"]),
         ("1.1", "其中:自营出口收入", Z),
@@ -104,12 +114,12 @@ def compute_rows(db: Session, year: int, quarter: int):
         ("25", "实际利润额(18+19-20-21-22-23-24)", real_profit),
         ("26", "税率(25%)", RATE),
         ("27", "应纳所得税额(25×26)", tax_payable),
-        ("28", "减:减免所得税额(28.1+28.2+……)", Z),
-        ("28.1", "其中:符合条件的小型微利企业减免企业所得税", Z),
+        ("28", "减:减免所得税额(28.1+28.2+……)", relief),
+        ("28.1", "其中:符合条件的小型微利企业减免企业所得税", relief),
         ("29", "减:抵免所得税额", Z),
         ("30", "减:本年累计已预缴所得税额", Z),
         ("31", "减:特定业务预缴(征)所得税额", Z),
-        ("32", "本期应补(退)所得税额(27-28-29-30-31)", tax_payable),
+        ("32", "本期应补(退)所得税额(27-28-29-30-31)", after_relief),
     ]
     return [(n, lb, v, _level(n)) for n, lb, v in rows]
 
@@ -125,9 +135,12 @@ def compute_annual_rows(db: Session, year: int):
     a105 = compute_a105000(db, year)
     _, _, _, _, adj_add, adj_reduce, _, _ = a105[-1]
     adj_after = profit + adj_add - adj_reduce             # 24 纳税调整后所得(19/22/23=0)
-    taxable = adj_after if adj_after > 0 else Z           # 28 应纳税所得额(25/26/27=0)
+    loss_offset = a106_offset_total(db, year)             # 26 弥补以前年度亏损(A106000)
+    taxable = adj_after - loss_offset                     # 28 应纳税所得额(25/27=0)
+    taxable = taxable if taxable > 0 else Z
     tax_amount = (taxable * RATE).quantize(Decimal("0.01"))   # 30 应纳所得税额
-    payable = tax_amount                                  # 33 应纳税额=36 实际应纳(31/32/34/35=0)
+    relief = (taxable * SMALL_MICRO_RELIEF).quantize(Decimal("0.01")) if _is_small_micro(db) else Z
+    payable = tax_amount - relief                         # 33 应纳税额=36 实际应纳(32/34/35=0)
     C1, C2 = "利润总额计算", "应纳税所得额计算"
     C3, C4 = "应纳税额计算", "实际应补(退)税额计算"
     rows = [
@@ -156,12 +169,12 @@ def compute_annual_rows(db: Session, year: int):
         ("23", "", "加:境外应税所得抵减境内亏损(填写A108000)", Z),
         ("24", "", "四、纳税调整后所得(18-19+20-21-22+23)", adj_after),
         ("25", "", "减:所得减免(填写A107020)", Z),
-        ("26", "", "减:弥补以前年度亏损(填写A106000)", Z),
+        ("26", "", "减:弥补以前年度亏损(填写A106000)", loss_offset),
         ("27", "", "减:抵扣应纳税所得额(填写A107030)", Z),
         ("28", "", "五、应纳税所得额(24-25-26-27)", taxable),
         ("29", C3, "税率(25%)", RATE),
         ("30", "", "六、应纳所得税额(28×29)", tax_amount),
-        ("31", "", "减:减免所得税额(填写A107040)", Z),
+        ("31", "", "减:减免所得税额(填写A107040)", relief),
         ("32", "", "减:抵免所得税额(填写A107050)", Z),
         ("33", "", "七、应纳税额(30-31-32)", payable),
         ("34", "", "加:境外所得应纳所得税额(填写A108000)", Z),
@@ -417,6 +430,47 @@ def compute_a105000(db: Session, year: int):
             for ln, item, lv, kind in _A105_ROWS]
 
 
+# ---------- 附表 A106000 企业所得税弥补亏损明细表 ----------
+
+# 行1..10 前十..前一年度,行11 本年度,行12 合计。
+_A106_ITEMS = [
+    ("1", "前十年度"), ("2", "前九年度"), ("3", "前八年度"), ("4", "前七年度"),
+    ("5", "前六年度"), ("6", "前五年度"), ("7", "前四年度"), ("8", "前三年度"),
+    ("9", "前二年度"), ("10", "前一年度"), ("11", "本年度"),
+]
+
+
+def compute_a106000(db: Session, report_year: int):
+    """弥补亏损明细:返回 (行次, 项目, 所属年度, 当年亏损额, 当年待弥补额, 本年弥补额, 可结转以后年度, 可录入)。
+    行1..10 为以前年度(可弥补),行11 本年度,行12 合计。主表行26=以前年度本年弥补额合计。"""
+    recs = {r.line_no: r for r in db.scalars(
+        select(models.TaxLossCarryover).where(
+            models.TaxLossCarryover.report_year == report_year)).all()}
+    rows = []
+    sum_loss = sum_pending = sum_offset = sum_carry = Z
+    for idx, (ln, item) in enumerate(_A106_ITEMS):
+        occur_year = report_year - (11 - idx)   # 行1→-10 … 行10→-1,行11→本年
+        r = recs.get(ln)
+        loss = r.loss_amount if r else Z
+        pending = r.pending_amount if r else Z
+        offset = r.offset_amount if r else Z
+        carry = pending - offset                # 可结转以后年度弥补
+        rows.append((ln, item, occur_year, loss, pending, offset, carry, True))
+        if ln != "11":                          # 本年度不计入"以前年度弥补"合计
+            sum_offset += offset
+        sum_loss += loss
+        sum_pending += pending
+        sum_carry += carry
+    rows.append(("12", "可结转以后年度弥补的亏损额合计", None,
+                 sum_loss, sum_pending, sum_offset, sum_carry, False))
+    return rows
+
+
+def a106_offset_total(db: Session, report_year: int) -> Decimal:
+    """以前年度用本年度所得弥补的亏损额合计(供主表行26联动)。"""
+    return compute_a106000(db, report_year)[-1][5]
+
+
 # ---------- Excel 渲染 ----------
 
 def _write_kv(ws, title: str, company, period: str,
@@ -600,6 +654,49 @@ def _write_a105(ws, title: str, company, period: str, rows: list) -> None:
         ws.column_dimensions[col].width = 15
 
 
+def _write_a106(ws, title: str, company, period: str, rows: list) -> None:
+    """A106000 弥补亏损明细表:行次 / 项目 / 所属年度 / 当年亏损额 / 当年待弥补额 / 本年弥补额 / 可结转以后年度。"""
+    thin = Side(style="thin", color="BBBBBB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    right = Alignment(horizontal="right", vertical="center")
+    last_col = 7
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
+    ws.cell(1, 1, title)
+    ws.cell(1, 1).font = Font(size=14, bold=True)
+    ws.cell(1, 1).alignment = center
+    ws.row_dimensions[1].height = 30
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_col)
+    ws.cell(2, 1, f"税款所属期间:{period}    金额单位:人民币元(列至角分)").alignment = left
+
+    header_fill = PatternFill("solid", fgColor="1F6FEB")
+    head = ["行次", "项目", "所属年度", "当年亏损额", "当年待弥补的亏损额",
+            "用本年度所得额弥补的以前年度亏损额", "当年可结转以后年度弥补的亏损额"]
+    r = 3
+    for c, h in enumerate(head, start=1):
+        cell = ws.cell(r, c, h)
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.fill = header_fill
+        cell.alignment = center
+        cell.border = border
+    r += 1
+
+    for line_no, item, occur_year, loss, pending, offset, carry, _ed in rows:
+        ws.cell(r, 1, line_no).alignment = center
+        ws.cell(r, 2, item).alignment = left
+        ws.cell(r, 3, occur_year if occur_year is not None else "").alignment = center
+        for c, val in ((4, loss), (5, pending), (6, offset), (7, carry)):
+            ws.cell(r, c, round(float(val), 2)).alignment = right
+        for c in range(1, last_col + 1):
+            ws.cell(r, c).border = border
+        r += 1
+
+    for col, w in (("A", 8), ("B", 24), ("C", 12), ("D", 14), ("E", 18), ("F", 24), ("G", 24)):
+        ws.column_dimensions[col].width = w
+
+
 def build_cit_quarterly_xlsx(db: Session, year: int, quarter: int) -> bytes:
     company = db.get(models.CompanyInfo, 1)
     start, end = date(year, 1, 1), _quarter_end(year, quarter)
@@ -629,6 +726,8 @@ def build_cit_annual_xlsx(db: Session, year: int) -> bytes:
                 company, period, compute_a104000(db, year))
     _write_a105(wb.create_sheet("A105000"), "A105000 纳税调整项目明细表",
                 company, period, compute_a105000(db, year))
+    _write_a106(wb.create_sheet("A106000"), "A106000 企业所得税弥补亏损明细表",
+                company, period, compute_a106000(db, year))
     return _save(wb)
 
 

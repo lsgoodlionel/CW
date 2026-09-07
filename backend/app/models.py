@@ -38,6 +38,10 @@ class CompanyInfo(Base):
     auditor: Mapped[str] = mapped_column(String(100), default="")
     bookkeeper: Mapped[str] = mapped_column(String(100), default="")
     recorder: Mapped[str] = mapped_column(String(100), default="")
+    # 增值税纳税人身份:general 一般纳税人 / small 小规模纳税人
+    taxpayer_kind: Mapped[str] = mapped_column(String(20), default="general")
+    # 是否小型微利企业(影响企业所得税优惠税率)
+    is_small_micro: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Account(Base):
@@ -629,5 +633,20 @@ class TaxAdjustment(Base):
     tax_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)      # 税收金额
     add_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)      # 调增金额
     reduce_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)   # 调减金额
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class TaxLossCarryover(Base):
+    """企业所得税弥补亏损明细(A106000)按年录入:各年度亏损额、待弥补额、本年弥补额。"""
+    __tablename__ = "tax_loss_carryovers"
+    __table_args__ = (UniqueConstraint("report_year", "line_no", name="uq_tax_loss_year_line"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    report_year: Mapped[int] = mapped_column(Integer, index=True)      # 申报年度
+    line_no: Mapped[str] = mapped_column(String(10), index=True)       # A106000 行次 1..11
+    loss_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)     # 当年亏损额
+    pending_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)  # 当年待弥补的亏损额
+    offset_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)   # 用本年度所得额弥补的以前年度亏损额
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

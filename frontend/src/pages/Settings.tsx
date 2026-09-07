@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Card, Form, Input, Button, message, Spin, Divider, Space, Upload, Typography, Modal, Row, Col,
+  Select, Switch,
 } from 'antd'
 import { DownloadOutlined, UploadOutlined, ExclamationCircleFilled } from '@ant-design/icons'
 import { http, Company, withToken } from '../api'
@@ -79,6 +80,24 @@ export default function Settings() {
           {renderFields(WORKINDUSTRY)}
           <Divider orientation="left" plain>财务设置</Divider>
           {renderFields(FINANCE)}
+          <Divider orientation="left" plain>税务身份</Divider>
+          <Row gutter={16}>
+            <Col xs={24} md={12}>
+              <Form.Item name="taxpayer_kind" label="增值税纳税人身份"
+                tooltip="影响增值税征收率与合同/发票默认税率:一般纳税人 13/9/6%,小规模纳税人 1/3%">
+                <Select options={[
+                  { value: 'general', label: '一般纳税人' },
+                  { value: 'small', label: '小规模纳税人' },
+                ]} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item name="is_small_micro" label="小型微利企业" valuePropName="checked"
+                tooltip="启用后,企业所得税季报/年报按小型微利优惠自动计算减免所得税额(应纳税所得额×20%)">
+                <Switch checkedChildren="是" unCheckedChildren="否" />
+              </Form.Item>
+            </Col>
+          </Row>
           <Divider orientation="left" plain>人员</Divider>
           {renderFields(STAFF)}
           <Button type="primary" loading={saving} onClick={save}>保存</Button>

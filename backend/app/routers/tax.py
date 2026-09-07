@@ -142,9 +142,16 @@ def cit_annual_preview(year: int = Query(...), db: Session = Depends(get_db)):
     a104000 = [{"line_no": ln, "label": lb, "sell": float(s), "admin": float(a), "fin": float(f)}
                for ln, lb, s, a, f in tax_report.compute_a104000(db, year)]
     a105000 = _a105_rows(db, year)
+    a106000 = _a106_rows(db, year)
     return {"year": year, "rows": main,
             "schedules": {"A101010": a101010, "A102010": a102010,
-                          "A104000": a104000, "A105000": a105000}}
+                          "A104000": a104000, "A105000": a105000, "A106000": a106000}}
+
+
+def _a106_rows(db: Session, year: int) -> list[dict]:
+    return [{"line_no": ln, "item": it, "occur_year": oy, "loss": float(ls),
+             "pending": float(pd), "offset": float(of), "carry": float(cy), "editable": ed}
+            for ln, it, oy, ls, pd, of, cy, ed in tax_report.compute_a106000(db, year)]
 
 
 def _a105_rows(db: Session, year: int) -> list[dict]:
@@ -177,3 +184,29 @@ def save_adjustments(payload: schemas.TaxAdjustmentSave, db: Session = Depends(g
             reduce_amount=it.reduce_amount, note=it.note))
     db.commit()
     return {"year": payload.year, "rows": _a105_rows(db, payload.year)}
+
+
+@router.get("/losses")
+def list_losses(year: int = Query(...), db: Session = Depends(get_db)):
+    """A106000 弥补亏损明细(含录入值与自动汇总的合计)。"""
+    return {"year": year, "rows": _a106_rows(db, year)}
+
+
+@router.put("/losses")
+def save_losses(payload: schemas.TaxLossSave, db: Session = Depends(get_db)):
+    """按年保存弥补亏损明细录入(行1..11;整表覆盖)。"""
+    valid = {ln for ln, _it in tax_report._A106_ITEMS}
+    db.execute(
+        models.TaxLossCarryover.__table__.delete().where(
+            models.TaxLossCarryover.report_year == payload.report_year))
+    for it in payload.items:
+        if it.line_no not in valid:
+            continue
+        if not (it.loss_amount or it.pending_amount or it.offset_amount):
+            continue
+        db.add(models.TaxLossCarryover(
+            report_year=payload.report_year, line_no=it.line_no,
+            loss_amount=it.loss_amount, pending_amount=it.pending_amount,
+            offset_amount=it.offset_amount))
+    db.commit()
+    return {"year": payload.report_year, "rows": _a106_rows(db, payload.report_year)}

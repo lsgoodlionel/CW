@@ -21,6 +21,10 @@ interface A105Row {
   line_no: string; label: string; level: number; editable: boolean
   book: number; tax: number; add: number; reduce: number
 }
+interface A106Row {
+  line_no: string; item: string; occur_year: number | null
+  loss: number; pending: number; offset: number; carry: number; editable: boolean
+}
 interface Schedules { A101010: CitRow[]; A102010: CitRow[]; A104000: A104Row[] }
 
 const STATUS_COLOR: Record<string, string> = { pending: 'default', filed: 'processing', paid: 'success' }
@@ -262,6 +266,9 @@ function TaxReports() {
           { key: 'a105', label: 'A105000 纳税调整', children: (
             <A105Editor year={year} onSaved={loadPreview} />
           ) },
+          { key: 'a106', label: 'A106000 弥补亏损', children: (
+            <A106Editor year={year} onSaved={loadPreview} />
+          ) },
         ]} />
       )}
     </Card>
@@ -314,6 +321,57 @@ function A105Editor({ year, onSaved }: { year: number; onSaved: () => void }) {
           { title: '税收金额', dataIndex: 'tax', width: 130, align: 'right' as const, render: numCell('tax') },
           { title: '调增金额', dataIndex: 'add', width: 130, align: 'right' as const, render: numCell('add') },
           { title: '调减金额', dataIndex: 'reduce', width: 130, align: 'right' as const, render: numCell('reduce') },
+        ]} />
+    </>
+  )
+}
+
+// A106000 弥补亏损明细录入:行1..11 可录入亏损额/待弥补额/本年弥补额,合计自动汇总并联动主表行26
+function A106Editor({ year, onSaved }: { year: number; onSaved: () => void }) {
+  const [rows, setRows] = useState<A106Row[]>([])
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(() => {
+    http.get<{ rows: A106Row[] }>('/tax/losses', { params: { year } })
+      .then((r) => setRows(r.data.rows))
+  }, [year])
+  useEffect(() => { load() }, [load])
+
+  const setCell = (lineNo: string, key: 'loss' | 'pending' | 'offset', v: number | null) =>
+    setRows((rs) => rs.map((r) => (r.line_no === lineNo ? { ...r, [key]: v ?? 0 } : r)))
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const items = rows.filter((r) => r.editable).map((r) => ({
+        line_no: r.line_no, loss_amount: r.loss, pending_amount: r.pending, offset_amount: r.offset,
+      }))
+      const res = await http.put<{ rows: A106Row[] }>('/tax/losses', { report_year: year, items })
+      setRows(res.data.rows); message.success('弥补亏损已保存'); onSaved()
+    } finally { setSaving(false) }
+  }
+
+  const numCell = (key: 'loss' | 'pending' | 'offset') =>
+    (v: number, r: A106Row) => (r.editable
+      ? <InputNumber size="small" value={v} controls={false} precision={2} style={{ width: 118 }}
+          onChange={(nv) => setCell(r.line_no, key, nv as number | null)} />
+      : formatYuan(v))
+
+  return (
+    <>
+      <Space style={{ marginBottom: 8 }} wrap>
+        <Button type="primary" loading={saving} onClick={save}>保存弥补亏损</Button>
+        <span style={{ color: '#888' }}>录入各以前年度亏损额、待弥补额及用本年度所得弥补额;合计自动汇总,并联动主表行26(弥补以前年度亏损)。</span>
+      </Space>
+      <Table rowKey="line_no" size="small" pagination={false} dataSource={rows} scroll={{ x: 820 }}
+        columns={[
+          { title: '行次', dataIndex: 'line_no', width: 56 },
+          { title: '项目', dataIndex: 'item', width: 110 },
+          { title: '所属年度', dataIndex: 'occur_year', width: 90, render: (v: number | null) => v ?? '' },
+          { title: '当年亏损额', dataIndex: 'loss', width: 130, align: 'right' as const, render: numCell('loss') },
+          { title: '当年待弥补的亏损额', dataIndex: 'pending', width: 150, align: 'right' as const, render: numCell('pending') },
+          { title: '用本年度所得额弥补的以前年度亏损额', dataIndex: 'offset', width: 180, align: 'right' as const, render: numCell('offset') },
+          { title: '可结转以后年度弥补的亏损额', dataIndex: 'carry', width: 160, align: 'right' as const, render: (v: number) => formatYuan(v) },
         ]} />
     </>
   )

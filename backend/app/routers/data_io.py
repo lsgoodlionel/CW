@@ -24,10 +24,10 @@ from ..schemas_read import DataImportOut
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-EXPORT_VERSION = 12
+EXPORT_VERSION = 13
 # 1-7 见历史;8:用户/角色/权限;9:费用申请 + 附件多归属(扁平附件表)
 # 10:企业信息导出全部字段;11:合同管理 + 税务申报记录(含其附件归属)
-SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
 
 
 def _company_dict(c: models.CompanyInfo | None) -> dict:
@@ -198,6 +198,12 @@ def build_backup_zip(db: Session) -> bytes:
              "note": a.note}
             for a in db.scalars(select(models.TaxAdjustment)).all()
         ],
+        "tax_loss_carryovers": [
+            {"report_year": lc.report_year, "line_no": lc.line_no,
+             "loss_amount": str(lc.loss_amount), "pending_amount": str(lc.pending_amount),
+             "offset_amount": str(lc.offset_amount), "note": lc.note}
+            for lc in db.scalars(select(models.TaxLossCarryover)).all()
+        ],
         "roles": [
             {"name": r.name, "note": r.note, "is_system": r.is_system,
              "perms": [p.perm for p in r.permissions]}
@@ -332,6 +338,7 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     db.execute(delete(models.Contract))
     db.execute(delete(models.TaxFiling))
     db.execute(delete(models.TaxAdjustment))
+    db.execute(delete(models.TaxLossCarryover))
     db.execute(delete(models.SubAccount))
     db.execute(delete(models.Account))
     db.execute(delete(models.Customer))
@@ -718,6 +725,13 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
             add_amount=Decimal(str(a.get("add_amount", "0"))),
             reduce_amount=Decimal(str(a.get("reduce_amount", "0"))),
             note=a.get("note", "")))
+    for lc in payload.get("tax_loss_carryovers", []):
+        db.add(models.TaxLossCarryover(
+            report_year=int(lc["report_year"]), line_no=lc.get("line_no", ""),
+            loss_amount=Decimal(str(lc.get("loss_amount", "0"))),
+            pending_amount=Decimal(str(lc.get("pending_amount", "0"))),
+            offset_amount=Decimal(str(lc.get("offset_amount", "0"))),
+            note=lc.get("note", "")))
     db.flush()
 
     # 5e. 扁平附件表:按 ref 映射到凭证/费用申请/费用报销/合同/税务并落盘

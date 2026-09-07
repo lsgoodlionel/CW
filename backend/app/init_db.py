@@ -66,6 +66,8 @@ _ADDED_COLUMNS = {
         ("currency", "VARCHAR(20) DEFAULT '人民币'"),
         ("accounting_standard", "VARCHAR(40) DEFAULT '小企业会计准则'"),
         ("start_period", "VARCHAR(20) DEFAULT ''"),
+        ("taxpayer_kind", "VARCHAR(20) DEFAULT 'general'"),
+        ("is_small_micro", "BOOLEAN DEFAULT FALSE"),
     ],
 }
 

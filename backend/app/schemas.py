@@ -30,6 +30,8 @@ class CompanyFields(BaseModel):
     auditor: str = ""
     bookkeeper: str = ""
     recorder: str = ""
+    taxpayer_kind: str = "general"     # general 一般纳税人 / small 小规模纳税人
+    is_small_micro: bool = False       # 是否小型微利企业
 
 
 class CompanyOut(CompanyFields):
@@ -669,3 +671,17 @@ class TaxAdjustmentSave(BaseModel):
     """按年批量保存纳税调整明细录入(仅保存明细行,小计/合计由系统计算)。"""
     year: int = Field(ge=2000, le=2100)
     items: list[TaxAdjustmentItem] = []
+
+
+# ---------- 弥补亏损明细(A106000)录入 ----------
+class TaxLossItem(BaseModel):
+    line_no: str
+    loss_amount: Decimal = Decimal("0")
+    pending_amount: Decimal = Decimal("0")
+    offset_amount: Decimal = Decimal("0")
+
+
+class TaxLossSave(BaseModel):
+    """按年批量保存弥补亏损明细录入(行1..11)。"""
+    report_year: int = Field(ge=2000, le=2100)
+    items: list[TaxLossItem] = []
