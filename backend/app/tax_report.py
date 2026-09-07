@@ -110,6 +110,60 @@ def a201020_reduce_total(db: Session, year: int) -> Decimal:
     return {r[0]: r for r in compute_a201020(db, year)}["3"][6]
 
 
+# ---------- 税收优惠事项选项(国税码表)与汇总 ----------
+
+# (类别, 代码, 名称)。类别:exempt 免税/减计/加计(→行22);income_relief 所得减免(→行25/季报23);
+# tax_relief 减免所得税额(→行31/季报28)。加计扣除中的研发费用由 A107012 专表处理,不在此重复。
+_PREF_OPTIONS = [
+    ("exempt", "MSSR00010", "免税收入-国债利息收入"),
+    ("exempt", "MSSR00021", "免税收入-符合条件的居民企业之间的股息红利"),
+    ("exempt", "MSSR00030", "免税收入-符合条件的非营利组织的收入"),
+    ("exempt", "MSSR00040", "免税收入-证券投资基金分配取得的收入"),
+    ("exempt", "MSSR99999", "免税收入-其他"),
+    ("exempt", "JJSR00010", "减计收入-取得铁路债券利息收入减半"),
+    ("exempt", "JJSR00020", "减计收入-综合利用资源生产产品取得的收入"),
+    ("exempt", "JJSR99999", "减计收入-其他"),
+    ("exempt", "JASR00099", "加计扣除-其他(研发费用请在A107012填报)"),
+    ("income_relief", "SD011", "所得减免-农、林、牧、渔业项目"),
+    ("income_relief", "SD021", "所得减免-国家重点扶持的公共基础设施项目"),
+    ("income_relief", "SD030", "所得减免-符合条件的环境保护、节能节水项目"),
+    ("income_relief", "SD041", "所得减免-符合条件的技术转让项目"),
+    ("income_relief", "SD060", "所得减免-合同能源管理项目"),
+    ("income_relief", "SD999", "所得减免-其他"),
+    ("tax_relief", "JMSE00201", "减免所得税-高新技术企业减按15%"),
+    ("tax_relief", "JMSE00202", "减免所得税-经济特区等新设高新技术企业"),
+    ("tax_relief", "JMSE99999", "减免所得税-其他(小型微利请用企业信息开关)"),
+]
+_PREF_CATEGORY_LABEL = {"exempt": "免税、减计收入及加计扣除",
+                        "income_relief": "所得减免", "tax_relief": "减免所得税额"}
+
+
+def preference_options() -> list[dict]:
+    """税收优惠事项下拉选项(供前端展示)。"""
+    return [{"category": cat, "category_label": _PREF_CATEGORY_LABEL[cat],
+             "code": code, "name": name} for cat, code, name in _PREF_OPTIONS]
+
+
+def compute_preferences(db: Session, report_year: int):
+    """返回按码表顺序的优惠事项行 (类别, 类别名, 代码, 名称, 金额, 可录入=True)。"""
+    recs = {p.code: p.amount for p in db.scalars(
+        select(models.TaxPreference).where(
+            models.TaxPreference.report_year == report_year)).all()}
+    return [(cat, _PREF_CATEGORY_LABEL[cat], code, name, recs.get(code, Z), True)
+            for cat, code, name in _PREF_OPTIONS]
+
+
+def preference_totals(db: Session, report_year: int) -> dict[str, Decimal]:
+    """按类别汇总优惠金额:{exempt, income_relief, tax_relief}。"""
+    totals = {"exempt": Z, "income_relief": Z, "tax_relief": Z}
+    recs = {p.code: p.amount for p in db.scalars(
+        select(models.TaxPreference).where(
+            models.TaxPreference.report_year == report_year)).all()}
+    for cat, code, _name in _PREF_OPTIONS:
+        totals[cat] += recs.get(code, Z)
+    return totals
+
+
 # ---------- 季报 A200000 ----------
 
 def compute_rows(db: Session, year: int, quarter: int):
@@ -117,10 +171,14 @@ def compute_rows(db: Session, year: int, quarter: int):
     start, end = date(year, 1, 1), _quarter_end(year, quarter)
     a = _core_amounts(db, start, end)
     accel_reduce = a201020_reduce_total(db, year)                 # 21 资产加速折旧调减(A201020)
-    real_profit = a["total_profit"] - accel_reduce               # 25 实际利润额(18-21,其余0)
+    pref = preference_totals(db, year)                            # 税收优惠事项汇总
+    exempt = pref["exempt"]                                       # 22 免税、减计收入及加计扣除
+    income_relief = pref["income_relief"]                         # 23 所得减免
+    real_profit = a["total_profit"] - accel_reduce - exempt - income_relief   # 25 实际利润额
     taxable = real_profit if real_profit > 0 else Z
     tax_payable = (taxable * RATE).quantize(Decimal("0.01"))
-    relief = (taxable * SMALL_MICRO_RELIEF).quantize(Decimal("0.01")) if _is_small_micro(db) else Z
+    micro = (taxable * SMALL_MICRO_RELIEF).quantize(Decimal("0.01")) if _is_small_micro(db) else Z
+    relief = micro + pref["tax_relief"]                          # 28 减免所得税额(小微+其他优惠)
     after_relief = tax_payable - relief                          # 27-28
     rows = [
         ("1", "营业收入", a["revenue"]),
@@ -150,14 +208,14 @@ def compute_rows(db: Session, year: int, quarter: int):
         ("19.1", "其中:销售未完工产品的收入", Z),
         ("20", "减:不征税收入", Z),
         ("21", "减:资产加速折旧、摊销(扣除)调减额(填写A201020)", accel_reduce),
-        ("22", "减:免税收入、减计收入、加计扣除(22.1+22.2+…)", Z),
-        ("23", "减:所得减免(23.1+23.2+……)", Z),
+        ("22", "减:免税收入、减计收入、加计扣除(22.1+22.2+…)", exempt),
+        ("23", "减:所得减免(23.1+23.2+……)", income_relief),
         ("24", "减:弥补以前年度亏损", Z),
         ("25", "实际利润额(18+19-20-21-22-23-24)", real_profit),
         ("26", "税率(25%)", RATE),
         ("27", "应纳所得税额(25×26)", tax_payable),
         ("28", "减:减免所得税额(28.1+28.2+……)", relief),
-        ("28.1", "其中:符合条件的小型微利企业减免企业所得税", relief),
+        ("28.1", "其中:符合条件的小型微利企业减免企业所得税", micro),
         ("29", "减:抵免所得税额", Z),
         ("30", "减:本年累计已预缴所得税额", Z),
         ("31", "减:特定业务预缴(征)所得税额", Z),
@@ -176,13 +234,17 @@ def compute_annual_rows(db: Session, year: int):
     # 20/21 纳税调整增加/减少额,来自 A105000 合计(行46)的调增/调减
     a105 = compute_a105000(db, year)
     _, _, _, _, adj_add, adj_reduce, _, _ = a105[-1]
-    exempt = a107012_deduction_total(db, year)           # 22 免税/减计/加计扣除(A107012 加计扣除额)
+    pref = preference_totals(db, year)                   # 税收优惠事项汇总
+    # 22 免税、减计收入及加计扣除 = A107012 研发加计扣除 + 其他免税/减计/加计事项
+    exempt = a107012_deduction_total(db, year) + pref["exempt"]
+    income_relief = pref["income_relief"]                # 25 所得减免
     adj_after = profit + adj_add - adj_reduce - exempt    # 24 纳税调整后所得(19/23=0)
     loss_offset = a106_offset_total(db, year)             # 26 弥补以前年度亏损(A106000)
-    taxable = adj_after - loss_offset                     # 28 应纳税所得额(25/27=0)
+    taxable = adj_after - income_relief - loss_offset     # 28 应纳税所得额(27=0)
     taxable = taxable if taxable > 0 else Z
     tax_amount = (taxable * RATE).quantize(Decimal("0.01"))   # 30 应纳所得税额
-    relief = (taxable * SMALL_MICRO_RELIEF).quantize(Decimal("0.01")) if _is_small_micro(db) else Z
+    micro = (taxable * SMALL_MICRO_RELIEF).quantize(Decimal("0.01")) if _is_small_micro(db) else Z
+    relief = micro + pref["tax_relief"]                  # 31 减免所得税额(小微+其他优惠)
     payable = tax_amount - relief                         # 33 应纳税额=36 实际应纳(32/34/35=0)
     C1, C2 = "利润总额计算", "应纳税所得额计算"
     C3, C4 = "应纳税额计算", "实际应补(退)税额计算"
@@ -211,7 +273,7 @@ def compute_annual_rows(db: Session, year: int):
         ("22", "", "减:免税、减计收入及加计扣除(填写A107010)", exempt),
         ("23", "", "加:境外应税所得抵减境内亏损(填写A108000)", Z),
         ("24", "", "四、纳税调整后所得(18-19+20-21-22+23)", adj_after),
-        ("25", "", "减:所得减免(填写A107020)", Z),
+        ("25", "", "减:所得减免(填写A107020)", income_relief),
         ("26", "", "减:弥补以前年度亏损(填写A106000)", loss_offset),
         ("27", "", "减:抵扣应纳税所得额(填写A107030)", Z),
         ("28", "", "五、应纳税所得额(24-25-26-27)", taxable),

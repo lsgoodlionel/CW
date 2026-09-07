@@ -696,3 +696,16 @@ class TaxAccelDepr(Base):
     reduce_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)   # 纳税调减金额
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class TaxPreference(Base):
+    """企业所得税税收优惠事项(免税/减计/所得减免/减免所得税)按年+事项代码录入金额。"""
+    __tablename__ = "tax_preferences"
+    __table_args__ = (UniqueConstraint("report_year", "code", name="uq_tax_pref_year_code"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    report_year: Mapped[int] = mapped_column(Integer, index=True)      # 所属年度(本年累计)
+    code: Mapped[str] = mapped_column(String(20), index=True)          # 优惠事项代码(国税码表)
+    amount: Mapped[Decimal] = mapped_column(MONEY, default=0)          # 优惠金额
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

@@ -728,3 +728,15 @@ class TaxAccelSave(BaseModel):
     """按年批量保存资产加速折旧优惠录入(本年累计)。"""
     year: int = Field(ge=2000, le=2100)
     items: list[TaxAccelItem] = []
+
+
+# ---------- 税收优惠事项录入 ----------
+class TaxPreferenceItem(BaseModel):
+    code: str
+    amount: Decimal = Decimal("0")
+
+
+class TaxPreferenceSave(BaseModel):
+    """按年批量保存税收优惠事项金额。"""
+    report_year: int = Field(ge=2000, le=2100)
+    items: list[TaxPreferenceItem] = []

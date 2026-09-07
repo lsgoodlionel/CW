@@ -36,6 +36,10 @@ interface A201020Row {
   line_no: string; item: string; level: number; editable: boolean
   orig: number; book: number; normal: number; accel: number; reduce: number; benefit: number
 }
+interface PrefRow {
+  category: string; category_label: string; code: string; name: string
+  amount: number; editable: boolean
+}
 interface Schedules { A101010: CitRow[]; A102010: CitRow[]; A104000: A104Row[] }
 
 const STATUS_COLOR: Record<string, string> = { pending: 'default', filed: 'processing', paid: 'success' }
@@ -255,6 +259,9 @@ function TaxReports() {
           { key: 'a201020', label: 'A201020 加速折旧', children: (
             <A201020Editor year={year} onSaved={loadPreview} />
           ) },
+          { key: 'pref', label: '税收优惠', children: (
+            <PrefEditor year={year} onSaved={loadPreview} />
+          ) },
         ]} />
       )}
       {isAnnual && (
@@ -291,6 +298,9 @@ function TaxReports() {
           ) },
           { key: 'a107012', label: 'A107012 研发加计', children: (
             <A107Editor year={year} onSaved={loadPreview} />
+          ) },
+          { key: 'pref', label: '税收优惠', children: (
+            <PrefEditor year={year} onSaved={loadPreview} />
           ) },
         ]} />
       )}
@@ -543,6 +553,52 @@ function A201020Editor({ year, onSaved }: { year: number; onSaved: () => void })
           { title: '加速折旧', dataIndex: 'accel', width: 116, align: 'right' as const, render: numCell('accel') },
           { title: '纳税调减金额', dataIndex: 'reduce', width: 116, align: 'right' as const, render: numCell('reduce') },
           { title: '加速优惠金额', dataIndex: 'benefit', width: 116, align: 'right' as const, render: (v: number) => formatYuan(v) },
+        ]} />
+    </>
+  )
+}
+
+// 税收优惠事项录入(免税/减计/所得减免/减免所得税):按国税码表固定行填金额,汇总联动主表行22/25/31(季报22/23/28)
+function PrefEditor({ year, onSaved }: { year: number; onSaved: () => void }) {
+  const [rows, setRows] = useState<PrefRow[]>([])
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(() => {
+    http.get<{ rows: PrefRow[] }>('/tax/preferences', { params: { year } })
+      .then((r) => setRows(r.data.rows))
+  }, [year])
+  useEffect(() => { load() }, [load])
+
+  const setAmount = (code: string, v: number | null) =>
+    setRows((rs) => rs.map((r) => (r.code === code ? { ...r, amount: v ?? 0 } : r)))
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const items = rows.map((r) => ({ code: r.code, amount: r.amount }))
+      const res = await http.put<{ rows: PrefRow[] }>('/tax/preferences', { report_year: year, items })
+      setRows(res.data.rows); message.success('税收优惠已保存'); onSaved()
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <>
+      <Space style={{ marginBottom: 8 }} wrap>
+        <Button type="primary" loading={saving} onClick={save}>保存税收优惠</Button>
+        <span style={{ color: '#888' }}>按优惠事项填金额:免税/减计/加计→行22,所得减免→行25(季报23),减免所得税额→行31(季报28)。小型微利请用企业信息开关。</span>
+      </Space>
+      <Table rowKey="code" size="small" pagination={false} dataSource={rows} scroll={{ x: 620 }}
+        columns={[
+          { title: '类别', dataIndex: 'category_label', width: 170,
+            render: (v: string, _r: PrefRow, i: number) =>
+              (i === 0 || rows[i - 1].category_label !== v ? v : '') },
+          { title: '优惠事项', dataIndex: 'name' },
+          { title: '代码', dataIndex: 'code', width: 110 },
+          { title: '金额', dataIndex: 'amount', width: 150, align: 'right' as const,
+            render: (v: number, r: PrefRow) => (
+              <InputNumber size="small" value={v} controls={false} precision={2} style={{ width: 130 }}
+                onChange={(nv) => setAmount(r.code, nv as number | null)} />
+            ) },
         ]} />
     </>
   )

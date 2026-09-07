@@ -116,7 +116,8 @@ def cit_quarterly_preview(year: int = Query(...), quarter: int = Query(..., ge=1
     return {"year": year, "quarter": quarter,
             "rows": [{"line_no": ln, "label": lb, "amount": float(amt), "level": lv}
                      for ln, lb, amt, lv in rows],
-            "schedules": {"A201020": _a201020_rows(db, year)}}
+            "schedules": {"A201020": _a201020_rows(db, year),
+                          "preferences": _pref_rows(db, year)}}
 
 
 def _a201020_rows(db: Session, year: int) -> list[dict]:
@@ -124,6 +125,40 @@ def _a201020_rows(db: Session, year: int) -> list[dict]:
              "normal": float(nm), "accel": float(ac), "reduce": float(rd),
              "benefit": float(bn), "level": lv, "editable": ed}
             for ln, it, ov, bk, nm, ac, rd, bn, lv, ed in tax_report.compute_a201020(db, year)]
+
+
+def _pref_rows(db: Session, year: int) -> list[dict]:
+    return [{"category": cat, "category_label": cl, "code": code, "name": name,
+             "amount": float(amt), "editable": ed}
+            for cat, cl, code, name, amt, ed in tax_report.compute_preferences(db, year)]
+
+
+@router.get("/preference-options")
+def preference_options():
+    """税收优惠事项下拉选项(免税/减计/所得减免/减免所得税)。"""
+    return {"options": tax_report.preference_options()}
+
+
+@router.get("/preferences")
+def list_preferences(year: int = Query(...), db: Session = Depends(get_db)):
+    """税收优惠事项录入明细(按码表固定行,含金额)。"""
+    return {"year": year, "rows": _pref_rows(db, year)}
+
+
+@router.put("/preferences")
+def save_preferences(payload: schemas.TaxPreferenceSave, db: Session = Depends(get_db)):
+    """按年保存税收优惠事项金额(整表覆盖)。免税/减计→行22,所得减免→行25/季报23,减免所得税→行31/季报28。"""
+    valid = {code for _cat, code, _name in tax_report._PREF_OPTIONS}
+    db.execute(
+        models.TaxPreference.__table__.delete().where(
+            models.TaxPreference.report_year == payload.report_year))
+    for it in payload.items:
+        if it.code not in valid or not it.amount:
+            continue
+        db.add(models.TaxPreference(
+            report_year=payload.report_year, code=it.code, amount=it.amount))
+    db.commit()
+    return {"year": payload.report_year, "rows": _pref_rows(db, payload.report_year)}
 
 
 @router.get("/report/cit-annual")
@@ -156,7 +191,8 @@ def cit_annual_preview(year: int = Query(...), db: Session = Depends(get_db)):
     return {"year": year, "rows": main,
             "schedules": {"A101010": a101010, "A102010": a102010,
                           "A104000": a104000, "A105000": a105000,
-                          "A106000": a106000, "A105080": a105080, "A107012": a107012}}
+                          "A106000": a106000, "A105080": a105080, "A107012": a107012,
+                          "preferences": _pref_rows(db, year)}}
 
 
 def _a107_rows(db: Session, year: int) -> list[dict]:
