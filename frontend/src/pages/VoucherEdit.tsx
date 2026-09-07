@@ -251,7 +251,7 @@ export default function VoucherEdit() {
             optionFilterProp="label"
             options={customers.map((c) => ({
               value: c.id,
-              label: `[${PARTY_LABEL[c.party_type] || '往来'}] ${c.name}${c.short_name ? `(${c.short_name})` : ''}`,
+              label: `[${PARTY_LABEL[c.party_type] || '往来'}] ${c.short_name || c.name}`,
             }))} />
         </Form.Item>
         <Form.Item name="note" label="摘要" style={{ flex: 1, minWidth: 200 }}>

@@ -125,7 +125,7 @@ def list_vouchers(
         item = schemas.VoucherListItem.model_validate(v)
         item.entry_count = len(v.entries)
         item.attachment_count = len(v.attachments)
-        item.customer_name = v.customer.name if v.customer else ""
+        item.customer_name = (v.customer.short_name or v.customer.name) if v.customer else ""
         item.link_count = link_counts.get(v.id, 0)
         items.append(item)
     return schemas.VoucherPage(items=items, total=total, page=page, page_size=page_size)
