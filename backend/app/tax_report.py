@@ -173,14 +173,157 @@ def compute_annual_rows(db: Session, year: int):
     return [(n, cat, lb, v, _level(n)) for n, cat, lb, v in rows]
 
 
+# ---------- 附表 A101010 一般企业收入明细表 ----------
+
+def compute_a101010(db: Session, year: int):
+    """收入明细:返回 (行次, 项目, 金额, 层级)。主营/其他/营业外收入自动取数。"""
+    start, end = date(year, 1, 1), date(year, 12, 31)
+    b = reports_cn.Balances(reports_cn._movement(db, start, end))
+    main = b.net_credit("6001")       # 主营业务收入
+    other = b.net_credit("6051")      # 其他业务收入
+    nonop = b.net_credit("6301")      # 营业外收入
+    return [
+        ("1", "一、营业收入(2+9)", main + other, 0),
+        ("2", "(一)主营业务收入(3+5+6+7+8)", main, 1),
+        ("3", "1.销售商品收入", main, 2),
+        ("4", "其中:非货币性资产交换收入", Z, 3),
+        ("5", "2.提供劳务收入", Z, 2),
+        ("6", "3.建造合同收入", Z, 2),
+        ("7", "4.让渡资产使用权收入", Z, 2),
+        ("8", "5.其他", Z, 2),
+        ("9", "(二)其他业务收入(10+12+13+14+15)", other, 1),
+        ("10", "1.销售材料收入", Z, 2),
+        ("11", "其中:非货币性资产交换收入", Z, 3),
+        ("12", "2.出租固定资产收入", Z, 2),
+        ("13", "3.出租无形资产收入", Z, 2),
+        ("14", "4.出租包装物和商品收入", Z, 2),
+        ("15", "5.其他", other, 2),
+        ("16", "二、营业外收入(17+18+…+26)", nonop, 0),
+        ("17", "(一)非流动资产处置利得", Z, 1),
+        ("18", "(二)非货币性资产交换利得", Z, 1),
+        ("19", "(三)债务重组利得", Z, 1),
+        ("20", "(四)政府补助利得", Z, 1),
+        ("21", "(五)盘盈利得", Z, 1),
+        ("22", "(六)捐赠利得", Z, 1),
+        ("23", "(七)罚没利得", Z, 1),
+        ("24", "(八)确实无法偿付的应付款项", Z, 1),
+        ("25", "(九)汇兑收益", Z, 1),
+        ("26", "(十)其他", nonop, 1),
+    ]
+
+
+# ---------- 附表 A102010 一般企业成本支出明细表 ----------
+
+def compute_a102010(db: Session, year: int):
+    """成本支出明细:返回 (行次, 项目, 金额, 层级)。主营/其他/营业外支出自动取数。"""
+    start, end = date(year, 1, 1), date(year, 12, 31)
+    b = reports_cn.Balances(reports_cn._movement(db, start, end))
+    main = b.net_debit("6401")        # 主营业务成本
+    other = b.net_debit("6402")       # 其他业务成本
+    nonop = b.net_debit("6711")       # 营业外支出
+    return [
+        ("1", "一、营业成本(2+9)", main + other, 0),
+        ("2", "(一)主营业务成本(3+5+6+7+8)", main, 1),
+        ("3", "1.销售商品成本", main, 2),
+        ("4", "其中:非货币性资产交换成本", Z, 3),
+        ("5", "2.提供劳务成本", Z, 2),
+        ("6", "3.建造合同成本", Z, 2),
+        ("7", "4.让渡资产使用权成本", Z, 2),
+        ("8", "5.其他", Z, 2),
+        ("9", "(二)其他业务成本(10+12+13+14+15)", other, 1),
+        ("10", "1.材料销售成本", Z, 2),
+        ("11", "其中:非货币性资产交换成本", Z, 3),
+        ("12", "2.出租固定资产成本", Z, 2),
+        ("13", "3.出租无形资产成本", Z, 2),
+        ("14", "4.包装物出租成本", Z, 2),
+        ("15", "5.其他", other, 2),
+        ("16", "二、营业外支出(17+18+…+26)", nonop, 0),
+        ("17", "(一)非流动资产处置损失", Z, 1),
+        ("18", "(二)非货币性资产交换损失", Z, 1),
+        ("19", "(三)债务重组损失", Z, 1),
+        ("20", "(四)非常损失", Z, 1),
+        ("21", "(五)捐赠支出", Z, 1),
+        ("22", "(六)赞助支出", Z, 1),
+        ("23", "(七)罚没支出", Z, 1),
+        ("24", "(八)坏账损失", Z, 1),
+        ("25", "(九)无法收回的债券股权投资损失", Z, 1),
+        ("26", "(十)其他", nonop, 1),
+    ]
+
+
+# ---------- 附表 A104000 期间费用明细表 ----------
+
+# (行次, 项目, 归集关键字);关键字命中二级科目名称即归入该行。空关键字为兜底「其他」。
+_A104_ROWS = [
+    ("1", "一、职工薪酬", ("薪酬", "工资", "社保", "公积金", "福利", "五险")),
+    ("2", "二、劳务费", ("劳务",)),
+    ("3", "三、咨询顾问费", ("咨询", "顾问")),
+    ("4", "四、业务招待费", ("招待",)),
+    ("5", "五、广告费和业务宣传费", ("广告", "宣传")),
+    ("6", "六、佣金和手续费", ("佣金", "手续费")),
+    ("7", "七、资产折旧摊销费", ("折旧", "摊销")),
+    ("8", "八、财产损耗、盘亏及毁损损失", ("盘亏", "毁损", "损耗")),
+    ("9", "九、办公费", ("办公",)),
+    ("10", "十、董事会费", ("董事会",)),
+    ("11", "十一、租赁费", ("租赁", "房租", "租金")),
+    ("12", "十二、诉讼费", ("诉讼",)),
+    ("13", "十三、差旅费", ("差旅",)),
+    ("14", "十四、保险费", ("保险",)),
+    ("15", "十五、运输、仓储费", ("运输", "仓储", "物流")),
+    ("16", "十六、修理费", ("修理", "维修")),
+    ("17", "十七、包装费", ("包装",)),
+    ("18", "十八、技术转让费", ("技术转让",)),
+    ("19", "十九、研究费用", ("研究", "研发")),
+    ("20", "二十、各项税费", ("税费", "印花", "税金")),
+    ("21", "二十一、利息收支", ("利息",)),
+    ("22", "二十二、汇兑差额", ("汇兑",)),
+    ("23", "二十三、现金折扣", ("折扣",)),
+    ("24", "二十四、党组织工作经费", ("党组织", "党费", "党建")),
+    ("25", "二十五、其他", ()),
+]
+_A104_FEE_CODES = ("6601", "6602", "6603")   # 销售 / 管理 / 财务费用
+
+
+def _a104_classify(name: str) -> str:
+    for rno, _label, kws in _A104_ROWS:
+        if kws and any(k in name for k in kws):
+            return rno
+    return "25"
+
+
+def compute_a104000(db: Session, year: int):
+    """期间费用明细:返回 (行次, 项目, 销售费用, 管理费用, 财务费用)。
+    按二级科目名称关键字归集到标准行,未匹配或无二级的差额计入「其他」,列合计=各费用发生额。"""
+    start, end = date(year, 1, 1), date(year, 12, 31)
+    mv = reports_cn._movement(db, start, end)
+    sub = reports_cn._movement_by_sub(db, start, end)
+    totals = {code: mv.get(code, Z) for code in _A104_FEE_CODES}
+    grid = {rno: {c: Z for c in _A104_FEE_CODES} for rno, _l, _k in _A104_ROWS}
+    matched = {c: Z for c in _A104_FEE_CODES}
+    for (code, subname), (d, c) in sub.items():
+        if code not in _A104_FEE_CODES:
+            continue
+        amt = d - c
+        rno = _a104_classify(subname)
+        grid[rno][code] += amt
+        matched[code] += amt
+    # 无二级或未归集的差额并入「其他」,保证列合计 = 费用发生额
+    for code in _A104_FEE_CODES:
+        diff = totals[code] - matched[code]
+        if diff != 0:
+            grid["25"][code] += diff
+    rows = [(rno, label, grid[rno]["6601"], grid[rno]["6602"], grid[rno]["6603"])
+            for rno, label, _k in _A104_ROWS]
+    rows.append(("26", "合计(1+2+3+…24+25)",
+                 totals["6601"], totals["6602"], totals["6603"]))
+    return rows
+
+
 # ---------- Excel 渲染 ----------
 
-def _render_xlsx(sheet_name: str, title: str, company, period: str,
-                 rows: list, has_category: bool) -> bytes:
-    """通用主表渲染:行次 / [类别] / 项目(按层级缩进) / 金额。"""
-    wb = Workbook()
-    ws = wb.active
-    ws.title = sheet_name
+def _write_kv(ws, title: str, company, period: str,
+              rows: list, has_category: bool) -> None:
+    """通用「行次 / [类别] / 项目(按层级缩进) / 金额」表渲染到给定 worksheet。"""
     thin = Side(style="thin", color="BBBBBB")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -258,22 +401,89 @@ def _render_xlsx(sheet_name: str, title: str, company, period: str,
         ws.column_dimensions["B"].width = 52
         ws.column_dimensions["C"].width = 20
 
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf.read()
+
+def _write_a104(ws, title: str, company, period: str, rows: list) -> None:
+    """A104000 期间费用明细表:行次 / 项目 / 销售费用 / 管理费用 / 财务费用。"""
+    thin = Side(style="thin", color="BBBBBB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    right = Alignment(horizontal="right", vertical="center")
+    last_col = 5
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
+    ws.cell(1, 1, title)
+    ws.cell(1, 1).font = Font(size=14, bold=True)
+    ws.cell(1, 1).alignment = center
+    ws.row_dimensions[1].height = 30
+
+    meta = [
+        f"税款所属期间:{period}",
+        f"纳税人名称:{(company.name if company else '') or ''}    金额单位:人民币元(列至角分)",
+    ]
+    r = 2
+    for m in meta:
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=last_col)
+        ws.cell(r, 1, m).alignment = left
+        r += 1
+
+    header_fill = PatternFill("solid", fgColor="1F6FEB")
+    head = ["行次", "项目", "销售费用", "管理费用", "财务费用"]
+    for c, h in enumerate(head, start=1):
+        cell = ws.cell(r, c, h)
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.fill = header_fill
+        cell.alignment = center
+        cell.border = border
+    r += 1
+
+    for line_no, label, sell, admin, fin in rows:
+        ws.cell(r, 1, line_no).alignment = center
+        ws.cell(r, 2, label).alignment = left
+        for c, val in ((3, sell), (4, admin), (5, fin)):
+            ws.cell(r, c, round(float(val), 2)).alignment = right
+        for c in range(1, last_col + 1):
+            ws.cell(r, c).border = border
+        r += 1
+
+    ws.column_dimensions["A"].width = 8
+    ws.column_dimensions["B"].width = 34
+    for col in ("C", "D", "E"):
+        ws.column_dimensions[col].width = 16
 
 
 def build_cit_quarterly_xlsx(db: Session, year: int, quarter: int) -> bytes:
     company = db.get(models.CompanyInfo, 1)
     start, end = date(year, 1, 1), _quarter_end(year, quarter)
-    rows = compute_rows(db, year, quarter)
     period = f"{start:%Y-%m-%d} 至 {end:%Y-%m-%d}"
-    return _render_xlsx("A200000", _Q_TITLE, company, period, rows, has_category=False)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "A200000"
+    _write_kv(ws, _Q_TITLE, company, period, compute_rows(db, year, quarter),
+              has_category=False)
+    return _save(wb)
 
 
 def build_cit_annual_xlsx(db: Session, year: int) -> bytes:
+    """年报导出:A100000 主表 + A101010/A102010/A104000 附表(多 sheet)。"""
     company = db.get(models.CompanyInfo, 1)
-    rows = compute_annual_rows(db, year)
     period = f"{year}-01-01 至 {year}-12-31"
-    return _render_xlsx("A100000", _A_TITLE, company, period, rows, has_category=True)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "A100000"
+    _write_kv(ws, _A_TITLE, company, period, compute_annual_rows(db, year),
+              has_category=True)
+    _write_kv(wb.create_sheet("A101010"), "A101010 一般企业收入明细表",
+              company, period, compute_a101010(db, year), has_category=False)
+    _write_kv(wb.create_sheet("A102010"), "A102010 一般企业成本支出明细表",
+              company, period, compute_a102010(db, year), has_category=False)
+    _write_a104(wb.create_sheet("A104000"), "A104000 期间费用明细表",
+                company, period, compute_a104000(db, year))
+    return _save(wb)
+
+
+def _save(wb) -> bytes:
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()

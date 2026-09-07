@@ -16,6 +16,8 @@ interface TaxFiling {
 }
 interface Meta { tax_type: Record<string, string>; taxpayer_type: Record<string, string>; status: Record<string, string> }
 interface CitRow { line_no: string; label: string; amount: number; level: number; category?: string }
+interface A104Row { line_no: string; label: string; sell: number; admin: number; fin: number }
+interface Schedules { A101010: CitRow[]; A102010: CitRow[]; A104000: A104Row[] }
 
 const STATUS_COLOR: Record<string, string> = { pending: 'default', filed: 'processing', paid: 'success' }
 const D = (v: string | null | undefined) => (v ? dayjs(v) : undefined)
@@ -165,12 +167,17 @@ function TaxReports() {
   const [year, setYear] = useState<number>(now.year())
   const [quarter, setQuarter] = useState<number>(Math.floor((now.month()) / 3) + 1)
   const [preview, setPreview] = useState<CitRow[]>([])
+  const [sched, setSched] = useState<Schedules | null>(null)
 
   const isAnnual = reportType === 'annual'
   const loadPreview = useCallback(() => {
-    const url = isAnnual ? '/tax/report/cit-annual/preview' : '/tax/report/cit-quarterly/preview'
-    const params = isAnnual ? { year } : { year, quarter }
-    http.get<{ rows: CitRow[] }>(url, { params }).then((r) => setPreview(r.data.rows))
+    if (isAnnual) {
+      http.get<{ rows: CitRow[]; schedules: Schedules }>('/tax/report/cit-annual/preview', { params: { year } })
+        .then((r) => { setPreview(r.data.rows); setSched(r.data.schedules) })
+    } else {
+      http.get<{ rows: CitRow[] }>('/tax/report/cit-quarterly/preview', { params: { year, quarter } })
+        .then((r) => { setPreview(r.data.rows); setSched(null) })
+    }
   }, [isAnnual, year, quarter])
   useEffect(() => { loadPreview() }, [loadPreview])
 
@@ -189,6 +196,11 @@ function TaxReports() {
   const annualCols = [
     { title: '行次', dataIndex: 'line_no', width: 60 },
     { title: '类别', dataIndex: 'category', width: 120 },
+    { title: '项目', dataIndex: 'label', render: renderLabel },
+    { title: '本年金额', dataIndex: 'amount', width: 160, align: 'right' as const, render: renderAmount },
+  ]
+  const scheduleCols = [
+    { title: '行次', dataIndex: 'line_no', width: 60 },
     { title: '项目', dataIndex: 'label', render: renderLabel },
     { title: '本年金额', dataIndex: 'amount', width: 160, align: 'right' as const, render: renderAmount },
   ]
@@ -216,8 +228,35 @@ function TaxReports() {
         message={isAnnual
           ? '年报按账套全年数据自动计算利润总额及应纳税额;境外所得、纳税调整、各类优惠、预缴税额及总分机构分摊等行次默认 0,导出后可结合各附表按实际手工调整再报送。'
           : '本表按账套数据自动计算本年累计(年初→季末);优惠、预缴、纳税调整等行次默认 0,导出后可在 Excel 中按实际手工调整再报送。'} />
-      <Table rowKey="line_no" size="small" pagination={false} dataSource={preview}
-        columns={isAnnual ? annualCols : quarterlyCols} />
+      {!isAnnual && (
+        <Table rowKey="line_no" size="small" pagination={false} dataSource={preview}
+          columns={quarterlyCols} />
+      )}
+      {isAnnual && (
+        <Tabs size="small" items={[
+          { key: 'main', label: 'A100000 主表', children: (
+            <Table rowKey="line_no" size="small" pagination={false} dataSource={preview} columns={annualCols} />
+          ) },
+          { key: 'a101', label: 'A101010 收入', children: (
+            <Table rowKey="line_no" size="small" pagination={false} dataSource={sched?.A101010 || []}
+              columns={scheduleCols} />
+          ) },
+          { key: 'a102', label: 'A102010 成本', children: (
+            <Table rowKey="line_no" size="small" pagination={false} dataSource={sched?.A102010 || []}
+              columns={scheduleCols} />
+          ) },
+          { key: 'a104', label: 'A104000 期间费用', children: (
+            <Table rowKey="line_no" size="small" pagination={false} dataSource={sched?.A104000 || []}
+              columns={[
+                { title: '行次', dataIndex: 'line_no', width: 60 },
+                { title: '项目', dataIndex: 'label' },
+                { title: '销售费用', dataIndex: 'sell', width: 120, align: 'right' as const, render: (v: number) => formatYuan(v) },
+                { title: '管理费用', dataIndex: 'admin', width: 120, align: 'right' as const, render: (v: number) => formatYuan(v) },
+                { title: '财务费用', dataIndex: 'fin', width: 120, align: 'right' as const, render: (v: number) => formatYuan(v) },
+              ]} />
+          ) },
+        ]} />
+      )}
     </Card>
   )
 }

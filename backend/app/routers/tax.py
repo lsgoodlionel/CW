@@ -132,9 +132,14 @@ def cit_annual(year: int = Query(...), db: Session = Depends(get_db)):
 
 @router.get("/report/cit-annual/preview")
 def cit_annual_preview(year: int = Query(...), db: Session = Depends(get_db)):
-    """年报主表行次的结构化预览(供页面展示,不下载)。"""
-    rows = tax_report.compute_annual_rows(db, year)
-    return {"year": year,
-            "rows": [{"line_no": ln, "category": cat, "label": lb,
-                      "amount": float(amt), "level": lv}
-                     for ln, cat, lb, amt, lv in rows]}
+    """年报主表 + 附表行次的结构化预览(供页面展示,不下载)。"""
+    main = [{"line_no": ln, "category": cat, "label": lb, "amount": float(amt), "level": lv}
+            for ln, cat, lb, amt, lv in tax_report.compute_annual_rows(db, year)]
+    a101010 = [{"line_no": ln, "label": lb, "amount": float(amt), "level": lv}
+               for ln, lb, amt, lv in tax_report.compute_a101010(db, year)]
+    a102010 = [{"line_no": ln, "label": lb, "amount": float(amt), "level": lv}
+               for ln, lb, amt, lv in tax_report.compute_a102010(db, year)]
+    a104000 = [{"line_no": ln, "label": lb, "sell": float(s), "admin": float(a), "fin": float(f)}
+               for ln, lb, s, a, f in tax_report.compute_a104000(db, year)]
+    return {"year": year, "rows": main,
+            "schedules": {"A101010": a101010, "A102010": a102010, "A104000": a104000}}
