@@ -30,11 +30,15 @@ def make_attachment(*, kind: str, original_name: str, stored_path: Path,
                     mime_type: str, size_bytes: int,
                     voucher_id: int | None = None,
                     expense_application_id: int | None = None,
-                    expense_claim_id: int | None = None) -> models.Attachment:
+                    expense_claim_id: int | None = None,
+                    contract_id: int | None = None,
+                    tax_filing_id: int | None = None) -> models.Attachment:
     return models.Attachment(
         voucher_id=voucher_id,
         expense_application_id=expense_application_id,
         expense_claim_id=expense_claim_id,
+        contract_id=contract_id,
+        tax_filing_id=tax_filing_id,
         kind=kind if kind in ALLOWED_KINDS else "other",
         original_name=original_name, stored_path=str(stored_path),
         mime_type=mime_type or "application/octet-stream", size_bytes=size_bytes,
