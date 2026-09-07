@@ -372,7 +372,7 @@ _A105_ROWS = [
     ("29", "(十六)党组织工作经费", 1, "detail"),
     ("30", "(十七)其他", 1, "detail"),
     ("31", "三、资产类调整项目(32+33+34+35)", 0, "sum"),
-    ("32", "(一)资产折旧、摊销(填写A105080)", 1, "detail"),
+    ("32", "(一)资产折旧、摊销(填写A105080)", 1, "linked"),
     ("33", "(二)资产减值准备金", 1, "detail"),
     ("34", "(三)资产损失(填写A105090)", 1, "detail"),
     ("35", "(四)其他", 1, "detail"),
@@ -422,6 +422,11 @@ def compute_a105000(db: Session, year: int):
                         "add": r.add_amount, "reduce": r.reduce_amount}
         else:
             vals[ln] = {k: Z for k in _A105_COLS}
+    # 行32 资产折旧、摊销:由 A105080 带出(账载−税收:>0 调增,<0 调减)
+    dep_adj = a105080_adjust_total(db, year)
+    vals["32"] = {"book": Z, "tax": Z,
+                  "add": dep_adj if dep_adj > 0 else Z,
+                  "reduce": -dep_adj if dep_adj < 0 else Z}
     for total, members in _A105_SUBTOTALS:
         for k in _A105_COLS:
             vals[total][k] = sum((vals[m][k] for m in members), Z)
@@ -469,6 +474,76 @@ def compute_a106000(db: Session, report_year: int):
 def a106_offset_total(db: Session, report_year: int) -> Decimal:
     """以前年度用本年度所得弥补的亏损额合计(供主表行26联动)。"""
     return compute_a106000(db, report_year)[-1][5]
+
+
+# ---------- 附表 A105080 资产折旧、摊销及纳税调整明细表 ----------
+
+# (行次, 项目, 层级, 类型)。sum=小计/合计(自动),detail=可录入明细。
+_A105080_ROWS = [
+    ("1", "一、固定资产(2+3+4+5+6+7)", 0, "sum"),
+    ("2", "(一)房屋、建筑物", 1, "detail"),
+    ("3", "(二)飞机、火车、轮船、机器、机械和其他生产设备", 1, "detail"),
+    ("4", "(三)与生产经营活动有关的器具、工具、家具等", 1, "detail"),
+    ("5", "(四)飞机、火车、轮船以外的运输工具", 1, "detail"),
+    ("6", "(五)电子设备", 1, "detail"),
+    ("7", "(六)其他", 1, "detail"),
+    ("8", "二、生产性生物资产(9+10)", 0, "sum"),
+    ("9", "(一)林木类", 1, "detail"),
+    ("10", "(二)畜类", 1, "detail"),
+    ("11", "三、无形资产(12+13+…+19)", 0, "sum"),
+    ("12", "(一)专利权", 1, "detail"),
+    ("13", "(二)商标权", 1, "detail"),
+    ("14", "(三)著作权", 1, "detail"),
+    ("15", "(四)土地使用权", 1, "detail"),
+    ("16", "(五)非专利技术", 1, "detail"),
+    ("17", "(六)特许权使用费", 1, "detail"),
+    ("18", "(七)软件", 1, "detail"),
+    ("19", "(八)其他", 1, "detail"),
+    ("20", "四、长期待摊费用(21+22+23+24+25)", 0, "sum"),
+    ("21", "(一)已足额提取折旧的固定资产的改建支出", 1, "detail"),
+    ("22", "(二)租入固定资产的改建支出", 1, "detail"),
+    ("23", "(三)固定资产的大修理支出", 1, "detail"),
+    ("24", "(四)开办费", 1, "detail"),
+    ("25", "(五)其他", 1, "detail"),
+    ("26", "五、油气勘探投资", 0, "detail"),
+    ("27", "六、油气开发投资", 0, "detail"),
+    ("30", "合计", 0, "sum"),
+]
+_A105080_SUBTOTALS = [
+    ("1", ["2", "3", "4", "5", "6", "7"]),
+    ("8", ["9", "10"]),
+    ("11", ["12", "13", "14", "15", "16", "17", "18", "19"]),
+    ("20", ["21", "22", "23", "24", "25"]),
+    ("30", ["1", "8", "11", "20", "26", "27"]),
+]
+_A105080_COLS = ("orig", "book_dep", "tax_basis", "tax_dep")
+
+
+def compute_a105080(db: Session, report_year: int):
+    """资产折旧摊销明细:返回 (行次, 项目, 资产原值, 账载折旧, 计税基础, 税收折旧, 纳税调整金额, 层级, 可录入)。
+    纳税调整金额 = 账载折旧 − 税收折旧;合计联动 A105000 行32。"""
+    recs = {r.line_no: r for r in db.scalars(
+        select(models.TaxAssetDepreciation).where(
+            models.TaxAssetDepreciation.report_year == report_year)).all()}
+    vals: dict[str, dict] = {}
+    for ln, _item, _lv, kind in _A105080_ROWS:
+        r = recs.get(ln)
+        if kind == "detail" and r is not None:
+            vals[ln] = {"orig": r.orig_value, "book_dep": r.book_dep,
+                        "tax_basis": r.tax_basis, "tax_dep": r.tax_dep}
+        else:
+            vals[ln] = {k: Z for k in _A105080_COLS}
+    for total, members in _A105080_SUBTOTALS:
+        for k in _A105080_COLS:
+            vals[total][k] = sum((vals[m][k] for m in members), Z)
+    return [(ln, item, vals[ln]["orig"], vals[ln]["book_dep"], vals[ln]["tax_basis"],
+             vals[ln]["tax_dep"], vals[ln]["book_dep"] - vals[ln]["tax_dep"], lv, kind == "detail")
+            for ln, item, lv, kind in _A105080_ROWS]
+
+
+def a105080_adjust_total(db: Session, report_year: int) -> Decimal:
+    """资产折旧摊销纳税调整金额合计(账载−税收,供 A105000 行32联动)。"""
+    return compute_a105080(db, report_year)[-1][6]
 
 
 # ---------- Excel 渲染 ----------
@@ -697,6 +772,49 @@ def _write_a106(ws, title: str, company, period: str, rows: list) -> None:
         ws.column_dimensions[col].width = w
 
 
+def _write_a105080(ws, title: str, company, period: str, rows: list) -> None:
+    """A105080 资产折旧摊销明细表:行次/项目/资产原值/账载折旧/计税基础/税收折旧/纳税调整金额。"""
+    thin = Side(style="thin", color="BBBBBB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    right = Alignment(horizontal="right", vertical="center")
+    last_col = 7
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
+    ws.cell(1, 1, title)
+    ws.cell(1, 1).font = Font(size=14, bold=True)
+    ws.cell(1, 1).alignment = center
+    ws.row_dimensions[1].height = 30
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_col)
+    ws.cell(2, 1, f"税款所属期间:{period}    金额单位:人民币元(列至角分)").alignment = left
+
+    header_fill = PatternFill("solid", fgColor="1F6FEB")
+    head = ["行次", "项目", "资产原值", "账载本年折旧摊销额", "资产计税基础",
+            "税收折旧摊销额", "纳税调整金额"]
+    r = 3
+    for c, h in enumerate(head, start=1):
+        cell = ws.cell(r, c, h)
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.fill = header_fill
+        cell.alignment = center
+        cell.border = border
+    r += 1
+
+    for line_no, item, orig, book_dep, tax_basis, tax_dep, adj, level, _ed in rows:
+        ws.cell(r, 1, line_no).alignment = center
+        ws.cell(r, 2, item).alignment = Alignment(
+            horizontal="left", vertical="center", wrap_text=True, indent=level * 2)
+        for c, val in ((3, orig), (4, book_dep), (5, tax_basis), (6, tax_dep), (7, adj)):
+            ws.cell(r, c, round(float(val), 2)).alignment = right
+        for c in range(1, last_col + 1):
+            ws.cell(r, c).border = border
+        r += 1
+
+    for col, w in (("A", 8), ("B", 40), ("C", 14), ("D", 16), ("E", 14), ("F", 14), ("G", 14)):
+        ws.column_dimensions[col].width = w
+
+
 def build_cit_quarterly_xlsx(db: Session, year: int, quarter: int) -> bytes:
     company = db.get(models.CompanyInfo, 1)
     start, end = date(year, 1, 1), _quarter_end(year, quarter)
@@ -728,6 +846,8 @@ def build_cit_annual_xlsx(db: Session, year: int) -> bytes:
                 company, period, compute_a105000(db, year))
     _write_a106(wb.create_sheet("A106000"), "A106000 企业所得税弥补亏损明细表",
                 company, period, compute_a106000(db, year))
+    _write_a105080(wb.create_sheet("A105080"), "A105080 资产折旧、摊销及纳税调整明细表",
+                   company, period, compute_a105080(db, year))
     return _save(wb)
 
 

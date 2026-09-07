@@ -25,6 +25,10 @@ interface A106Row {
   line_no: string; item: string; occur_year: number | null
   loss: number; pending: number; offset: number; carry: number; editable: boolean
 }
+interface A105080Row {
+  line_no: string; item: string; level: number; editable: boolean
+  orig: number; book_dep: number; tax_basis: number; tax_dep: number; adjust: number
+}
 interface Schedules { A101010: CitRow[]; A102010: CitRow[]; A104000: A104Row[] }
 
 const STATUS_COLOR: Record<string, string> = { pending: 'default', filed: 'processing', paid: 'success' }
@@ -269,6 +273,9 @@ function TaxReports() {
           { key: 'a106', label: 'A106000 弥补亏损', children: (
             <A106Editor year={year} onSaved={loadPreview} />
           ) },
+          { key: 'a105080', label: 'A105080 折旧摊销', children: (
+            <A105080Editor year={year} onSaved={loadPreview} />
+          ) },
         ]} />
       )}
     </Card>
@@ -372,6 +379,58 @@ function A106Editor({ year, onSaved }: { year: number; onSaved: () => void }) {
           { title: '当年待弥补的亏损额', dataIndex: 'pending', width: 150, align: 'right' as const, render: numCell('pending') },
           { title: '用本年度所得额弥补的以前年度亏损额', dataIndex: 'offset', width: 180, align: 'right' as const, render: numCell('offset') },
           { title: '可结转以后年度弥补的亏损额', dataIndex: 'carry', width: 160, align: 'right' as const, render: (v: number) => formatYuan(v) },
+        ]} />
+    </>
+  )
+}
+
+// A105080 资产折旧摊销录入:明细行录入资产原值/账载折旧/计税基础/税收折旧,纳税调整=账载−税收,联动 A105000 行32
+function A105080Editor({ year, onSaved }: { year: number; onSaved: () => void }) {
+  const [rows, setRows] = useState<A105080Row[]>([])
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(() => {
+    http.get<{ rows: A105080Row[] }>('/tax/depreciations', { params: { year } })
+      .then((r) => setRows(r.data.rows))
+  }, [year])
+  useEffect(() => { load() }, [load])
+
+  const setCell = (lineNo: string, key: 'orig' | 'book_dep' | 'tax_basis' | 'tax_dep', v: number | null) =>
+    setRows((rs) => rs.map((r) => (r.line_no === lineNo ? { ...r, [key]: v ?? 0 } : r)))
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const items = rows.filter((r) => r.editable).map((r) => ({
+        line_no: r.line_no, orig_value: r.orig, book_dep: r.book_dep,
+        tax_basis: r.tax_basis, tax_dep: r.tax_dep,
+      }))
+      const res = await http.put<{ rows: A105080Row[] }>('/tax/depreciations', { report_year: year, items })
+      setRows(res.data.rows); message.success('资产折旧摊销已保存'); onSaved()
+    } finally { setSaving(false) }
+  }
+
+  const numCell = (key: 'orig' | 'book_dep' | 'tax_basis' | 'tax_dep') =>
+    (v: number, r: A105080Row) => (r.editable
+      ? <InputNumber size="small" value={v} controls={false} precision={2} style={{ width: 110 }}
+          onChange={(nv) => setCell(r.line_no, key, nv as number | null)} />
+      : formatYuan(v))
+
+  return (
+    <>
+      <Space style={{ marginBottom: 8 }} wrap>
+        <Button type="primary" loading={saving} onClick={save}>保存折旧摊销</Button>
+        <span style={{ color: '#888' }}>录入各资产类别的账载/税收折旧;纳税调整金额=账载−税收,自动汇总并联动 A105000 行32、主表纳税调整。</span>
+      </Space>
+      <Table rowKey="line_no" size="small" pagination={false} dataSource={rows} scroll={{ x: 880 }}
+        columns={[
+          { title: '行次', dataIndex: 'line_no', width: 56 },
+          { title: '项目', dataIndex: 'item', render: renderLabel },
+          { title: '资产原值', dataIndex: 'orig', width: 120, align: 'right' as const, render: numCell('orig') },
+          { title: '账载本年折旧摊销额', dataIndex: 'book_dep', width: 140, align: 'right' as const, render: numCell('book_dep') },
+          { title: '资产计税基础', dataIndex: 'tax_basis', width: 120, align: 'right' as const, render: numCell('tax_basis') },
+          { title: '税收折旧摊销额', dataIndex: 'tax_dep', width: 130, align: 'right' as const, render: numCell('tax_dep') },
+          { title: '纳税调整金额', dataIndex: 'adjust', width: 120, align: 'right' as const, render: (v: number) => formatYuan(v) },
         ]} />
     </>
   )

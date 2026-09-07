@@ -685,3 +685,18 @@ class TaxLossSave(BaseModel):
     """按年批量保存弥补亏损明细录入(行1..11)。"""
     report_year: int = Field(ge=2000, le=2100)
     items: list[TaxLossItem] = []
+
+
+# ---------- 资产折旧摊销明细(A105080)录入 ----------
+class TaxDepreciationItem(BaseModel):
+    line_no: str
+    orig_value: Decimal = Decimal("0")
+    book_dep: Decimal = Decimal("0")
+    tax_basis: Decimal = Decimal("0")
+    tax_dep: Decimal = Decimal("0")
+
+
+class TaxDepreciationSave(BaseModel):
+    """按年批量保存资产折旧摊销明细录入。"""
+    report_year: int = Field(ge=2000, le=2100)
+    items: list[TaxDepreciationItem] = []

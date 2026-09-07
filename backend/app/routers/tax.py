@@ -143,15 +143,24 @@ def cit_annual_preview(year: int = Query(...), db: Session = Depends(get_db)):
                for ln, lb, s, a, f in tax_report.compute_a104000(db, year)]
     a105000 = _a105_rows(db, year)
     a106000 = _a106_rows(db, year)
+    a105080 = _a105080_rows(db, year)
     return {"year": year, "rows": main,
             "schedules": {"A101010": a101010, "A102010": a102010,
-                          "A104000": a104000, "A105000": a105000, "A106000": a106000}}
+                          "A104000": a104000, "A105000": a105000,
+                          "A106000": a106000, "A105080": a105080}}
 
 
 def _a106_rows(db: Session, year: int) -> list[dict]:
     return [{"line_no": ln, "item": it, "occur_year": oy, "loss": float(ls),
              "pending": float(pd), "offset": float(of), "carry": float(cy), "editable": ed}
             for ln, it, oy, ls, pd, of, cy, ed in tax_report.compute_a106000(db, year)]
+
+
+def _a105080_rows(db: Session, year: int) -> list[dict]:
+    return [{"line_no": ln, "item": it, "orig": float(ov), "book_dep": float(bd),
+             "tax_basis": float(tb), "tax_dep": float(td), "adjust": float(aj),
+             "level": lv, "editable": ed}
+            for ln, it, ov, bd, tb, td, aj, lv, ed in tax_report.compute_a105080(db, year)]
 
 
 def _a105_rows(db: Session, year: int) -> list[dict]:
@@ -210,3 +219,29 @@ def save_losses(payload: schemas.TaxLossSave, db: Session = Depends(get_db)):
             offset_amount=it.offset_amount))
     db.commit()
     return {"year": payload.report_year, "rows": _a106_rows(db, payload.report_year)}
+
+
+@router.get("/depreciations")
+def list_depreciations(year: int = Query(...), db: Session = Depends(get_db)):
+    """A105080 资产折旧摊销明细(含录入值与自动汇总)。"""
+    return {"year": year, "rows": _a105080_rows(db, year)}
+
+
+@router.put("/depreciations")
+def save_depreciations(payload: schemas.TaxDepreciationSave, db: Session = Depends(get_db)):
+    """按年保存资产折旧摊销明细录入(明细行;整表覆盖)。"""
+    editable = {ln for ln, _i, _l, kind in tax_report._A105080_ROWS if kind == "detail"}
+    db.execute(
+        models.TaxAssetDepreciation.__table__.delete().where(
+            models.TaxAssetDepreciation.report_year == payload.report_year))
+    for it in payload.items:
+        if it.line_no not in editable:
+            continue
+        if not (it.orig_value or it.book_dep or it.tax_basis or it.tax_dep):
+            continue
+        db.add(models.TaxAssetDepreciation(
+            report_year=payload.report_year, line_no=it.line_no,
+            orig_value=it.orig_value, book_dep=it.book_dep,
+            tax_basis=it.tax_basis, tax_dep=it.tax_dep))
+    db.commit()
+    return {"year": payload.report_year, "rows": _a105080_rows(db, payload.report_year)}

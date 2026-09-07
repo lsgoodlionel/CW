@@ -650,3 +650,19 @@ class TaxLossCarryover(Base):
     offset_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)   # 用本年度所得额弥补的以前年度亏损额
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class TaxAssetDepreciation(Base):
+    """企业所得税资产折旧摊销及纳税调整(A105080)按年录入:各资产类别的账载/税收折旧。"""
+    __tablename__ = "tax_asset_depreciations"
+    __table_args__ = (UniqueConstraint("report_year", "line_no", name="uq_tax_dep_year_line"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    report_year: Mapped[int] = mapped_column(Integer, index=True)      # 申报年度
+    line_no: Mapped[str] = mapped_column(String(10), index=True)       # A105080 行次
+    orig_value: Mapped[Decimal] = mapped_column(MONEY, default=0)      # 资产原值
+    book_dep: Mapped[Decimal] = mapped_column(MONEY, default=0)        # 账载本年折旧、摊销额
+    tax_basis: Mapped[Decimal] = mapped_column(MONEY, default=0)       # 资产计税基础
+    tax_dep: Mapped[Decimal] = mapped_column(MONEY, default=0)         # 税收折旧、摊销额
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
