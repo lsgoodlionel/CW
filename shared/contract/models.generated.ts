@@ -5,7 +5,7 @@
  * 重新生成:node scripts/gen-contract.mjs
  *
  * 这里的名字沿用后端 schema 名;前端习惯用的短名见同目录 models.ts 的别名映射。
- * 共 102 个类型。
+ * 共 120 个类型。
  */
 /* eslint-disable */
 
@@ -99,6 +99,8 @@ export interface AttachmentOut {
   voucher_id: number | null
   expense_application_id: number | null
   expense_claim_id: number | null
+  contract_id: number | null
+  tax_filing_id: number | null
   kind: string
   original_name: string
   mime_type: string
@@ -166,6 +168,10 @@ export interface CompanyOut {
   auditor: string
   bookkeeper: string
   recorder: string
+  taxpayer_kind: string
+  is_small_micro: boolean
+  small_micro_auto: boolean
+  restricted_industry: boolean
   id: number
 }
 
@@ -186,6 +192,59 @@ export interface CompanyUpdate {
   auditor?: string
   bookkeeper?: string
   recorder?: string
+  taxpayer_kind?: string
+  is_small_micro?: boolean
+  small_micro_auto?: boolean
+  restricted_industry?: boolean
+}
+
+export interface ContractIn {
+  contract_no: string
+  name: string
+  category?: string
+  customer_id?: number | null
+  party_name?: string
+  amount?: number | string
+  tax_rate?: number | string
+  sign_date?: string | null
+  start_date?: string | null
+  end_date?: string | null
+  status?: string
+  our_signatory?: string
+  counterparty_contact?: string
+  note?: string
+}
+
+export interface ContractOut {
+  id: number
+  contract_no: string
+  name: string
+  category: string
+  customer_id: number | null
+  customer_name: string
+  party_name: string
+  amount: string
+  tax_rate: string
+  tax_amount: string
+  sign_date: string | null
+  start_date: string | null
+  end_date: string | null
+  status: string
+  our_signatory: string
+  counterparty_contact: string
+  note: string
+  created_at: string
+  attachments: AttachmentOut[]
+  vouchers: ContractVoucherBrief[]
+}
+
+export interface ContractVoucherBrief {
+  id: number
+  voucher_id: number
+  voucher_no: string
+  voucher_date: string | null
+  total_debit: string
+  note: string
 }
 
 export interface CreatedOut {
@@ -365,6 +424,7 @@ export interface ExpenseApplicationIn {
   applicant_employee_id?: number | null
   org_unit_id?: number | null
   apply_type?: string
+  contract_id?: number | null
   reason?: string
   note?: string
   items: ExpenseApplicationItemIn[]
@@ -396,6 +456,8 @@ export interface ExpenseApplicationOut {
   org_unit_id: number | null
   org_unit_name: string
   apply_type: string
+  contract_id: number | null
+  contract_no: string
   reason: string
   estimated_amount: string
   status: string
@@ -424,6 +486,7 @@ export interface ExpenseClaimIn {
   applicant_employee_id?: number | null
   org_unit_id?: number | null
   application_id?: number | null
+  contract_id?: number | null
   reason?: string
   note?: string
   items: ExpenseItemIn[]
@@ -438,6 +501,8 @@ export interface ExpenseClaimOut {
   org_unit_name: string
   application_id: number | null
   application_no: string
+  contract_id: number | null
+  contract_no: string
   reason: string
   total_amount: string
   status: string
@@ -807,6 +872,116 @@ export interface TaskReassign {
   employee_id?: number | null
 }
 
+export interface TaxAccelItem {
+  line_no: string
+  orig_value?: number | string
+  book_dep?: number | string
+  tax_normal?: number | string
+  accel_dep?: number | string
+  reduce_amount?: number | string
+}
+
+/** 按年批量保存资产加速折旧优惠录入(本年累计)。 */
+export interface TaxAccelSave {
+  year: number
+  items?: TaxAccelItem[]
+}
+
+export interface TaxAdjustmentItem {
+  line_no: string
+  book_amount?: number | string
+  tax_amount?: number | string
+  add_amount?: number | string
+  reduce_amount?: number | string
+  note?: string
+}
+
+/** 按年批量保存纳税调整明细录入(仅保存明细行,小计/合计由系统计算)。 */
+export interface TaxAdjustmentSave {
+  year: number
+  items?: TaxAdjustmentItem[]
+}
+
+export interface TaxDepreciationItem {
+  line_no: string
+  orig_value?: number | string
+  book_dep?: number | string
+  tax_basis?: number | string
+  tax_dep?: number | string
+}
+
+/** 按年批量保存资产折旧摊销明细录入。 */
+export interface TaxDepreciationSave {
+  report_year: number
+  items?: TaxDepreciationItem[]
+}
+
+export interface TaxFilingIn {
+  tax_type: string
+  taxpayer_type?: string
+  period: string
+  period_start?: string | null
+  period_end?: string | null
+  tax_basis?: number | string
+  tax_amount?: number | string
+  paid_amount?: number | string
+  filed_date?: string | null
+  status?: string
+  note?: string
+}
+
+export interface TaxFilingOut {
+  id: number
+  tax_type: string
+  taxpayer_type: string
+  period: string
+  period_start: string | null
+  period_end: string | null
+  tax_basis: string
+  tax_amount: string
+  paid_amount: string
+  filed_date: string | null
+  status: string
+  note: string
+  created_at: string
+  attachments: AttachmentOut[]
+}
+
+export interface TaxLossItem {
+  line_no: string
+  loss_amount?: number | string
+  pending_amount?: number | string
+  offset_amount?: number | string
+}
+
+/** 按年批量保存弥补亏损明细录入(行1..11)。 */
+export interface TaxLossSave {
+  report_year: number
+  items?: TaxLossItem[]
+}
+
+export interface TaxPreferenceItem {
+  code: string
+  amount?: number | string
+}
+
+/** 按年批量保存税收优惠事项金额。 */
+export interface TaxPreferenceSave {
+  report_year: number
+  items?: TaxPreferenceItem[]
+}
+
+export interface TaxRdItem {
+  line_no: string
+  amount?: number | string
+}
+
+/** 按年批量保存研发费用加计扣除录入(行50为加计比例)。 */
+export interface TaxRdSave {
+  report_year: number
+  items?: TaxRdItem[]
+}
+
 export interface TrendPointOut {
   month: string
   revenue: number
@@ -857,6 +1032,16 @@ export interface UserUpdate {
   is_active?: boolean | null
   is_super_admin?: boolean | null
   role_ids?: number[] | null
+}
+
+/** 凭证侧反查:该凭证关联的合同简要。link_id 用于解除关联。 */
+export interface VoucherContractBrief {
+  link_id: number
+  contract_id: number
+  contract_no: string
+  name: string
+  amount: string
+  note: string
 }
 
 export interface VoucherCreate {

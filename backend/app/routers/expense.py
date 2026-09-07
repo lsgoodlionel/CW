@@ -50,6 +50,9 @@ def _out(db: Session, claim: models.ExpenseClaim) -> schemas.ExpenseClaimOut:
     if claim.application_id:
         app = db.get(models.ExpenseApplication, claim.application_id)
         item.application_no = app.apply_no if app else ""
+    if claim.contract_id:
+        ct = db.get(models.Contract, claim.contract_id)
+        item.contract_no = ct.contract_no if ct else ""
     for it, io in zip(claim.items, item.items):
         acc = db.get(models.Account, it.account_id) if it.account_id else None
         io.account_name = acc.name if acc else ""
@@ -115,6 +118,7 @@ def create_claim(payload: schemas.ExpenseClaimIn, db: Session = Depends(get_db))
         claim_no=_claim_no(db, date.today()),
         applicant_employee_id=payload.applicant_employee_id,
         org_unit_id=payload.org_unit_id, application_id=payload.application_id,
+        contract_id=payload.contract_id,
         reason=payload.reason, note=payload.note, status="draft")
     _apply_items(db, claim, payload.items)
     db.add(claim)
@@ -130,6 +134,7 @@ def update_claim(claim_id: int, payload: schemas.ExpenseClaimIn, db: Session = D
     claim.applicant_employee_id = payload.applicant_employee_id
     claim.org_unit_id = payload.org_unit_id
     claim.application_id = payload.application_id
+    claim.contract_id = payload.contract_id
     claim.reason = payload.reason
     claim.note = payload.note
     _apply_items(db, claim, payload.items)
@@ -208,13 +213,24 @@ def make_voucher(claim_id: int, credit_account_code: str = Query("1002"),
     claim.voucher_id = voucher.id
     claim.status = "paid"
 
-    # 附件同步:把报销单及其关联费用申请的附件挂到新生成的凭证上
+    # 附件同步:把报销单及其关联费用申请、关联合同的附件挂到新生成的凭证上
     owners = [models.Attachment.expense_claim_id == claim.id]
     if claim.application_id:
         owners.append(models.Attachment.expense_application_id == claim.application_id)
+    if claim.contract_id:
+        owners.append(models.Attachment.contract_id == claim.contract_id)
     related = db.scalars(select(models.Attachment).where(or_(*owners))).all()
     for att in related:
         att.voucher_id = voucher.id
+    # 关联合同:自动建立凭证↔合同关联(便于合同履行台账追溯)
+    if claim.contract_id and db.get(models.Contract, claim.contract_id):
+        exists = db.scalar(select(models.ContractVoucherLink).where(
+            models.ContractVoucherLink.contract_id == claim.contract_id,
+            models.ContractVoucherLink.voucher_id == voucher.id))
+        if not exists:
+            db.add(models.ContractVoucherLink(
+                contract_id=claim.contract_id, voucher_id=voucher.id,
+                note=f"报销 {claim.claim_no} 自动关联"))
     # 关联的费用申请标记为已关联报销(闭环)
     if claim.application_id:
         app = db.get(models.ExpenseApplication, claim.application_id)

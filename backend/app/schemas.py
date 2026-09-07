@@ -381,6 +381,7 @@ class ExpenseClaimIn(BaseModel):
     applicant_employee_id: int | None = None
     org_unit_id: int | None = None
     application_id: int | None = None
+    contract_id: int | None = None
     reason: str = ""
     note: str = ""
     items: list[ExpenseItemIn] = Field(min_length=1)
@@ -396,6 +397,8 @@ class ExpenseClaimOut(BaseModel):
     org_unit_name: str = ""
     application_id: int | None = None
     application_no: str = ""
+    contract_id: int | None = None
+    contract_no: str = ""
     reason: str
     total_amount: Decimal
     status: str
@@ -431,6 +434,7 @@ class ExpenseApplicationIn(BaseModel):
     applicant_employee_id: int | None = None
     org_unit_id: int | None = None
     apply_type: str = "general"
+    contract_id: int | None = None
     reason: str = ""
     note: str = ""
     items: list[ExpenseApplicationItemIn] = Field(min_length=1)
@@ -445,6 +449,8 @@ class ExpenseApplicationOut(BaseModel):
     org_unit_id: int | None
     org_unit_name: str = ""
     apply_type: str
+    contract_id: int | None = None
+    contract_no: str = ""
     reason: str
     estimated_amount: Decimal
     status: str

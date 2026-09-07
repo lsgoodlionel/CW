@@ -24,10 +24,10 @@ from ..schemas_read import DataImportOut
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-EXPORT_VERSION = 17
+EXPORT_VERSION = 18
 # 1-7 见历史;8:用户/角色/权限;9:费用申请 + 附件多归属(扁平附件表)
 # 10:企业信息导出全部字段;11:合同管理 + 税务申报记录(含其附件归属)
-SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}
+SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}
 
 
 def _company_dict(c: models.CompanyInfo | None) -> dict:
@@ -141,6 +141,7 @@ def build_backup_zip(db: Session) -> bytes:
         "expense_applications": [
             {"ref": a.id, "apply_no": a.apply_no, "applicant_ref": a.applicant_employee_id,
              "org_unit_ref": a.org_unit_id, "apply_type": a.apply_type, "reason": a.reason,
+             "contract_ref": a.contract_id,
              "estimated_amount": str(a.estimated_amount), "status": a.status,
              "workflow_instance_ref": a.workflow_instance_id, "note": a.note,
              "created_at": a.created_at.isoformat() if a.created_at else None,
@@ -153,7 +154,7 @@ def build_backup_zip(db: Session) -> bytes:
         "expense_claims": [
             {"ref": c.id, "claim_no": c.claim_no, "applicant_ref": c.applicant_employee_id,
              "org_unit_ref": c.org_unit_id, "application_ref": c.application_id,
-             "reason": c.reason,
+             "contract_ref": c.contract_id, "reason": c.reason,
              "total_amount": str(c.total_amount), "status": c.status,
              "workflow_instance_ref": c.workflow_instance_id,
              "voucher_ref": c.voucher_id, "note": c.note,
@@ -722,6 +723,17 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
             if v is not None:
                 db.add(models.ContractVoucherLink(
                     contract_id=contract.id, voucher_id=v.id, note=lk.get("note", "")))
+    # 回填费用申请/报销的合同关联(合同在费用之后恢复,故此处补映射)
+    for a in payload.get("expense_applications", []):
+        obj = ref_to_application.get(a.get("ref"))
+        ct = ref_to_contract.get(a.get("contract_ref"))
+        if obj is not None and ct is not None:
+            obj.contract_id = ct.id
+    for c in payload.get("expense_claims", []):
+        obj = ref_to_claim.get(c.get("ref"))
+        ct = ref_to_contract.get(c.get("contract_ref"))
+        if obj is not None and ct is not None:
+            obj.contract_id = ct.id
 
     # 5d. 税务申报记录
     ref_to_tax: dict[int, models.TaxFiling] = {}

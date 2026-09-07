@@ -43,6 +43,10 @@ _ADDED_COLUMNS = {
     ],
     "expense_claims": [
         ("application_id", "INTEGER"),
+        ("contract_id", "INTEGER"),
+    ],
+    "expense_applications": [
+        ("contract_id", "INTEGER"),
     ],
     "customers": [
         ("party_type", "VARCHAR(20) DEFAULT 'enterprise'"),

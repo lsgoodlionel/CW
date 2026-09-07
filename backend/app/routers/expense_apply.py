@@ -50,6 +50,9 @@ def _out(db: Session, app: models.ExpenseApplication) -> schemas.ExpenseApplicat
     unit = db.get(models.OrgUnit, app.org_unit_id) if app.org_unit_id else None
     item.applicant_name = emp.name if emp else ""
     item.org_unit_name = unit.name if unit else ""
+    if app.contract_id:
+        ct = db.get(models.Contract, app.contract_id)
+        item.contract_no = ct.contract_no if ct else ""
     for it, io in zip(app.items, item.items):
         acc = db.get(models.Account, it.account_id) if it.account_id else None
         io.account_name = acc.name if acc else ""
@@ -141,6 +144,7 @@ def create_application(payload: schemas.ExpenseApplicationIn, db: Session = Depe
         apply_no=_apply_no(db, date.today()),
         applicant_employee_id=payload.applicant_employee_id,
         org_unit_id=payload.org_unit_id, apply_type=payload.apply_type,
+        contract_id=payload.contract_id,
         reason=payload.reason, note=payload.note, status="draft")
     _apply_items(app, payload.items)
     db.add(app)
@@ -167,6 +171,7 @@ def update_application(app_id: int, payload: schemas.ExpenseApplicationIn,
     app.applicant_employee_id = payload.applicant_employee_id
     app.org_unit_id = payload.org_unit_id
     app.apply_type = payload.apply_type
+    app.contract_id = payload.contract_id
     app.reason = payload.reason
     app.note = payload.note
     _apply_items(app, payload.items)

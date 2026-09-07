@@ -359,6 +359,9 @@ class ExpenseApplication(Base):
     workflow_instance_id: Mapped[int | None] = mapped_column(
         ForeignKey("workflow_instances.id", ondelete="SET NULL"), nullable=True
     )
+    contract_id: Mapped[int | None] = mapped_column(
+        ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
@@ -415,6 +418,9 @@ class ExpenseClaim(Base):
     )
     voucher_id: Mapped[int | None] = mapped_column(
         ForeignKey("vouchers.id", ondelete="SET NULL"), nullable=True
+    )
+    contract_id: Mapped[int | None] = mapped_column(
+        ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True, index=True
     )
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

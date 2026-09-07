@@ -24,6 +24,7 @@ export default function ExpenseApply() {
   const [approverWarn, setApproverWarn] = useState<string | null>(null)
   const [employees, setEmployees] = useState<Employee[]>([])
   const [units, setUnits] = useState<OrgUnit[]>([])
+  const [contracts, setContracts] = useState<{ id: number; contract_no: string; name: string }[]>([])
   const [statusFilter, setStatusFilter] = useState('all')
   const [loading, setLoading] = useState(false)
 
@@ -60,6 +61,7 @@ export default function ExpenseApply() {
       })
     http.get<Employee[]>('/personnel/employees').then((r) => setEmployees(r.data))
     http.get<OrgUnit[]>('/personnel/org-units').then((r) => setUnits(r.data))
+    http.get<{ id: number; contract_no: string; name: string }[]>('/contracts').then((r) => setContracts(r.data))
   }, [])
 
   const openEdit = (a: ExpenseApplication | null) => {
@@ -161,6 +163,11 @@ export default function ExpenseApply() {
               <Input placeholder="如 签订年度办公用品采购合同" />
             </Form.Item>
           </Space>
+          <Form.Item name="contract_id" label="关联合同(可选)"
+            extra="选择合同后,后续报销可自动带出该合同,生成凭证时合同附件一并归档">
+            <Select allowClear showSearch placeholder="不关联 / 选择合同" optionFilterProp="label"
+              options={contracts.map((c) => ({ value: c.id, label: `${c.contract_no} · ${c.name}` }))} />
+          </Form.Item>
           <Divider orientation="left" plain>预计费用明细</Divider>
           <Form.List name="items">
             {(fields, { add, remove }) => (

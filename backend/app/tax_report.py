@@ -35,9 +35,10 @@ SMALL_MICRO_ASSET_LIMIT = Decimal("50000000")      # 资产总额 ≤ 5000 万�
 VAT_SMALL_SALES_LIMIT = Decimal("5000000")
 
 def _total_assets(db: Session, as_of: date) -> Decimal:
-    """资产总额:资产类科目(编码 1 开头)净额合计(借-贷,备抵科目自然抵减)。"""
+    """资产总额:资产类科目净额合计(借-贷,备抵科目自然抵减);口径含在产品/生产成本,与资产负债表存货一致。"""
     b = reports_cn.balances_asof(db, as_of)
-    return sum((v for code, v in b._d.items() if code.startswith("1")), Z)
+    return sum((v for code, v in b._d.items()
+                if code.startswith("1") or code in ("5001", "5101", "5201")), Z)
 
 
 def _active_headcount(db: Session) -> int:
@@ -350,11 +351,11 @@ def compute_annual_rows(db: Session, year: int):
     income_relief = pref["income_relief"]                # 25 所得减免
     adj_after = profit + adj_add - adj_reduce - exempt    # 24 纳税调整后所得(19/23=0)
     loss_offset = a106_offset_total(db, year)             # 26 弥补以前年度亏损(A106000)
-    taxable = adj_after - income_relief - loss_offset     # 28 应纳税所得额(27=0)
-    taxable = taxable if taxable > 0 else Z
-    tax_amount = (taxable * RATE).quantize(Decimal("0.01"))   # 30 应纳所得税额
-    sm = small_micro_status(db, taxable, end, year)      # 小型微利复核
-    micro = (taxable * SMALL_MICRO_RELIEF).quantize(Decimal("0.01")) if sm["effective"] else Z
+    taxable = adj_after - income_relief - loss_offset     # 28 应纳税所得额(27=0),可为负(亏损)
+    taxable_tax = taxable if taxable > 0 else Z           # 计税基数:亏损按 0
+    tax_amount = (taxable_tax * RATE).quantize(Decimal("0.01"))   # 30 应纳所得税额
+    sm = small_micro_status(db, taxable_tax, end, year)  # 小型微利复核(应纳税所得额口径)
+    micro = (taxable_tax * SMALL_MICRO_RELIEF).quantize(Decimal("0.01")) if sm["effective"] else Z
     relief = micro + pref["tax_relief"]                  # 31 减免所得税额(小微+其他优惠)
     payable = tax_amount - relief                         # 33 应纳税额=36 实际应纳(32/34/35=0)
     C1, C2 = "利润总额计算", "应纳税所得额计算"

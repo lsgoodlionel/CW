@@ -27,6 +27,7 @@ export default function Expense() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [units, setUnits] = useState<OrgUnit[]>([])
   const [approvedApps, setApprovedApps] = useState<ExpenseApplication[]>([])
+  const [contracts, setContracts] = useState<{ id: number; contract_no: string; name: string }[]>([])
   const [statusFilter, setStatusFilter] = useState('all')
   const [loading, setLoading] = useState(false)
 
@@ -65,6 +66,7 @@ export default function Expense() {
     http.get<Employee[]>('/personnel/employees').then((r) => setEmployees(r.data))
     http.get<OrgUnit[]>('/personnel/org-units').then((r) => setUnits(r.data))
     http.get<ExpenseApplication[]>('/expense-apply/approved').then((r) => setApprovedApps(r.data))
+    http.get<{ id: number; contract_no: string; name: string }[]>('/contracts').then((r) => setContracts(r.data))
   }, [])
 
   // 选择关联的费用申请后,带出申请人/部门/事由/明细
@@ -76,6 +78,7 @@ export default function Expense() {
       application_id: appId,
       applicant_employee_id: app.applicant_employee_id ?? form.getFieldValue('applicant_employee_id'),
       org_unit_id: app.org_unit_id ?? form.getFieldValue('org_unit_id'),
+      contract_id: app.contract_id ?? form.getFieldValue('contract_id'),
       reason: app.reason,
       items: app.items.map((it) => ({
         category: it.category, account_id: it.account_id,
@@ -186,6 +189,11 @@ export default function Expense() {
                 value: a.id,
                 label: `${a.apply_no} · ${APPLY_TYPE_LABEL[a.apply_type] || ''} · ${a.reason} · 预计¥${a.estimated_amount}`,
               }))} />
+          </Form.Item>
+          <Form.Item name="contract_id" label="关联合同(可选)"
+            extra="按合同付款的报销可关联合同;生成凭证时合同附件将一并归档,并自动建立凭证↔合同关联">
+            <Select allowClear showSearch placeholder="不关联 / 选择合同" optionFilterProp="label"
+              options={contracts.map((c) => ({ value: c.id, label: `${c.contract_no} · ${c.name}` }))} />
           </Form.Item>
           <Space wrap>
             <Form.Item name="applicant_employee_id" label="申请人">
