@@ -700,3 +700,15 @@ class TaxDepreciationSave(BaseModel):
     """按年批量保存资产折旧摊销明细录入。"""
     report_year: int = Field(ge=2000, le=2100)
     items: list[TaxDepreciationItem] = []
+
+
+# ---------- 研发费用加计扣除(A107012)录入 ----------
+class TaxRdItem(BaseModel):
+    line_no: str
+    amount: Decimal = Decimal("0")
+
+
+class TaxRdSave(BaseModel):
+    """按年批量保存研发费用加计扣除录入(行50为加计比例)。"""
+    report_year: int = Field(ge=2000, le=2100)
+    items: list[TaxRdItem] = []

@@ -134,7 +134,8 @@ def compute_annual_rows(db: Session, year: int):
     # 20/21 纳税调整增加/减少额,来自 A105000 合计(行46)的调增/调减
     a105 = compute_a105000(db, year)
     _, _, _, _, adj_add, adj_reduce, _, _ = a105[-1]
-    adj_after = profit + adj_add - adj_reduce             # 24 纳税调整后所得(19/22/23=0)
+    exempt = a107012_deduction_total(db, year)           # 22 免税/减计/加计扣除(A107012 加计扣除额)
+    adj_after = profit + adj_add - adj_reduce - exempt    # 24 纳税调整后所得(19/23=0)
     loss_offset = a106_offset_total(db, year)             # 26 弥补以前年度亏损(A106000)
     taxable = adj_after - loss_offset                     # 28 应纳税所得额(25/27=0)
     taxable = taxable if taxable > 0 else Z
@@ -165,7 +166,7 @@ def compute_annual_rows(db: Session, year: int):
         ("19", C2, "减:境外所得(填写A108010)", Z),
         ("20", "", "加:纳税调整增加额(填写A105000)", adj_add),
         ("21", "", "减:纳税调整减少额(填写A105000)", adj_reduce),
-        ("22", "", "减:免税、减计收入及加计扣除(填写A107010)", Z),
+        ("22", "", "减:免税、减计收入及加计扣除(填写A107010)", exempt),
         ("23", "", "加:境外应税所得抵减境内亏损(填写A108000)", Z),
         ("24", "", "四、纳税调整后所得(18-19+20-21-22+23)", adj_after),
         ("25", "", "减:所得减免(填写A107020)", Z),
@@ -546,6 +547,108 @@ def a105080_adjust_total(db: Session, report_year: int) -> Decimal:
     return compute_a105080(db, report_year)[-1][6]
 
 
+# ---------- 附表 A107012 研发费用加计扣除优惠明细表 ----------
+
+# (行次, 项目, 层级, 类型)。sum=按成员小计;detail=录入;memo=其中;ratio=加计比例(默认1.0);
+# formula=特殊公式(行40/45/47/51)。
+_A107_ROWS = [
+    ("1", "本年可享受研发费用加计扣除项目数量", 0, "detail"),
+    ("2", "一、自主研发、合作研发、集中研发(3+7+16+19+23+34)", 0, "sum"),
+    ("3", "(一)人员人工费用(4+5+6)", 1, "sum"),
+    ("4", "1.直接从事研发活动人员工资薪金", 2, "detail"),
+    ("5", "2.直接从事研发活动人员五险一金", 2, "detail"),
+    ("6", "3.外聘研发人员的劳务费用", 2, "detail"),
+    ("7", "(二)直接投入费用(8+9+…+15)", 1, "sum"),
+    ("8", "1.研发活动直接消耗材料费用", 2, "detail"),
+    ("9", "2.研发活动直接消耗燃料费用", 2, "detail"),
+    ("10", "3.研发活动直接消耗动力费用", 2, "detail"),
+    ("11", "4.用于中间试验和产品试制的模具、工艺装备开发及制造费", 2, "detail"),
+    ("12", "5.用于不构成固定资产的样品、样机及一般测试手段购置费", 2, "detail"),
+    ("13", "6.用于试制产品的检验费", 2, "detail"),
+    ("14", "7.用于研发活动的仪器、设备的运行维护、调整、检验、维修等费用", 2, "detail"),
+    ("15", "8.通过经营租赁方式租入的用于研发活动的仪器、设备租赁费", 2, "detail"),
+    ("16", "(三)折旧费用(17+18)", 1, "sum"),
+    ("17", "1.用于研发活动的仪器的折旧费", 2, "detail"),
+    ("18", "2.用于研发活动的设备的折旧费", 2, "detail"),
+    ("19", "(四)无形资产摊销(20+21+22)", 1, "sum"),
+    ("20", "1.用于研发活动的软件的摊销费用", 2, "detail"),
+    ("21", "2.用于研发活动的专利权的摊销费用", 2, "detail"),
+    ("22", "3.用于研发活动的非专利技术的摊销费用", 2, "detail"),
+    ("23", "(五)新产品设计费等(24+25+26+27)", 1, "sum"),
+    ("24", "1.新产品设计费", 2, "detail"),
+    ("25", "2.新工艺规程制定费", 2, "detail"),
+    ("26", "3.新药研制的临床试验费", 2, "detail"),
+    ("27", "4.勘探开发技术的现场试验费", 2, "detail"),
+    ("28", "(六)其他相关费用(29+30+31+32+33)", 1, "sum"),
+    ("29", "1.技术图书资料费、资料翻译费、专家咨询费等", 2, "detail"),
+    ("30", "2.研发成果的检索、分析、评议、论证、鉴定等费用", 2, "detail"),
+    ("31", "3.知识产权的申请费、注册费、代理费", 2, "detail"),
+    ("32", "4.职工福利费、补充养老保险费、补充医疗保险费", 2, "detail"),
+    ("33", "5.差旅费、会议费", 2, "detail"),
+    ("34", "(七)经限额调整后的其他相关费用", 1, "detail"),
+    ("35", "二、委托研发(36+37+39)", 0, "sum"),
+    ("36", "(一)委托境内机构或个人进行研发活动所发生的费用", 1, "detail"),
+    ("37", "(二)委托境外机构进行研发活动发生的费用", 1, "detail"),
+    ("38", "其中:允许加计扣除的委托境外机构进行研发活动发生的费用", 2, "detail"),
+    ("39", "(三)委托境外个人进行研发活动发生的费用", 1, "detail"),
+    ("40", "三、年度研发费用小计(2+36×80%+38)", 0, "formula"),
+    ("41", "(一)本年费用化金额", 1, "detail"),
+    ("42", "(二)本年资本化金额", 1, "detail"),
+    ("43", "四、本年形成无形资产摊销额", 0, "detail"),
+    ("44", "五、以前年度形成无形资产本年摊销额", 0, "detail"),
+    ("45", "六、允许扣除的研发费用合计(41+43+44)", 0, "formula"),
+    ("46", "减:特殊收入部分", 0, "detail"),
+    ("47", "七、允许扣除的研发费用抵减特殊收入后的金额(45-46)", 0, "formula"),
+    ("48", "减:当年销售研发活动直接形成产品对应的材料部分", 0, "detail"),
+    ("49", "减:以前年度销售研发活动直接形成产品对应材料部分结转", 0, "detail"),
+    ("50", "八、加计扣除比例(如 1.00 表示 100%)", 0, "ratio"),
+    ("51", "九、本年研发费用加计扣除总额((47-48-49)×50)", 0, "formula"),
+    ("52", "十、销售产品对应材料部分结转以后年度扣减金额", 0, "detail"),
+]
+_A107_SUBTOTALS = [
+    ("3", ["4", "5", "6"]),
+    ("7", ["8", "9", "10", "11", "12", "13", "14", "15"]),
+    ("16", ["17", "18"]),
+    ("19", ["20", "21", "22"]),
+    ("23", ["24", "25", "26", "27"]),
+    ("28", ["29", "30", "31", "32", "33"]),
+    ("2", ["3", "7", "16", "19", "23", "34"]),
+    ("35", ["36", "37", "39"]),
+]
+_RD_INPUT = {"detail", "memo", "ratio"}
+
+
+def compute_a107012(db: Session, report_year: int):
+    """研发费用加计扣除:返回 (行次, 项目, 金额, 层级, 可录入)。行51为本年加计扣除总额。"""
+    recs = {r.line_no: r for r in db.scalars(
+        select(models.TaxRdDeduction).where(
+            models.TaxRdDeduction.report_year == report_year)).all()}
+    v: dict[str, Decimal] = {}
+    for ln, _item, _lv, kind in _A107_ROWS:
+        r = recs.get(ln)
+        if kind in _RD_INPUT and r is not None:
+            v[ln] = r.amount
+        elif kind == "ratio":
+            v[ln] = Decimal("1")            # 加计比例默认 100%
+        else:
+            v[ln] = Z
+    for total, members in _A107_SUBTOTALS:
+        v[total] = sum((v[m] for m in members), Z)
+    # 特殊公式行
+    v["40"] = v["2"] + (v["36"] * Decimal("0.8")).quantize(Decimal("0.01")) + v["38"]
+    v["45"] = v["41"] + v["43"] + v["44"]
+    v["47"] = v["45"] - v["46"]
+    ratio = v["50"] if v["50"] else Decimal("1")
+    v["51"] = ((v["47"] - v["48"] - v["49"]) * ratio).quantize(Decimal("0.01"))
+    return [(ln, item, v[ln], lv, kind in _RD_INPUT)
+            for ln, item, lv, kind in _A107_ROWS]
+
+
+def a107012_deduction_total(db: Session, report_year: int) -> Decimal:
+    """本年研发费用加计扣除总额(行51,供主表行22联动)。"""
+    return {r[0]: r for r in compute_a107012(db, report_year)}["51"][2]
+
+
 # ---------- Excel 渲染 ----------
 
 def _write_kv(ws, title: str, company, period: str,
@@ -815,6 +918,45 @@ def _write_a105080(ws, title: str, company, period: str, rows: list) -> None:
         ws.column_dimensions[col].width = w
 
 
+def _write_a107(ws, title: str, company, period: str, rows: list) -> None:
+    """A107012 研发费用加计扣除明细表:行次 / 项目(按层级缩进) / 金额(数量)。"""
+    thin = Side(style="thin", color="BBBBBB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    right = Alignment(horizontal="right", vertical="center")
+    last_col = 3
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
+    ws.cell(1, 1, title)
+    ws.cell(1, 1).font = Font(size=14, bold=True)
+    ws.cell(1, 1).alignment = center
+    ws.row_dimensions[1].height = 30
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_col)
+    ws.cell(2, 1, f"税款所属期间:{period}    金额单位:人民币元(列至角分)").alignment = left
+
+    header_fill = PatternFill("solid", fgColor="1F6FEB")
+    for c, h in enumerate(["行次", "项目", "金额(数量)"], start=1):
+        cell = ws.cell(3, c, h)
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.fill = header_fill
+        cell.alignment = center
+        cell.border = border
+    r = 4
+    for line_no, item, amount, level, _ed in rows:
+        ws.cell(r, 1, line_no).alignment = center
+        ws.cell(r, 2, item).alignment = Alignment(
+            horizontal="left", vertical="center", wrap_text=True, indent=level * 2)
+        ws.cell(r, 3, round(float(amount), 2)).alignment = right
+        for c in range(1, last_col + 1):
+            ws.cell(r, c).border = border
+        r += 1
+
+    ws.column_dimensions["A"].width = 8
+    ws.column_dimensions["B"].width = 56
+    ws.column_dimensions["C"].width = 18
+
+
 def build_cit_quarterly_xlsx(db: Session, year: int, quarter: int) -> bytes:
     company = db.get(models.CompanyInfo, 1)
     start, end = date(year, 1, 1), _quarter_end(year, quarter)
@@ -848,6 +990,8 @@ def build_cit_annual_xlsx(db: Session, year: int) -> bytes:
                 company, period, compute_a106000(db, year))
     _write_a105080(wb.create_sheet("A105080"), "A105080 资产折旧、摊销及纳税调整明细表",
                    company, period, compute_a105080(db, year))
+    _write_a107(wb.create_sheet("A107012"), "A107012 研发费用加计扣除优惠明细表",
+                company, period, compute_a107012(db, year))
     return _save(wb)
 
 

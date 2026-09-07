@@ -29,6 +29,9 @@ interface A105080Row {
   line_no: string; item: string; level: number; editable: boolean
   orig: number; book_dep: number; tax_basis: number; tax_dep: number; adjust: number
 }
+interface A107Row {
+  line_no: string; item: string; amount: number; level: number; editable: boolean
+}
 interface Schedules { A101010: CitRow[]; A102010: CitRow[]; A104000: A104Row[] }
 
 const STATUS_COLOR: Record<string, string> = { pending: 'default', filed: 'processing', paid: 'success' }
@@ -276,6 +279,9 @@ function TaxReports() {
           { key: 'a105080', label: 'A105080 折旧摊销', children: (
             <A105080Editor year={year} onSaved={loadPreview} />
           ) },
+          { key: 'a107012', label: 'A107012 研发加计', children: (
+            <A107Editor year={year} onSaved={loadPreview} />
+          ) },
         ]} />
       )}
     </Card>
@@ -431,6 +437,49 @@ function A105080Editor({ year, onSaved }: { year: number; onSaved: () => void })
           { title: '资产计税基础', dataIndex: 'tax_basis', width: 120, align: 'right' as const, render: numCell('tax_basis') },
           { title: '税收折旧摊销额', dataIndex: 'tax_dep', width: 130, align: 'right' as const, render: numCell('tax_dep') },
           { title: '纳税调整金额', dataIndex: 'adjust', width: 120, align: 'right' as const, render: (v: number) => formatYuan(v) },
+        ]} />
+    </>
+  )
+}
+
+// A107012 研发费用加计扣除录入:明细行录入研发费用,行50填加计比例,行51加计扣除总额联动主表行22
+function A107Editor({ year, onSaved }: { year: number; onSaved: () => void }) {
+  const [rows, setRows] = useState<A107Row[]>([])
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(() => {
+    http.get<{ rows: A107Row[] }>('/tax/rd-deductions', { params: { year } })
+      .then((r) => setRows(r.data.rows))
+  }, [year])
+  useEffect(() => { load() }, [load])
+
+  const setAmount = (lineNo: string, v: number | null) =>
+    setRows((rs) => rs.map((r) => (r.line_no === lineNo ? { ...r, amount: v ?? 0 } : r)))
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const items = rows.filter((r) => r.editable).map((r) => ({ line_no: r.line_no, amount: r.amount }))
+      const res = await http.put<{ rows: A107Row[] }>('/tax/rd-deductions', { report_year: year, items })
+      setRows(res.data.rows); message.success('研发加计扣除已保存'); onSaved()
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <>
+      <Space style={{ marginBottom: 8 }} wrap>
+        <Button type="primary" loading={saving} onClick={save}>保存研发加计</Button>
+        <span style={{ color: '#888' }}>录入各研发费用明细,行50填加计比例(1.00=100%);行51加计扣除总额自动计算并联动主表行22。</span>
+      </Space>
+      <Table rowKey="line_no" size="small" pagination={false} dataSource={rows} scroll={{ x: 620 }}
+        columns={[
+          { title: '行次', dataIndex: 'line_no', width: 56 },
+          { title: '项目', dataIndex: 'item', render: renderLabel },
+          { title: '金额(数量)', dataIndex: 'amount', width: 150, align: 'right' as const,
+            render: (v: number, r: A107Row) => (r.editable
+              ? <InputNumber size="small" value={v} controls={false} precision={2} style={{ width: 130 }}
+                  onChange={(nv) => setAmount(r.line_no, nv as number | null)} />
+              : formatYuan(v)) },
         ]} />
     </>
   )

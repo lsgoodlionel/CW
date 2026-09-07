@@ -666,3 +666,16 @@ class TaxAssetDepreciation(Base):
     tax_dep: Mapped[Decimal] = mapped_column(MONEY, default=0)         # 税收折旧、摊销额
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class TaxRdDeduction(Base):
+    """研发费用加计扣除优惠(A107012)按年录入:各研发费用归集行的金额(行50存加计比例)。"""
+    __tablename__ = "tax_rd_deductions"
+    __table_args__ = (UniqueConstraint("report_year", "line_no", name="uq_tax_rd_year_line"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    report_year: Mapped[int] = mapped_column(Integer, index=True)      # 申报年度
+    line_no: Mapped[str] = mapped_column(String(10), index=True)       # A107012 行次
+    amount: Mapped[Decimal] = mapped_column(MONEY, default=0)          # 金额(行50为加计比例,如1.00=100%)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
