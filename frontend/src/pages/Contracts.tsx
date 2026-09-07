@@ -56,11 +56,17 @@ export default function Contracts() {
       .then((r) => setRows(r.data)).finally(() => setLoading(false))
   }, [statusFilter])
   useEffect(() => { load() }, [load])
-  useEffect(() => {
-    http.get<Customer[]>('/customers', { params: { active_only: true } }).then((r) => setCustomers(r.data))
-    http.get<{ items: VoucherListItem[] }>('/vouchers', { params: { page_size: 500 } })
+  // 凭证支持远程搜索(按凭证号/摘要),避免一次性拉全量(后端 page_size 上限 100)
+  const loadVouchers = useCallback((keyword?: string) => {
+    const params: Record<string, unknown> = { page_size: 50 }
+    if (keyword) params.keyword = keyword
+    http.get<{ items: VoucherListItem[] }>('/vouchers', { params })
       .then((r) => setVouchers(r.data.items || []))
   }, [])
+  useEffect(() => {
+    http.get<Customer[]>('/customers', { params: { active_only: true } }).then((r) => setCustomers(r.data))
+    loadVouchers()
+  }, [loadVouchers])
 
   const openEdit = (c: Contract | null) => {
     setEditing(c); setDraftId(null); form.resetFields()
@@ -202,7 +208,8 @@ export default function Contracts() {
               onChange={(atts) => setDetail({ ...detail, attachments: atts })} defaultKind="contract" />
             <Divider orientation="left" plain>关联记账凭证</Divider>
             <Space style={{ marginBottom: 8 }} wrap>
-              <Select showSearch placeholder="选择要关联的凭证" style={{ width: 320 }} optionFilterProp="label"
+              <Select showSearch placeholder="输入凭证号/摘要搜索" style={{ width: 320 }}
+                filterOption={false} onSearch={loadVouchers}
                 value={linkVoucherId} onChange={setLinkVoucherId}
                 options={vouchers.map((v) => ({ value: v.id, label: `${v.voucher_no} · ${v.voucher_date} · ${v.note || ''}` }))} />
               <Button onClick={linkVoucher} disabled={!linkVoucherId}>关联</Button>
