@@ -360,15 +360,16 @@ def _income_values(mv: dict[str, Decimal],
                    sub_mv: dict[tuple[str, str], tuple[Decimal, Decimal]] | None = None
                    ) -> dict[int, Decimal]:
     b = Balances(mv)
-    v: dict[int, Decimal] = {i: ZERO for i in range(1, 33)}
+    v: dict[int, Decimal] = {i: ZERO for i in range(1, 34)}
     v[1] = b.net_credit("6001", "6051")                    # 营业收入
     v[2] = b.net_debit("6401", "6402")                     # 营业成本
     v[3] = b.net_debit("6403")                             # 税金及附加
     v[11] = b.net_debit("6601")                            # 销售费用
     v[14] = b.net_debit("6602")                            # 管理费用
     v[18] = b.net_debit("6603")                            # 财务费用
-    v[20] = b.net_credit("6111", "6101")                   # 投资收益
-    v[21] = v[1] - v[2] - v[3] - v[11] - v[14] - v[18] + v[20]  # 营业利润
+    v[33] = b.net_debit("6701")                            # 资产减值损失
+    v[20] = b.net_credit("6111", "6101")                   # 投资收益(含公允价值变动)
+    v[21] = v[1] - v[2] - v[3] - v[11] - v[14] - v[18] - v[33] + v[20]  # 营业利润
     v[22] = b.net_credit("6301")                           # 营业外收入
     v[24] = b.net_debit("6711")                            # 营业外支出
     v[30] = v[21] + v[22] - v[24]                          # 利润总额
@@ -416,6 +417,7 @@ _INCOME_TEMPLATE = [
     ("研究费用", 17, "sub", 2),
     ("财务费用", 18, "item", 0),
     ("其中:利息费用(收入以“-”号填列)", 19, "sub", 1),
+    ("减:资产减值损失", 33, "item", 0),
     ("加:投资收益(损失以“-”号填列)", 20, "item", 0),
     ("二、营业利润(亏损以“-”号填列)", 21, "head", 0),
     ("加:营业外收入", 22, "item", 0),
