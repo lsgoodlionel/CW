@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     String, Integer, Numeric, Date, DateTime, ForeignKey, Boolean, Text, func,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -614,3 +615,19 @@ class TaxFiling(Base):
     attachments: Mapped[list["Attachment"]] = relationship(
         foreign_keys="Attachment.tax_filing_id", cascade="all, delete-orphan",
     )
+
+
+class TaxAdjustment(Base):
+    """企业所得税年度纳税调整明细(A105000)按年录入:各行次的账载/税收/调增/调减金额。"""
+    __tablename__ = "tax_adjustments"
+    __table_args__ = (UniqueConstraint("year", "line_no", name="uq_tax_adj_year_line"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    year: Mapped[int] = mapped_column(Integer, index=True)             # 所属年度
+    line_no: Mapped[str] = mapped_column(String(10), index=True)       # A105000 行次,如 2 / 15 / 39.1
+    book_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)     # 账载金额
+    tax_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)      # 税收金额
+    add_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)      # 调增金额
+    reduce_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)   # 调减金额
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

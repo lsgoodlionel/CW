@@ -653,3 +653,19 @@ class TaxFilingOut(BaseModel):
     note: str
     created_at: datetime
     attachments: list[AttachmentOut] = []
+
+
+# ---------- 纳税调整明细(A105000)录入 ----------
+class TaxAdjustmentItem(BaseModel):
+    line_no: str
+    book_amount: Decimal = Decimal("0")
+    tax_amount: Decimal = Decimal("0")
+    add_amount: Decimal = Decimal("0")
+    reduce_amount: Decimal = Decimal("0")
+    note: str = ""
+
+
+class TaxAdjustmentSave(BaseModel):
+    """按年批量保存纳税调整明细录入(仅保存明细行,小计/合计由系统计算)。"""
+    year: int = Field(ge=2000, le=2100)
+    items: list[TaxAdjustmentItem] = []

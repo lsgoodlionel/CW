@@ -17,6 +17,10 @@ interface TaxFiling {
 interface Meta { tax_type: Record<string, string>; taxpayer_type: Record<string, string>; status: Record<string, string> }
 interface CitRow { line_no: string; label: string; amount: number; level: number; category?: string }
 interface A104Row { line_no: string; label: string; sell: number; admin: number; fin: number }
+interface A105Row {
+  line_no: string; label: string; level: number; editable: boolean
+  book: number; tax: number; add: number; reduce: number
+}
 interface Schedules { A101010: CitRow[]; A102010: CitRow[]; A104000: A104Row[] }
 
 const STATUS_COLOR: Record<string, string> = { pending: 'default', filed: 'processing', paid: 'success' }
@@ -153,7 +157,7 @@ function Filings({ meta }: { meta: Meta }) {
 }
 
 // 项目列按行次层级缩进;税率行显示百分比
-const renderLabel = (label: string, r: CitRow) => {
+const renderLabel = (label: string, r: { level: number }) => {
   const isSection = /^[一二三四五六七八九十]、/.test(label)
   return (
     <span style={{ paddingLeft: r.level * 22, fontWeight: isSection ? 600 : 400 }}>{label}</span>
@@ -255,8 +259,62 @@ function TaxReports() {
                 { title: '财务费用', dataIndex: 'fin', width: 120, align: 'right' as const, render: (v: number) => formatYuan(v) },
               ]} />
           ) },
+          { key: 'a105', label: 'A105000 纳税调整', children: (
+            <A105Editor year={year} onSaved={loadPreview} />
+          ) },
         ]} />
       )}
     </Card>
+  )
+}
+
+// A105000 纳税调整明细录入:明细行可编辑账载/税收/调增/调减,小计合计自动汇总并联动主表
+function A105Editor({ year, onSaved }: { year: number; onSaved: () => void }) {
+  const [rows, setRows] = useState<A105Row[]>([])
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(() => {
+    http.get<{ rows: A105Row[] }>('/tax/adjustments', { params: { year } })
+      .then((r) => setRows(r.data.rows))
+  }, [year])
+  useEffect(() => { load() }, [load])
+
+  const setCell = (lineNo: string, key: 'book' | 'tax' | 'add' | 'reduce', v: number | null) =>
+    setRows((rs) => rs.map((r) => (r.line_no === lineNo ? { ...r, [key]: v ?? 0 } : r)))
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const items = rows.filter((r) => r.editable).map((r) => ({
+        line_no: r.line_no, book_amount: r.book, tax_amount: r.tax,
+        add_amount: r.add, reduce_amount: r.reduce,
+      }))
+      const res = await http.put<{ rows: A105Row[] }>('/tax/adjustments', { year, items })
+      setRows(res.data.rows); message.success('纳税调整已保存'); onSaved()
+    } finally { setSaving(false) }
+  }
+
+  const numCell = (key: 'book' | 'tax' | 'add' | 'reduce') =>
+    (v: number, r: A105Row) => (r.editable
+      ? <InputNumber size="small" value={v} controls={false} precision={2} style={{ width: 118 }}
+          onChange={(nv) => setCell(r.line_no, key, nv as number | null)} />
+      : formatYuan(v))
+
+  return (
+    <>
+      <Space style={{ marginBottom: 8 }} wrap>
+        <Button type="primary" loading={saving} onClick={save}>保存纳税调整</Button>
+        <span style={{ color: '#888' }}>明细行可录入账载/税收/调增/调减;小计、合计自动汇总,并联动主表行20/21。</span>
+      </Space>
+      <Table rowKey="line_no" size="small" pagination={false} dataSource={rows} scroll={{ x: 720 }}
+        columns={[
+          { title: '行次', dataIndex: 'line_no', width: 56 },
+          { title: '项目', dataIndex: 'label', render: renderLabel },
+          { title: '账载金额', dataIndex: 'book', width: 130, align: 'right' as const, render: numCell('book') },
+          { title: '税收金额', dataIndex: 'tax', width: 130, align: 'right' as const, render: numCell('tax') },
+          { title: '调增金额', dataIndex: 'add', width: 130, align: 'right' as const, render: numCell('add') },
+          { title: '调减金额', dataIndex: 'reduce', width: 130, align: 'right' as const, render: numCell('reduce') },
+        ]} />
+    </>
   )
 }

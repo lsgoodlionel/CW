@@ -141,5 +141,39 @@ def cit_annual_preview(year: int = Query(...), db: Session = Depends(get_db)):
                for ln, lb, amt, lv in tax_report.compute_a102010(db, year)]
     a104000 = [{"line_no": ln, "label": lb, "sell": float(s), "admin": float(a), "fin": float(f)}
                for ln, lb, s, a, f in tax_report.compute_a104000(db, year)]
+    a105000 = _a105_rows(db, year)
     return {"year": year, "rows": main,
-            "schedules": {"A101010": a101010, "A102010": a102010, "A104000": a104000}}
+            "schedules": {"A101010": a101010, "A102010": a102010,
+                          "A104000": a104000, "A105000": a105000}}
+
+
+def _a105_rows(db: Session, year: int) -> list[dict]:
+    return [{"line_no": ln, "label": lb, "book": float(bk), "tax": float(tx),
+             "add": float(ad), "reduce": float(rd), "level": lv, "editable": ed}
+            for ln, lb, bk, tx, ad, rd, lv, ed in tax_report.compute_a105000(db, year)]
+
+
+@router.get("/adjustments")
+def list_adjustments(year: int = Query(...), db: Session = Depends(get_db)):
+    """A105000 纳税调整明细(含用户录入值与自动汇总的小计/合计)。"""
+    return {"year": year, "rows": _a105_rows(db, year)}
+
+
+@router.put("/adjustments")
+def save_adjustments(payload: schemas.TaxAdjustmentSave, db: Session = Depends(get_db)):
+    """按年保存纳税调整明细录入(整表覆盖:先删该年记录再写入非零项)。"""
+    editable = {ln for ln, _i, _l, kind in tax_report._A105_ROWS if kind in ("detail", "memo")}
+    db.execute(
+        models.TaxAdjustment.__table__.delete().where(
+            models.TaxAdjustment.year == payload.year))
+    for it in payload.items:
+        if it.line_no not in editable:
+            continue
+        if not (it.book_amount or it.tax_amount or it.add_amount or it.reduce_amount or it.note):
+            continue
+        db.add(models.TaxAdjustment(
+            year=payload.year, line_no=it.line_no, book_amount=it.book_amount,
+            tax_amount=it.tax_amount, add_amount=it.add_amount,
+            reduce_amount=it.reduce_amount, note=it.note))
+    db.commit()
+    return {"year": payload.year, "rows": _a105_rows(db, payload.year)}

@@ -12,6 +12,7 @@ from decimal import Decimal
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import models, reports_cn
@@ -120,7 +121,10 @@ def compute_annual_rows(db: Session, year: int):
     start, end = date(year, 1, 1), date(year, 12, 31)
     a = _core_amounts(db, start, end)
     profit = a["total_profit"]
-    adj_after = profit                                    # 24 纳税调整后所得(19/20/21/22/23=0)=18
+    # 20/21 纳税调整增加/减少额,来自 A105000 合计(行46)的调增/调减
+    a105 = compute_a105000(db, year)
+    _, _, _, _, adj_add, adj_reduce, _, _ = a105[-1]
+    adj_after = profit + adj_add - adj_reduce             # 24 纳税调整后所得(19/22/23=0)
     taxable = adj_after if adj_after > 0 else Z           # 28 应纳税所得额(25/26/27=0)
     tax_amount = (taxable * RATE).quantize(Decimal("0.01"))   # 30 应纳所得税额
     payable = tax_amount                                  # 33 应纳税额=36 实际应纳(31/32/34/35=0)
@@ -146,8 +150,8 @@ def compute_annual_rows(db: Session, year: int):
         ("17", "", "减:营业外支出(填写A102010/102020/103000)", a["non_op_expense"]),
         ("18", "", "三、利润总额(15+16-17)", profit),
         ("19", C2, "减:境外所得(填写A108010)", Z),
-        ("20", "", "加:纳税调整增加额(填写A105000)", Z),
-        ("21", "", "减:纳税调整减少额(填写A105000)", Z),
+        ("20", "", "加:纳税调整增加额(填写A105000)", adj_add),
+        ("21", "", "减:纳税调整减少额(填写A105000)", adj_reduce),
         ("22", "", "减:免税、减计收入及加计扣除(填写A107010)", Z),
         ("23", "", "加:境外应税所得抵减境内亏损(填写A108000)", Z),
         ("24", "", "四、纳税调整后所得(18-19+20-21-22+23)", adj_after),
@@ -319,6 +323,100 @@ def compute_a104000(db: Session, year: int):
     return rows
 
 
+# ---------- 附表 A105000 纳税调整项目明细表 ----------
+
+# (行次, 项目, 层级, 类型)。sum=小计/合计(自动汇总),detail=可录入且计入小计,
+# memo=「其中」行(可录入,不计入小计)。
+_A105_ROWS = [
+    ("1", "一、收入类调整项目(2+3+…8+10+11)", 0, "sum"),
+    ("2", "(一)视同销售收入(填写A105010)", 1, "detail"),
+    ("3", "(二)未按权责发生制原则确认的收入(填写A105020)", 1, "detail"),
+    ("4", "(三)投资收益(填写A105030)", 1, "detail"),
+    ("5", "(四)按权益法核算长期股权投资对初始投资成本调整确认收益", 1, "detail"),
+    ("6", "(五)交易性金融资产初始投资调整", 1, "detail"),
+    ("7", "(六)公允价值变动净损益", 1, "detail"),
+    ("8", "(七)不征税收入", 1, "detail"),
+    ("9", "其中:专项用途财政性资金(填写A105040)", 2, "memo"),
+    ("10", "(八)销售折扣、折让和退回", 1, "detail"),
+    ("11", "(九)其他", 1, "detail"),
+    ("12", "二、扣除类调整项目(13+14+…24+26+27+28+29+30)", 0, "sum"),
+    ("13", "(一)视同销售成本(填写A105010)", 1, "detail"),
+    ("14", "(二)职工薪酬(填写A105050)", 1, "detail"),
+    ("15", "(三)业务招待费支出", 1, "detail"),
+    ("16", "(四)广告费和业务宣传费支出(填写A105060)", 1, "detail"),
+    ("17", "(五)捐赠支出(填写A105070)", 1, "detail"),
+    ("18", "(六)利息支出", 1, "detail"),
+    ("19", "(七)罚金、罚款和被没收财物的损失", 1, "detail"),
+    ("20", "(八)税收滞纳金、加收利息", 1, "detail"),
+    ("21", "(九)赞助支出", 1, "detail"),
+    ("22", "(十)与未实现融资收益相关在当期确认的财务费用", 1, "detail"),
+    ("23", "(十一)佣金和手续费支出(保险企业填写A105060)", 1, "detail"),
+    ("24", "(十二)不征税收入用于支出所形成的费用", 1, "detail"),
+    ("25", "其中:专项用途财政性资金用于支出所形成的费用(填写A105040)", 2, "memo"),
+    ("26", "(十三)跨期扣除项目", 1, "detail"),
+    ("27", "(十四)与取得收入无关的支出", 1, "detail"),
+    ("28", "(十五)境外所得分摊的共同支出", 1, "detail"),
+    ("29", "(十六)党组织工作经费", 1, "detail"),
+    ("30", "(十七)其他", 1, "detail"),
+    ("31", "三、资产类调整项目(32+33+34+35)", 0, "sum"),
+    ("32", "(一)资产折旧、摊销(填写A105080)", 1, "detail"),
+    ("33", "(二)资产减值准备金", 1, "detail"),
+    ("34", "(三)资产损失(填写A105090)", 1, "detail"),
+    ("35", "(四)其他", 1, "detail"),
+    ("36", "四、特殊事项调整项目(37+38+…+43)", 0, "sum"),
+    ("37", "(一)企业重组及递延纳税事项(填写A105100)", 1, "detail"),
+    ("38", "(二)政策性搬迁(填写A105110)", 1, "detail"),
+    ("39", "(三)特殊行业准备金", 1, "sum"),
+    ("39.1", "1.保险公司保险保障基金", 2, "detail"),
+    ("39.2", "2.保险公司准备金", 2, "detail"),
+    ("39.3", "其中:已发生未报案未决赔款准备金", 3, "memo"),
+    ("39.4", "3.证券行业准备金", 2, "detail"),
+    ("39.5", "4.期货行业准备金", 2, "detail"),
+    ("39.6", "5.中小企业融资(信用)担保机构准备金", 2, "detail"),
+    ("39.7", "6.金融企业、小额贷款公司准备金(填写A105120)", 2, "detail"),
+    ("40", "(四)房地产开发企业特定业务计算的纳税调整额(填写A105010)", 1, "detail"),
+    ("41", "(五)合伙企业法人合伙人应分得的应纳税所得额", 1, "detail"),
+    ("42", "(六)发行永续债利息支出", 1, "detail"),
+    ("43", "(七)其他", 1, "detail"),
+    ("44", "五、特别纳税调整应税所得", 0, "detail"),
+    ("45", "六、其他", 0, "detail"),
+    ("46", "合计(1+12+31+36+44+45)", 0, "sum"),
+]
+
+# 小计计算(按依赖顺序:先子小计 39,再顶层小计,最后合计 46)
+_A105_SUBTOTALS = [
+    ("1", ["2", "3", "4", "5", "6", "7", "8", "10", "11"]),
+    ("12", ["13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23",
+            "24", "26", "27", "28", "29", "30"]),
+    ("31", ["32", "33", "34", "35"]),
+    ("39", ["39.1", "39.2", "39.4", "39.5", "39.6", "39.7"]),
+    ("36", ["37", "38", "39", "40", "41", "42", "43"]),
+    ("46", ["1", "12", "31", "36", "44", "45"]),
+]
+_A105_COLS = ("book", "tax", "add", "reduce")
+
+
+def compute_a105000(db: Session, year: int):
+    """纳税调整明细:返回 (行次, 项目, 账载, 税收, 调增, 调减, 层级, 可录入)。
+    明细行取用户录入值,小计/合计自动汇总。"""
+    recs = {r.line_no: r for r in db.scalars(
+        select(models.TaxAdjustment).where(models.TaxAdjustment.year == year)).all()}
+    vals: dict[str, dict] = {}
+    for ln, _item, _lv, kind in _A105_ROWS:
+        r = recs.get(ln)
+        if kind in ("detail", "memo") and r is not None:
+            vals[ln] = {"book": r.book_amount, "tax": r.tax_amount,
+                        "add": r.add_amount, "reduce": r.reduce_amount}
+        else:
+            vals[ln] = {k: Z for k in _A105_COLS}
+    for total, members in _A105_SUBTOTALS:
+        for k in _A105_COLS:
+            vals[total][k] = sum((vals[m][k] for m in members), Z)
+    return [(ln, item, vals[ln]["book"], vals[ln]["tax"], vals[ln]["add"],
+             vals[ln]["reduce"], lv, kind in ("detail", "memo"))
+            for ln, item, lv, kind in _A105_ROWS]
+
+
 # ---------- Excel 渲染 ----------
 
 def _write_kv(ws, title: str, company, period: str,
@@ -452,6 +550,56 @@ def _write_a104(ws, title: str, company, period: str, rows: list) -> None:
         ws.column_dimensions[col].width = 16
 
 
+def _write_a105(ws, title: str, company, period: str, rows: list) -> None:
+    """A105000 纳税调整明细表:行次 / 项目(按层级缩进) / 账载 / 税收 / 调增 / 调减。"""
+    thin = Side(style="thin", color="BBBBBB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    right = Alignment(horizontal="right", vertical="center")
+    last_col = 6
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
+    ws.cell(1, 1, title)
+    ws.cell(1, 1).font = Font(size=14, bold=True)
+    ws.cell(1, 1).alignment = center
+    ws.row_dimensions[1].height = 30
+
+    meta = [
+        f"税款所属期间:{period}",
+        f"纳税人名称:{(company.name if company else '') or ''}    金额单位:人民币元(列至角分)",
+    ]
+    r = 2
+    for m in meta:
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=last_col)
+        ws.cell(r, 1, m).alignment = left
+        r += 1
+
+    header_fill = PatternFill("solid", fgColor="1F6FEB")
+    for c, h in enumerate(["行次", "项目", "账载金额", "税收金额", "调增金额", "调减金额"], start=1):
+        cell = ws.cell(r, c, h)
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.fill = header_fill
+        cell.alignment = center
+        cell.border = border
+    r += 1
+
+    for line_no, label, book, tax, add, reduce_, level, _editable in rows:
+        ws.cell(r, 1, line_no).alignment = center
+        ws.cell(r, 2, label).alignment = Alignment(
+            horizontal="left", vertical="center", wrap_text=True, indent=level * 2)
+        for c, val in ((3, book), (4, tax), (5, add), (6, reduce_)):
+            ws.cell(r, c, round(float(val), 2)).alignment = right
+        for c in range(1, last_col + 1):
+            ws.cell(r, c).border = border
+        r += 1
+
+    ws.column_dimensions["A"].width = 8
+    ws.column_dimensions["B"].width = 44
+    for col in ("C", "D", "E", "F"):
+        ws.column_dimensions[col].width = 15
+
+
 def build_cit_quarterly_xlsx(db: Session, year: int, quarter: int) -> bytes:
     company = db.get(models.CompanyInfo, 1)
     start, end = date(year, 1, 1), _quarter_end(year, quarter)
@@ -479,6 +627,8 @@ def build_cit_annual_xlsx(db: Session, year: int) -> bytes:
               company, period, compute_a102010(db, year), has_category=False)
     _write_a104(wb.create_sheet("A104000"), "A104000 期间费用明细表",
                 company, period, compute_a104000(db, year))
+    _write_a105(wb.create_sheet("A105000"), "A105000 纳税调整项目明细表",
+                company, period, compute_a105000(db, year))
     return _save(wb)
 
 
