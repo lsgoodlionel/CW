@@ -561,6 +561,8 @@ class Contract(Base):
     name: Mapped[str] = mapped_column(String(200))                     # 合同名称
     # sales 销售 / purchase 采购 / service 服务 / lease 租赁 / labor 劳务 / loan 借款 / other 其他
     category: Mapped[str] = mapped_column(String(20), default="other", index=True)
+    # 收支方向:income 收入类(我方提供/收款)/ expense 支出类(我方接受/付款)
+    direction: Mapped[str] = mapped_column(String(10), default="income", index=True)
     customer_id: Mapped[int | None] = mapped_column(
         ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True
     )

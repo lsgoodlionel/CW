@@ -564,12 +564,14 @@ class VoucherPage(BaseModel):
 # ---------- 合同管理 ----------
 CONTRACT_CATEGORIES = {"sales", "purchase", "service", "lease", "labor", "loan", "other"}
 CONTRACT_STATUSES = {"draft", "active", "completed", "terminated"}
+CONTRACT_DIRECTIONS = {"income", "expense"}   # income 收入类(我方提供/收款) / expense 支出类(我方接受/付款)
 
 
 class ContractIn(BaseModel):
     contract_no: str = Field(min_length=1, max_length=60)
     name: str = Field(min_length=1, max_length=200)
     category: str = "other"
+    direction: str = "income"
     customer_id: int | None = None
     party_name: str = ""
     amount: Decimal = Decimal("0")
@@ -609,6 +611,7 @@ class ContractOut(BaseModel):
     contract_no: str
     name: str
     category: str
+    direction: str = "income"
     customer_id: int | None
     customer_name: str = ""
     party_name: str

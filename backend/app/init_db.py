@@ -54,6 +54,7 @@ _ADDED_COLUMNS = {
     "contracts": [
         ("tax_rate", "NUMERIC(6,2) DEFAULT 0"),
         ("tax_amount", "NUMERIC(18,2) DEFAULT 0"),
+        ("direction", "VARCHAR(10) DEFAULT 'income'"),
     ],
     "operation_logs": [
         ("detail", "TEXT DEFAULT ''"),

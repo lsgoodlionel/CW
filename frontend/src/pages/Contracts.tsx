@@ -14,7 +14,7 @@ interface ContractVoucher {
   voucher_date: string | null; total_debit: number | string; note: string
 }
 interface Contract {
-  id: number; contract_no: string; name: string; category: string
+  id: number; contract_no: string; name: string; category: string; direction: string
   customer_id: number | null; customer_name: string; party_name: string
   amount: number | string; tax_rate: number | string; tax_amount: number | string
   sign_date: string | null; start_date: string | null
@@ -27,6 +27,10 @@ const CATEGORY_LABEL: Record<string, string> = {
   sales: '销售合同', purchase: '采购合同', service: '服务合同',
   lease: '租赁合同', labor: '劳务合同', loan: '借款合同', other: '其他',
 }
+const DIRECTION_LABEL: Record<string, string> = {
+  income: '收入类(我方提供/收款)', expense: '支出类(我方接受/付款)',
+}
+const DIRECTION_COLOR: Record<string, string> = { income: 'green', expense: 'volcano' }
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿', active: '履行中', completed: '已完成', terminated: '已终止',
 }
@@ -90,7 +94,7 @@ export default function Contracts() {
       party_name: c.customer_name || c.party_name, customer_id: c.customer_id ?? null,
       sign_date: D(c.sign_date), start_date: D(c.start_date), end_date: D(c.end_date),
     })
-    else form.setFieldsValue({ category: 'other', status: 'active', amount: 0, tax_rate: 0 })
+    else form.setFieldsValue({ category: 'other', direction: 'income', status: 'active', amount: 0, tax_rate: 0 })
     setOpen(true)
   }
   const _payload = (v: Record<string, unknown>) => {
@@ -147,6 +151,8 @@ export default function Contracts() {
     { title: '合同编号', dataIndex: 'contract_no', width: 140,
       render: (v: string, r: Contract) => <a onClick={() => openDetail(r.id)}>{v}</a> },
     { title: '合同名称', dataIndex: 'name', ellipsis: true },
+    { title: '收支', dataIndex: 'direction', width: 80,
+      render: (v: string) => <Tag color={DIRECTION_COLOR[v]}>{v === 'expense' ? '支出' : '收入'}</Tag> },
     { title: '类型', dataIndex: 'category', width: 100, render: (v: string) => <Tag>{CATEGORY_LABEL[v] || v}</Tag> },
     { title: '对方单位', dataIndex: 'customer_name', width: 140, render: (v: string) => v || '-' },
     { title: '含税金额', dataIndex: 'amount', width: 120, align: 'right' as const, render: (v: number | string) => formatYuan(v) },
@@ -191,6 +197,10 @@ export default function Contracts() {
             </Form.Item>
           </Space>
           <Space wrap>
+            <Form.Item name="direction" label="收支方向">
+              <Select style={{ width: 180 }}
+                options={Object.entries(DIRECTION_LABEL).map(([value, label]) => ({ value, label }))} />
+            </Form.Item>
             <Form.Item name="category" label="合同类型">
               <Select style={{ width: 140 }} options={Object.entries(CATEGORY_LABEL).map(([value, label]) => ({ value, label }))} />
             </Form.Item>
@@ -246,7 +256,8 @@ export default function Contracts() {
       <Modal title={detail?.contract_no} open={Boolean(detail)} footer={null} onCancel={() => setDetail(null)} width={720}>
         {detail && (
           <>
-            <p><b>{detail.name}</b> <Tag>{CATEGORY_LABEL[detail.category]}</Tag>
+            <p><b>{detail.name}</b> <Tag color={DIRECTION_COLOR[detail.direction]}>{DIRECTION_LABEL[detail.direction] || '收入类'}</Tag>
+              <Tag>{CATEGORY_LABEL[detail.category]}</Tag>
               <Tag color={STATUS_COLOR[detail.status]}>{STATUS_LABEL[detail.status]}</Tag></p>
             <p>对方:{detail.customer_name || detail.party_name || '-'} · 含税金额 {formatYuan(detail.amount)}
               {Number(detail.tax_rate) > 0 && <> · 税率 {Number(detail.tax_rate)}% · 税金 {formatYuan(detail.tax_amount)}

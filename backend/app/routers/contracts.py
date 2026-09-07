@@ -28,6 +28,7 @@ CATEGORY_LABEL = {
     "lease": "租赁合同", "labor": "劳务合同", "loan": "借款合同", "other": "其他",
 }
 STATUS_LABEL = {"draft": "草稿", "active": "履行中", "completed": "已完成", "terminated": "已终止"}
+DIRECTION_LABEL = {"income": "收入类(我方提供/收款)", "expense": "支出类(我方接受/付款)"}
 
 
 def _out(db: Session, c: models.Contract) -> schemas.ContractOut:
@@ -81,6 +82,8 @@ def create_contract(payload: schemas.ContractIn, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="合同类型无效")
     if payload.status not in schemas.CONTRACT_STATUSES:
         raise HTTPException(status_code=400, detail="合同状态无效")
+    if payload.direction not in schemas.CONTRACT_DIRECTIONS:
+        raise HTTPException(status_code=400, detail="合同收支方向无效")
     c = models.Contract(**payload.model_dump())
     c.tax_amount = _calc_tax(c.amount, c.tax_rate)
     db.add(c)
@@ -117,6 +120,8 @@ def update_contract(contract_id: int, payload: schemas.ContractIn,
     c = _load(db, contract_id)
     if payload.category not in schemas.CONTRACT_CATEGORIES:
         raise HTTPException(status_code=400, detail="合同类型无效")
+    if payload.direction not in schemas.CONTRACT_DIRECTIONS:
+        raise HTTPException(status_code=400, detail="合同收支方向无效")
     for k, v in payload.model_dump().items():
         setattr(c, k, v)
     c.tax_amount = _calc_tax(c.amount, c.tax_rate)
@@ -176,4 +181,4 @@ def unlink_voucher(link_id: int, db: Session = Depends(get_db)):
 
 @router.get("/meta/labels")
 def contract_meta():
-    return {"category": CATEGORY_LABEL, "status": STATUS_LABEL}
+    return {"category": CATEGORY_LABEL, "status": STATUS_LABEL, "direction": DIRECTION_LABEL}

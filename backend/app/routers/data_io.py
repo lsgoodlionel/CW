@@ -24,10 +24,10 @@ from ..schemas_read import DataImportOut
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-EXPORT_VERSION = 19
+EXPORT_VERSION = 20
 # 1-7 见历史;8:用户/角色/权限;9:费用申请 + 附件多归属(扁平附件表)
 # 10:企业信息导出全部字段;11:合同管理 + 税务申报记录(含其附件归属)
-SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19}
+SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
 
 
 def _company_dict(c: models.CompanyInfo | None) -> dict:
@@ -167,7 +167,7 @@ def build_backup_zip(db: Session) -> bytes:
         ],
         "contracts": [
             {"ref": ct.id, "contract_no": ct.contract_no, "name": ct.name,
-             "category": ct.category, "customer_ref": ct.customer_id,
+             "category": ct.category, "direction": ct.direction, "customer_ref": ct.customer_id,
              "party_name": ct.party_name, "amount": str(ct.amount),
              "tax_rate": str(ct.tax_rate), "tax_amount": str(ct.tax_amount),
              "sign_date": ct.sign_date.isoformat() if ct.sign_date else None,
@@ -712,7 +712,7 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
         ts = ct.get("created_at")
         contract = models.Contract(
             contract_no=ct.get("contract_no", ""), name=ct.get("name", ""),
-            category=ct.get("category", "other"),
+            category=ct.get("category", "other"), direction=ct.get("direction", "income"),
             customer_id=cust.id if cust else None, party_name=ct.get("party_name", ""),
             amount=Decimal(str(ct.get("amount", "0"))),
             tax_rate=Decimal(str(ct.get("tax_rate", "0"))),
