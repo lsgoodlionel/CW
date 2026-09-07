@@ -14,6 +14,7 @@ import {
 } from '../api'
 import AttachmentPreview from '../components/AttachmentPreview'
 import VoucherLinks from '../components/VoucherLinks'
+import VoucherContractLinks from '../components/VoucherContractLinks'
 
 const { Text } = Typography
 const emptyEntry = (): Entry => ({ summary: '', account_id: 0, sub_account: '', debit: 0, credit: 0 })
@@ -347,6 +348,11 @@ export default function VoucherEdit() {
       {isEdit && (
         <VoucherLinks voucherId={Number(id)} links={links} onChange={setLinks} />
       )}
+
+      <Divider />
+      <h3>关联合同</h3>
+      {!isEdit && <Text type="secondary">保存凭证后即可关联合同。</Text>}
+      {isEdit && <VoucherContractLinks voucherId={Number(id)} />}
 
       <AttachmentPreview attachment={previewing} open={Boolean(previewing)}
         onClose={() => setPreviewing(null)} />

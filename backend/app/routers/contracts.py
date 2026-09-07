@@ -88,6 +88,24 @@ def create_contract(payload: schemas.ContractIn, db: Session = Depends(get_db)):
     return get_contract(c.id, db)
 
 
+@router.get("/by-voucher/{voucher_id}", response_model=list[schemas.VoucherContractBrief])
+def contracts_of_voucher(voucher_id: int, db: Session = Depends(get_db)):
+    """凭证侧反查该凭证已关联的合同(供凭证页反向管理关联)。"""
+    links = db.scalars(
+        select(models.ContractVoucherLink)
+        .where(models.ContractVoucherLink.voucher_id == voucher_id)
+        .options(selectinload(models.ContractVoucherLink.contract))).all()
+    out = []
+    for lk in links:
+        c = lk.contract
+        if c is None:
+            continue
+        out.append(schemas.VoucherContractBrief(
+            link_id=lk.id, contract_id=c.id, contract_no=c.contract_no,
+            name=c.name, amount=c.amount, note=lk.note))
+    return out
+
+
 @router.get("/{contract_id}", response_model=schemas.ContractOut)
 def get_contract(contract_id: int, db: Session = Depends(get_db)):
     return _out(db, _load(db, contract_id))

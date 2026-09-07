@@ -583,6 +583,16 @@ class ContractVoucherBrief(BaseModel):
     note: str = ""
 
 
+class VoucherContractBrief(BaseModel):
+    """凭证侧反查:该凭证关联的合同简要。link_id 用于解除关联。"""
+    link_id: int
+    contract_id: int
+    contract_no: str = ""
+    name: str = ""
+    amount: Decimal = Decimal("0")
+    note: str = ""
+
+
 class ContractOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

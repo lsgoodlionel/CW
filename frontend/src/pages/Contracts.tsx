@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Table, Tag, Button, Space, Modal, Form, Input, Select, InputNumber, DatePicker,
-  Popconfirm, message, Divider, Segmented,
+  Popconfirm, message, Divider, Segmented, AutoComplete,
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { http, Attachment, Customer, VoucherListItem, formatYuan, PARTY_LABEL } from '../api'
 import AttachmentEditor from '../components/AttachmentEditor'
@@ -86,17 +86,25 @@ export default function Contracts() {
     setExistingAtt(c ? c.attachments : [])
     if (c) form.setFieldsValue({
       ...c, amount: Number(c.amount), tax_rate: Number(c.tax_rate),
+      // 合并字段:优先显示往来单位名称,否则显示手填名称
+      party_name: c.customer_name || c.party_name, customer_id: c.customer_id ?? null,
       sign_date: D(c.sign_date), start_date: D(c.start_date), end_date: D(c.end_date),
     })
     else form.setFieldsValue({ category: 'other', status: 'active', amount: 0, tax_rate: 0 })
     setOpen(true)
   }
-  const _payload = (v: Record<string, unknown>) => ({
-    ...v,
-    sign_date: v.sign_date ? (v.sign_date as dayjs.Dayjs).format('YYYY-MM-DD') : null,
-    start_date: v.start_date ? (v.start_date as dayjs.Dayjs).format('YYYY-MM-DD') : null,
-    end_date: v.end_date ? (v.end_date as dayjs.Dayjs).format('YYYY-MM-DD') : null,
-  })
+  const _payload = (v: Record<string, unknown>) => {
+    const hasCust = Boolean(v.customer_id)
+    return {
+      ...v,
+      customer_id: hasCust ? v.customer_id : null,
+      // 选中往来单位则以其为准清空手填名;否则保留手填名称
+      party_name: hasCust ? '' : ((v.party_name as string) || ''),
+      sign_date: v.sign_date ? (v.sign_date as dayjs.Dayjs).format('YYYY-MM-DD') : null,
+      start_date: v.start_date ? (v.start_date as dayjs.Dayjs).format('YYYY-MM-DD') : null,
+      end_date: v.end_date ? (v.end_date as dayjs.Dayjs).format('YYYY-MM-DD') : null,
+    }
+  }
   const ensureOwner = async (): Promise<number | null> => {
     if (editing) return editing.id
     if (draftId) return draftId
@@ -118,6 +126,13 @@ export default function Contracts() {
 
   const openDetail = (id: number) =>
     http.get<Contract>(`/contracts/${id}`).then((r) => { setDetail(r.data); setLinkVoucherId(undefined) })
+  // 从凭证页「关联合同」跳转过来时,自动打开对应合同详情
+  const [searchParams] = useSearchParams()
+  useEffect(() => {
+    const focus = searchParams.get('focus')
+    if (focus) openDetail(Number(focus))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
   const linkVoucher = async () => {
     if (!detail || !linkVoucherId) return
     await http.post(`/contracts/${detail.id}/link`, null, { params: { voucher_id: linkVoucherId } })
@@ -199,15 +214,20 @@ export default function Contracts() {
               </span>
             </Space>
           </Form.Item>
-          <Space wrap>
-            <Form.Item name="customer_id" label="对方往来单位">
-              <Select allowClear showSearch style={{ width: 220 }} optionFilterProp="label" placeholder="选择往来单位(可选)"
-                options={customers.map((c) => ({ value: c.id, label: `[${PARTY_LABEL[c.party_type] || '往来'}] ${c.short_name || c.name}` }))} />
-            </Form.Item>
-            <Form.Item name="party_name" label="对方单位(未选时手填)">
-              <Input placeholder="对方单位名称" style={{ width: 220 }} />
-            </Form.Item>
-          </Space>
+          <Form.Item name="party_name" label="对方单位(可搜索选择往来单位,或直接输入名称)">
+            <AutoComplete allowClear style={{ width: 460 }} placeholder="输入或选择对方单位"
+              options={customers.map((c) => ({
+                value: c.short_name || c.name,
+                label: `[${PARTY_LABEL[c.party_type] || '往来'}] ${c.short_name || c.name}`,
+              }))}
+              filterOption={(input, opt) => String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+              onChange={(val) => {
+                const m = customers.find((c) => (c.short_name || c.name) === val)
+                form.setFieldValue('customer_id', m ? m.id : null)
+              }} />
+          </Form.Item>
+          {/* 隐藏承载:选中已有往来单位时记录其 id,否则为空(按手填名称保存) */}
+          <Form.Item name="customer_id" hidden><Input /></Form.Item>
           <Space wrap>
             <Form.Item name="sign_date" label="签订日期"><DatePicker /></Form.Item>
             <Form.Item name="start_date" label="开始日期"><DatePicker /></Form.Item>
