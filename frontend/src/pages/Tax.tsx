@@ -32,6 +32,10 @@ interface A105080Row {
 interface A107Row {
   line_no: string; item: string; amount: number; level: number; editable: boolean
 }
+interface A201020Row {
+  line_no: string; item: string; level: number; editable: boolean
+  orig: number; book: number; normal: number; accel: number; reduce: number; benefit: number
+}
 interface Schedules { A101010: CitRow[]; A102010: CitRow[]; A104000: A104Row[] }
 
 const STATUS_COLOR: Record<string, string> = { pending: 'default', filed: 'processing', paid: 'success' }
@@ -244,8 +248,14 @@ function TaxReports() {
           ? '年报按账套全年数据自动计算利润总额及应纳税额;境外所得、纳税调整、各类优惠、预缴税额及总分机构分摊等行次默认 0,导出后可结合各附表按实际手工调整再报送。'
           : '本表按账套数据自动计算本年累计(年初→季末);优惠、预缴、纳税调整等行次默认 0,导出后可在 Excel 中按实际手工调整再报送。'} />
       {!isAnnual && (
-        <Table rowKey="line_no" size="small" pagination={false} dataSource={preview}
-          columns={quarterlyCols} />
+        <Tabs size="small" items={[
+          { key: 'main', label: 'A200000 主表', children: (
+            <Table rowKey="line_no" size="small" pagination={false} dataSource={preview} columns={quarterlyCols} />
+          ) },
+          { key: 'a201020', label: 'A201020 加速折旧', children: (
+            <A201020Editor year={year} onSaved={loadPreview} />
+          ) },
+        ]} />
       )}
       {isAnnual && (
         <Tabs size="small" items={[
@@ -480,6 +490,59 @@ function A107Editor({ year, onSaved }: { year: number; onSaved: () => void }) {
               ? <InputNumber size="small" value={v} controls={false} precision={2} style={{ width: 130 }}
                   onChange={(nv) => setAmount(r.line_no, nv as number | null)} />
               : formatYuan(v)) },
+        ]} />
+    </>
+  )
+}
+
+// A201020 资产加速折旧优惠录入(季报,本年累计):明细行录入,纳税调减合计联动季报主表行21
+function A201020Editor({ year, onSaved }: { year: number; onSaved: () => void }) {
+  const [rows, setRows] = useState<A201020Row[]>([])
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(() => {
+    http.get<{ rows: A201020Row[] }>('/tax/accel-deprs', { params: { year } })
+      .then((r) => setRows(r.data.rows))
+  }, [year])
+  useEffect(() => { load() }, [load])
+
+  const setCell = (lineNo: string, key: 'orig' | 'book' | 'normal' | 'accel' | 'reduce', v: number | null) =>
+    setRows((rs) => rs.map((r) => (r.line_no === lineNo ? { ...r, [key]: v ?? 0 } : r)))
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const items = rows.filter((r) => r.editable).map((r) => ({
+        line_no: r.line_no, orig_value: r.orig, book_dep: r.book,
+        tax_normal: r.normal, accel_dep: r.accel, reduce_amount: r.reduce,
+      }))
+      const res = await http.put<{ rows: A201020Row[] }>('/tax/accel-deprs', { year, items })
+      setRows(res.data.rows); message.success('加速折旧优惠已保存'); onSaved()
+    } finally { setSaving(false) }
+  }
+
+  const numCell = (key: 'orig' | 'book' | 'normal' | 'accel' | 'reduce') =>
+    (v: number, r: A201020Row) => (r.editable
+      ? <InputNumber size="small" value={v} controls={false} precision={2} style={{ width: 104 }}
+          onChange={(nv) => setCell(r.line_no, key, nv as number | null)} />
+      : formatYuan(v))
+
+  return (
+    <>
+      <Space style={{ marginBottom: 8 }} wrap>
+        <Button type="primary" loading={saving} onClick={save}>保存加速折旧</Button>
+        <span style={{ color: '#888' }}>按本年累计口径录入加速折旧/一次性扣除明细;纳税调减金额合计联动季报主表行21。</span>
+      </Space>
+      <Table rowKey="line_no" size="small" pagination={false} dataSource={rows} scroll={{ x: 900 }}
+        columns={[
+          { title: '行次', dataIndex: 'line_no', width: 50 },
+          { title: '项目', dataIndex: 'item', render: renderLabel },
+          { title: '资产原值', dataIndex: 'orig', width: 116, align: 'right' as const, render: numCell('orig') },
+          { title: '账载折旧', dataIndex: 'book', width: 116, align: 'right' as const, render: numCell('book') },
+          { title: '税收一般折旧', dataIndex: 'normal', width: 116, align: 'right' as const, render: numCell('normal') },
+          { title: '加速折旧', dataIndex: 'accel', width: 116, align: 'right' as const, render: numCell('accel') },
+          { title: '纳税调减金额', dataIndex: 'reduce', width: 116, align: 'right' as const, render: numCell('reduce') },
+          { title: '加速优惠金额', dataIndex: 'benefit', width: 116, align: 'right' as const, render: (v: number) => formatYuan(v) },
         ]} />
     </>
   )

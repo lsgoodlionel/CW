@@ -712,3 +712,19 @@ class TaxRdSave(BaseModel):
     """按年批量保存研发费用加计扣除录入(行50为加计比例)。"""
     report_year: int = Field(ge=2000, le=2100)
     items: list[TaxRdItem] = []
+
+
+# ---------- 资产加速折旧优惠(A201020)录入 ----------
+class TaxAccelItem(BaseModel):
+    line_no: str
+    orig_value: Decimal = Decimal("0")
+    book_dep: Decimal = Decimal("0")
+    tax_normal: Decimal = Decimal("0")
+    accel_dep: Decimal = Decimal("0")
+    reduce_amount: Decimal = Decimal("0")
+
+
+class TaxAccelSave(BaseModel):
+    """按年批量保存资产加速折旧优惠录入(本年累计)。"""
+    year: int = Field(ge=2000, le=2100)
+    items: list[TaxAccelItem] = []

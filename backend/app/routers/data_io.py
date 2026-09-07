@@ -24,10 +24,10 @@ from ..schemas_read import DataImportOut
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-EXPORT_VERSION = 15
+EXPORT_VERSION = 16
 # 1-7 见历史;8:用户/角色/权限;9:费用申请 + 附件多归属(扁平附件表)
 # 10:企业信息导出全部字段;11:合同管理 + 税务申报记录(含其附件归属)
-SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
 
 
 def _company_dict(c: models.CompanyInfo | None) -> dict:
@@ -215,6 +215,13 @@ def build_backup_zip(db: Session) -> bytes:
              "amount": str(rd.amount), "note": rd.note}
             for rd in db.scalars(select(models.TaxRdDeduction)).all()
         ],
+        "tax_accel_deprs": [
+            {"year": ac.year, "line_no": ac.line_no, "orig_value": str(ac.orig_value),
+             "book_dep": str(ac.book_dep), "tax_normal": str(ac.tax_normal),
+             "accel_dep": str(ac.accel_dep), "reduce_amount": str(ac.reduce_amount),
+             "note": ac.note}
+            for ac in db.scalars(select(models.TaxAccelDepr)).all()
+        ],
         "roles": [
             {"name": r.name, "note": r.note, "is_system": r.is_system,
              "perms": [p.perm for p in r.permissions]}
@@ -352,6 +359,7 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     db.execute(delete(models.TaxLossCarryover))
     db.execute(delete(models.TaxAssetDepreciation))
     db.execute(delete(models.TaxRdDeduction))
+    db.execute(delete(models.TaxAccelDepr))
     db.execute(delete(models.SubAccount))
     db.execute(delete(models.Account))
     db.execute(delete(models.Customer))
@@ -757,6 +765,15 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
         db.add(models.TaxRdDeduction(
             report_year=int(rd["report_year"]), line_no=rd.get("line_no", ""),
             amount=Decimal(str(rd.get("amount", "0"))), note=rd.get("note", "")))
+    for ac in payload.get("tax_accel_deprs", []):
+        db.add(models.TaxAccelDepr(
+            year=int(ac["year"]), line_no=ac.get("line_no", ""),
+            orig_value=Decimal(str(ac.get("orig_value", "0"))),
+            book_dep=Decimal(str(ac.get("book_dep", "0"))),
+            tax_normal=Decimal(str(ac.get("tax_normal", "0"))),
+            accel_dep=Decimal(str(ac.get("accel_dep", "0"))),
+            reduce_amount=Decimal(str(ac.get("reduce_amount", "0"))),
+            note=ac.get("note", "")))
     db.flush()
 
     # 5e. 扁平附件表:按 ref 映射到凭证/费用申请/费用报销/合同/税务并落盘

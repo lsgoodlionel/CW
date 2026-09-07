@@ -115,7 +115,15 @@ def cit_quarterly_preview(year: int = Query(...), quarter: int = Query(..., ge=1
     rows = tax_report.compute_rows(db, year, quarter)
     return {"year": year, "quarter": quarter,
             "rows": [{"line_no": ln, "label": lb, "amount": float(amt), "level": lv}
-                     for ln, lb, amt, lv in rows]}
+                     for ln, lb, amt, lv in rows],
+            "schedules": {"A201020": _a201020_rows(db, year)}}
+
+
+def _a201020_rows(db: Session, year: int) -> list[dict]:
+    return [{"line_no": ln, "item": it, "orig": float(ov), "book": float(bk),
+             "normal": float(nm), "accel": float(ac), "reduce": float(rd),
+             "benefit": float(bn), "level": lv, "editable": ed}
+            for ln, it, ov, bk, nm, ac, rd, bn, lv, ed in tax_report.compute_a201020(db, year)]
 
 
 @router.get("/report/cit-annual")
@@ -273,3 +281,29 @@ def save_rd(payload: schemas.TaxRdSave, db: Session = Depends(get_db)):
             report_year=payload.report_year, line_no=it.line_no, amount=it.amount))
     db.commit()
     return {"year": payload.report_year, "rows": _a107_rows(db, payload.report_year)}
+
+
+@router.get("/accel-deprs")
+def list_accel(year: int = Query(...), db: Session = Depends(get_db)):
+    """A201020 资产加速折旧优惠明细(含录入值与自动汇总)。"""
+    return {"year": year, "rows": _a201020_rows(db, year)}
+
+
+@router.put("/accel-deprs")
+def save_accel(payload: schemas.TaxAccelSave, db: Session = Depends(get_db)):
+    """按年保存资产加速折旧优惠录入(明细行;整表覆盖)。"""
+    editable = {ln for ln, _i, _l, kind in tax_report._A201020_ROWS if kind == "detail"}
+    db.execute(
+        models.TaxAccelDepr.__table__.delete().where(
+            models.TaxAccelDepr.year == payload.year))
+    for it in payload.items:
+        if it.line_no not in editable:
+            continue
+        if not (it.orig_value or it.book_dep or it.tax_normal or it.accel_dep or it.reduce_amount):
+            continue
+        db.add(models.TaxAccelDepr(
+            year=payload.year, line_no=it.line_no, orig_value=it.orig_value,
+            book_dep=it.book_dep, tax_normal=it.tax_normal, accel_dep=it.accel_dep,
+            reduce_amount=it.reduce_amount))
+    db.commit()
+    return {"year": payload.year, "rows": _a201020_rows(db, payload.year)}

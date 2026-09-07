@@ -679,3 +679,20 @@ class TaxRdDeduction(Base):
     amount: Mapped[Decimal] = mapped_column(MONEY, default=0)          # 金额(行50为加计比例,如1.00=100%)
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class TaxAccelDepr(Base):
+    """季报资产加速折旧摊销(扣除)优惠(A201020)按年录入:本年累计口径。"""
+    __tablename__ = "tax_accel_deprs"
+    __table_args__ = (UniqueConstraint("year", "line_no", name="uq_tax_accel_year_line"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    year: Mapped[int] = mapped_column(Integer, index=True)             # 所属年度(本年累计)
+    line_no: Mapped[str] = mapped_column(String(10), index=True)       # A201020 行次,如 1.1 / 2.1
+    orig_value: Mapped[Decimal] = mapped_column(MONEY, default=0)      # 本年享受优惠的资产原值
+    book_dep: Mapped[Decimal] = mapped_column(MONEY, default=0)        # 账载折旧摊销金额
+    tax_normal: Mapped[Decimal] = mapped_column(MONEY, default=0)      # 按税收一般规定计算的折旧摊销
+    accel_dep: Mapped[Decimal] = mapped_column(MONEY, default=0)       # 享受加速政策计算的折旧摊销
+    reduce_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)   # 纳税调减金额
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

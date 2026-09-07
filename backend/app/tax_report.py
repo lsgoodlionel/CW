@@ -69,15 +69,57 @@ def _core_amounts(db: Session, start: date, end: date) -> dict:
     return a
 
 
+# ---------- 季报附表 A201020 资产加速折旧、摊销(扣除)优惠明细表 ----------
+
+# (行次, 项目, 层级, 类型)。sum=小计/合计;detail=可录入明细。
+_A201020_ROWS = [
+    ("1", "一、加速折旧、摊销(不含一次性扣除,1.1+1.2+…)", 0, "sum"),
+    ("1.1", "(明细)加速折旧、摊销项目", 1, "detail"),
+    ("2", "二、一次性扣除(2.1+2.2+…)", 0, "sum"),
+    ("2.1", "(明细)一次性扣除项目", 1, "detail"),
+    ("3", "合计(1+2)", 0, "sum"),
+]
+_A201020_SUBTOTALS = [("1", ["1.1"]), ("2", ["2.1"]), ("3", ["1", "2"])]
+_A201020_COLS = ("orig", "book", "normal", "accel", "reduce")
+
+
+def compute_a201020(db: Session, year: int):
+    """资产加速折旧优惠:返回 (行次, 项目, 资产原值, 账载折旧, 税收一般折旧, 加速折旧, 纳税调减, 加速优惠, 层级, 可录入)。
+    加速优惠=加速−一般;纳税调减合计联动季报主表行21。"""
+    recs = {r.line_no: r for r in db.scalars(
+        select(models.TaxAccelDepr).where(models.TaxAccelDepr.year == year)).all()}
+    vals: dict[str, dict] = {}
+    for ln, _item, _lv, kind in _A201020_ROWS:
+        r = recs.get(ln)
+        if kind == "detail" and r is not None:
+            vals[ln] = {"orig": r.orig_value, "book": r.book_dep, "normal": r.tax_normal,
+                        "accel": r.accel_dep, "reduce": r.reduce_amount}
+        else:
+            vals[ln] = {k: Z for k in _A201020_COLS}
+    for total, members in _A201020_SUBTOTALS:
+        for k in _A201020_COLS:
+            vals[total][k] = sum((vals[m][k] for m in members), Z)
+    return [(ln, item, vals[ln]["orig"], vals[ln]["book"], vals[ln]["normal"],
+             vals[ln]["accel"], vals[ln]["reduce"], vals[ln]["accel"] - vals[ln]["normal"],
+             lv, kind == "detail")
+            for ln, item, lv, kind in _A201020_ROWS]
+
+
+def a201020_reduce_total(db: Session, year: int) -> Decimal:
+    """资产加速折旧纳税调减金额合计(供季报主表行21联动)。"""
+    return {r[0]: r for r in compute_a201020(db, year)}["3"][6]
+
+
 # ---------- 季报 A200000 ----------
 
 def compute_rows(db: Session, year: int, quarter: int):
     """季报主表:返回 (行次, 项目, 金额, 层级) 列表。"""
     start, end = date(year, 1, 1), _quarter_end(year, quarter)
     a = _core_amounts(db, start, end)
-    taxable = a["total_profit"] if a["total_profit"] > 0 else Z    # 简化:暂无纳税调整
+    accel_reduce = a201020_reduce_total(db, year)                 # 21 资产加速折旧调减(A201020)
+    real_profit = a["total_profit"] - accel_reduce               # 25 实际利润额(18-21,其余0)
+    taxable = real_profit if real_profit > 0 else Z
     tax_payable = (taxable * RATE).quantize(Decimal("0.01"))
-    real_profit = a["total_profit"]                               # 实际利润额=利润总额(无调整)
     relief = (taxable * SMALL_MICRO_RELIEF).quantize(Decimal("0.01")) if _is_small_micro(db) else Z
     after_relief = tax_payable - relief                          # 27-28
     rows = [
@@ -107,7 +149,7 @@ def compute_rows(db: Session, year: int, quarter: int):
         ("19", "加:特定业务计算的应纳税所得额", Z),
         ("19.1", "其中:销售未完工产品的收入", Z),
         ("20", "减:不征税收入", Z),
-        ("21", "减:资产加速折旧、摊销(扣除)调减额(填写A201020)", Z),
+        ("21", "减:资产加速折旧、摊销(扣除)调减额(填写A201020)", accel_reduce),
         ("22", "减:免税收入、减计收入、加计扣除(22.1+22.2+…)", Z),
         ("23", "减:所得减免(23.1+23.2+……)", Z),
         ("24", "减:弥补以前年度亏损", Z),
@@ -957,6 +999,51 @@ def _write_a107(ws, title: str, company, period: str, rows: list) -> None:
     ws.column_dimensions["C"].width = 18
 
 
+def _write_a201020(ws, title: str, company, period: str, rows: list) -> None:
+    """A201020 资产加速折旧优惠表:行次/项目/资产原值/账载折旧/税收一般折旧/加速折旧/纳税调减/加速优惠。"""
+    thin = Side(style="thin", color="BBBBBB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    right = Alignment(horizontal="right", vertical="center")
+    last_col = 8
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
+    ws.cell(1, 1, title)
+    ws.cell(1, 1).font = Font(size=14, bold=True)
+    ws.cell(1, 1).alignment = center
+    ws.row_dimensions[1].height = 30
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_col)
+    ws.cell(2, 1, f"税款所属期间:{period}    金额单位:人民币元(列至角分)").alignment = left
+
+    header_fill = PatternFill("solid", fgColor="1F6FEB")
+    head = ["行次", "项目", "本年享受优惠的资产原值", "账载折旧摊销金额",
+            "按税收一般规定计算的折旧摊销", "享受加速政策计算的折旧摊销",
+            "纳税调减金额", "享受加速政策优惠金额"]
+    r = 3
+    for c, h in enumerate(head, start=1):
+        cell = ws.cell(r, c, h)
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.fill = header_fill
+        cell.alignment = center
+        cell.border = border
+    r += 1
+    for line_no, item, orig, book, normal, accel, reduce_, benefit, level, _ed in rows:
+        ws.cell(r, 1, line_no).alignment = center
+        ws.cell(r, 2, item).alignment = Alignment(
+            horizontal="left", vertical="center", wrap_text=True, indent=level * 2)
+        for c, val in ((3, orig), (4, book), (5, normal), (6, accel), (7, reduce_), (8, benefit)):
+            ws.cell(r, c, round(float(val), 2)).alignment = right
+        for c in range(1, last_col + 1):
+            ws.cell(r, c).border = border
+        r += 1
+
+    ws.column_dimensions["A"].width = 8
+    ws.column_dimensions["B"].width = 34
+    for col in ("C", "D", "E", "F", "G", "H"):
+        ws.column_dimensions[col].width = 15
+
+
 def build_cit_quarterly_xlsx(db: Session, year: int, quarter: int) -> bytes:
     company = db.get(models.CompanyInfo, 1)
     start, end = date(year, 1, 1), _quarter_end(year, quarter)
@@ -966,6 +1053,8 @@ def build_cit_quarterly_xlsx(db: Session, year: int, quarter: int) -> bytes:
     ws.title = "A200000"
     _write_kv(ws, _Q_TITLE, company, period, compute_rows(db, year, quarter),
               has_category=False)
+    _write_a201020(wb.create_sheet("A201020"), "A201020 资产加速折旧、摊销(扣除)优惠明细表",
+                   company, period, compute_a201020(db, year))
     return _save(wb)
 
 
