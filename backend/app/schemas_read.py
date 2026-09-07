@@ -166,6 +166,20 @@ class OpsSummaryOut(BaseModel):
     customers: int
     employees: int
     attachments: int
+    contracts_active: int = 0
+    contracts_total: int = 0
+    tax_pending: int = 0
+    vouchers_total: int = 0
+
+
+class FinanceOut(BaseModel):
+    """财务状况分析(期末时点 + 本期比率)。"""
+    assets: float = 0
+    liabilities: float = 0
+    equity: float = 0
+    debt_ratio: float = 0          # 资产负债率 = 负债/资产
+    gross_margin: float = 0        # 毛利率 = (收入-成本)/收入
+    net_margin: float = 0          # 净利率 = 净利润/收入
 
 
 class DashboardOut(BaseModel):
@@ -181,6 +195,7 @@ class DashboardOut(BaseModel):
     expense_breakdown: list[ExpenseBreakdownOut]
     trend: list[TrendPointOut]
     ops: OpsSummaryOut
+    finance: FinanceOut = FinanceOut()
 
 
 # ---------- 官方三表 ----------

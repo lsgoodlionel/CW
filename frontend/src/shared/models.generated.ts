@@ -10,7 +10,7 @@
  * 重新生成:node scripts/gen-contract.mjs
  *
  * 这里的名字沿用后端 schema 名;前端习惯用的短名见同目录 models.ts 的别名映射。
- * 共 120 个类型。
+ * 共 125 个类型。
  */
 /* eslint-disable */
 
@@ -207,6 +207,7 @@ export interface ContractIn {
   contract_no: string
   name: string
   category?: string
+  direction?: string
   customer_id?: number | null
   party_name?: string
   amount?: number | string
@@ -225,6 +226,7 @@ export interface ContractOut {
   contract_no: string
   name: string
   category: string
+  direction: string
   customer_id: number | null
   customer_name: string
   party_name: string
@@ -340,6 +342,7 @@ export interface DashboardOut {
   expense_breakdown: ExpenseBreakdownOut[]
   trend: TrendPointOut[]
   ops: OpsSummaryOut
+  finance: FinanceOut
 }
 
 export interface DashboardPeriodOut {
@@ -544,6 +547,16 @@ export interface ExpenseMetaOut {
   status: Record<string, string>
 }
 
+/** 财务状况分析(期末时点 + 本期比率)。 */
+export interface FinanceOut {
+  assets: number
+  liabilities: number
+  equity: number
+  debt_ratio: number
+  gross_margin: number
+  net_margin: number
+}
+
 export interface HealthOut {
   status: string
 }
@@ -696,6 +709,10 @@ export interface OpsSummaryOut {
   customers: number
   employees: number
   attachments: number
+  contracts_active: number
+  contracts_total: number
+  tax_pending: number
+  vouchers_total: number
 }
 
 export interface OrgUnitCreate {
@@ -892,6 +909,16 @@ export interface TaxAccelSave {
   items?: TaxAccelItem[]
 }
 
+export interface TaxAdMediaItem {
+  line_no: string
+  amount?: number | string
+}
+
+export interface TaxAdMediaSave {
+  report_year: number
+  items?: TaxAdMediaItem[]
+}
+
 export interface TaxAdjustmentItem {
   line_no: string
   book_amount?: number | string
@@ -985,6 +1012,19 @@ export interface TaxRdItem {
 export interface TaxRdSave {
   report_year: number
   items?: TaxRdItem[]
+}
+
+export interface TaxSalaryItem {
+  line_no: string
+  book_amount?: number | string
+  actual_amount?: number | string
+  prev_carry?: number | string
+  tax_amount?: number | string
+}
+
+export interface TaxSalarySave {
+  report_year: number
+  items?: TaxSalaryItem[]
 }
 
 export interface TrendPointOut {

@@ -364,6 +364,19 @@ def dashboard(
 
     ops = _ops_summary(db)
 
+    # 财务状况分析(期末时点资产负债 + 本期盈利比率)
+    assets = sum((v for code, v in end_bal._d.items()
+                  if code.startswith("1") or code in ("5001", "5101", "5201")), Decimal("0"))
+    liabilities = -sum((v for code, v in end_bal._d.items() if code.startswith("2")), Decimal("0"))
+    equity = assets - liabilities
+    cost = b.net_debit("6401", "6402")
+    finance = {
+        "assets": float(assets), "liabilities": float(liabilities), "equity": float(equity),
+        "debt_ratio": float(liabilities / assets) if assets else 0.0,
+        "gross_margin": float((revenue - cost) / revenue) if revenue else 0.0,
+        "net_margin": float(profit_net / revenue) if revenue else 0.0,
+    }
+
     return {
         "period": {"type": period_type, "label": label,
                    "start": start.isoformat(), "end": end.isoformat()},
@@ -381,6 +394,7 @@ def dashboard(
         "expense_breakdown": expense_breakdown,
         "trend": _monthly_trend(db, months=6),
         "ops": ops,
+        "finance": finance,
     }
 
 
@@ -408,4 +422,8 @@ def _ops_summary(db: Session) -> dict:
         "customers": _count(models.Customer),
         "employees": _count(models.Employee),
         "attachments": _count(models.Attachment),
+        "contracts_active": _count(models.Contract, models.Contract.status == "active"),
+        "contracts_total": _count(models.Contract),
+        "tax_pending": _count(models.TaxFiling, models.TaxFiling.status == "pending"),
+        "vouchers_total": _count(models.Voucher),
     }
