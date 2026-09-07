@@ -114,5 +114,27 @@ def cit_quarterly_preview(year: int = Query(...), quarter: int = Query(..., ge=1
     """季报主表行次的结构化预览(供页面展示,不下载)。"""
     rows = tax_report.compute_rows(db, year, quarter)
     return {"year": year, "quarter": quarter,
-            "rows": [{"line_no": ln, "label": lb, "amount": float(amt)}
-                     for ln, lb, amt in rows]}
+            "rows": [{"line_no": ln, "label": lb, "amount": float(amt), "level": lv}
+                     for ln, lb, amt, lv in rows]}
+
+
+@router.get("/report/cit-annual")
+def cit_annual(year: int = Query(...), db: Session = Depends(get_db)):
+    """企业所得税年度纳税申报表(A类)A100000 主表,按账套年度数据自动计算并导出 Excel。"""
+    content = tax_report.build_cit_annual_xlsx(db, year)
+    fname = f"企业所得税年度纳税申报表-{year}年度.xlsx"
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"},
+    )
+
+
+@router.get("/report/cit-annual/preview")
+def cit_annual_preview(year: int = Query(...), db: Session = Depends(get_db)):
+    """年报主表行次的结构化预览(供页面展示,不下载)。"""
+    rows = tax_report.compute_annual_rows(db, year)
+    return {"year": year,
+            "rows": [{"line_no": ln, "category": cat, "label": lb,
+                      "amount": float(amt), "level": lv}
+                     for ln, cat, lb, amt, lv in rows]}

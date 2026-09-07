@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Table, Tag, Button, Space, Modal, Form, Input, Select, InputNumber, DatePicker,
-  Popconfirm, message, Tabs, Card, Divider, Alert,
+  Popconfirm, message, Tabs, Card, Divider, Alert, Segmented,
 } from 'antd'
 import { PlusOutlined, DownloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -15,7 +15,7 @@ interface TaxFiling {
   filed_date: string | null; status: string; note: string; attachments: Attachment[]
 }
 interface Meta { tax_type: Record<string, string>; taxpayer_type: Record<string, string>; status: Record<string, string> }
-interface CitRow { line_no: string; label: string; amount: number }
+interface CitRow { line_no: string; label: string; amount: number; level: number; category?: string }
 
 const STATUS_COLOR: Record<string, string> = { pending: 'default', filed: 'processing', paid: 'success' }
 const D = (v: string | null | undefined) => (v ? dayjs(v) : undefined)
@@ -150,40 +150,74 @@ function Filings({ meta }: { meta: Meta }) {
   )
 }
 
+// 项目列按行次层级缩进;税率行显示百分比
+const renderLabel = (label: string, r: CitRow) => {
+  const isSection = /^[一二三四五六七八九十]、/.test(label)
+  return (
+    <span style={{ paddingLeft: r.level * 22, fontWeight: isSection ? 600 : 400 }}>{label}</span>
+  )
+}
+const renderAmount = (v: number, r: CitRow) => (r.label.startsWith('税率') ? '25%' : formatYuan(v))
+
 function TaxReports() {
   const now = dayjs()
+  const [reportType, setReportType] = useState<'quarterly' | 'annual'>('quarterly')
   const [year, setYear] = useState<number>(now.year())
   const [quarter, setQuarter] = useState<number>(Math.floor((now.month()) / 3) + 1)
   const [preview, setPreview] = useState<CitRow[]>([])
 
+  const isAnnual = reportType === 'annual'
   const loadPreview = useCallback(() => {
-    http.get<{ rows: CitRow[] }>('/tax/report/cit-quarterly/preview', { params: { year, quarter } })
-      .then((r) => setPreview(r.data.rows))
-  }, [year, quarter])
+    const url = isAnnual ? '/tax/report/cit-annual/preview' : '/tax/report/cit-quarterly/preview'
+    const params = isAnnual ? { year } : { year, quarter }
+    http.get<{ rows: CitRow[] }>(url, { params }).then((r) => setPreview(r.data.rows))
+  }, [isAnnual, year, quarter])
   useEffect(() => { loadPreview() }, [loadPreview])
 
-  const download = () =>
-    window.open(withToken(`/api/tax/report/cit-quarterly?year=${year}&quarter=${quarter}`), '_blank')
+  const download = () => {
+    const url = isAnnual
+      ? `/api/tax/report/cit-annual?year=${year}`
+      : `/api/tax/report/cit-quarterly?year=${year}&quarter=${quarter}`
+    window.open(withToken(url), '_blank')
+  }
+
+  const quarterlyCols = [
+    { title: '行次', dataIndex: 'line_no', width: 60 },
+    { title: '项目', dataIndex: 'label', render: renderLabel },
+    { title: '本年累计金额', dataIndex: 'amount', width: 160, align: 'right' as const, render: renderAmount },
+  ]
+  const annualCols = [
+    { title: '行次', dataIndex: 'line_no', width: 60 },
+    { title: '类别', dataIndex: 'category', width: 120 },
+    { title: '项目', dataIndex: 'label', render: renderLabel },
+    { title: '本年金额', dataIndex: 'amount', width: 160, align: 'right' as const, render: renderAmount },
+  ]
+
+  const title = isAnnual
+    ? '企业所得税年度纳税申报表(A类)· A100000'
+    : '企业所得税月(季)度预缴纳税申报表(A类)· A200000'
 
   return (
-    <Card size="small" title="企业所得税月(季)度预缴纳税申报表(A类)· A200000"
+    <Card size="small" title={title}
       extra={<Button type="primary" icon={<DownloadOutlined />} onClick={download}>导出 Excel</Button>}>
       <Space style={{ marginBottom: 12 }} wrap>
+        <Segmented value={reportType} onChange={(v) => setReportType(v as 'quarterly' | 'annual')}
+          options={[{ label: '季度预缴(A200000)', value: 'quarterly' },
+            { label: '年度汇算(A100000)', value: 'annual' }]} />
         <span>年度</span>
         <InputNumber value={year} min={2000} max={2100} onChange={(v) => v && setYear(v)} style={{ width: 100 }} />
-        <span>季度</span>
-        <Select value={quarter} style={{ width: 90 }} onChange={setQuarter}
-          options={[1, 2, 3, 4].map((q) => ({ value: q, label: `第${q}季度` }))} />
+        {!isAnnual && <>
+          <span>季度</span>
+          <Select value={quarter} style={{ width: 90 }} onChange={setQuarter}
+            options={[1, 2, 3, 4].map((q) => ({ value: q, label: `第${q}季度` }))} />
+        </>}
       </Space>
       <Alert type="info" showIcon style={{ marginBottom: 12 }}
-        message="本表按账套数据自动计算本年累计(年初→季末);优惠、预缴、纳税调整等行次默认 0,导出后可在 Excel 中按实际手工调整再报送。" />
+        message={isAnnual
+          ? '年报按账套全年数据自动计算利润总额及应纳税额;境外所得、纳税调整、各类优惠、预缴税额及总分机构分摊等行次默认 0,导出后可结合各附表按实际手工调整再报送。'
+          : '本表按账套数据自动计算本年累计(年初→季末);优惠、预缴、纳税调整等行次默认 0,导出后可在 Excel 中按实际手工调整再报送。'} />
       <Table rowKey="line_no" size="small" pagination={false} dataSource={preview}
-        columns={[
-          { title: '行次', dataIndex: 'line_no', width: 60 },
-          { title: '项目', dataIndex: 'label' },
-          { title: '本年累计金额', dataIndex: 'amount', width: 160, align: 'right' as const,
-            render: (v: number, r: CitRow) => (r.line_no === '26' ? '25%' : formatYuan(v)) },
-        ]} />
+        columns={isAnnual ? annualCols : quarterlyCols} />
     </Card>
   )
 }
