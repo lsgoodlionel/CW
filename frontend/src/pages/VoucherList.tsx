@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
-  Table, Button, Space, DatePicker, Input, Popconfirm, Tag, message,
+  Table, Button, Space, DatePicker, Input, Popconfirm, Tag, message, Select,
 } from 'antd'
 import { PlusOutlined, PaperClipOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import type { Dayjs } from 'dayjs'
-import { http, VoucherListItem, formatYuan } from '../api'
+import { http, VoucherListItem, Customer, AccountTreeNode, formatYuan } from '../api'
 
 const { RangePicker } = DatePicker
 
@@ -17,6 +17,16 @@ export default function VoucherList() {
   const [loading, setLoading] = useState(false)
   const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null)
   const [keyword, setKeyword] = useState('')
+  const [customerId, setCustomerId] = useState<number>()
+  const [accountId, setAccountId] = useState<number>()
+  const [flow, setFlow] = useState<string>()
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [accounts, setAccounts] = useState<AccountTreeNode[]>([])
+
+  useEffect(() => {
+    http.get<Customer[]>('/customers', { params: { active_only: true } }).then((r) => setCustomers(r.data))
+    http.get<AccountTreeNode[]>('/accounts/tree').then((r) => setAccounts(r.data.filter((a) => a.is_active)))
+  }, [])
 
   const load = useCallback(() => {
     setLoading(true)
@@ -26,10 +36,13 @@ export default function VoucherList() {
       params.end = range[1].format('YYYY-MM-DD')
     }
     if (keyword) params.keyword = keyword
+    if (customerId) params.customer_id = customerId
+    if (accountId) params.account_id = accountId
+    if (flow) params.flow = flow
     http.get('/vouchers', { params })
       .then((r) => { setItems(r.data.items); setTotal(r.data.total) })
       .finally(() => setLoading(false))
-  }, [page, range, keyword])
+  }, [page, range, keyword, customerId, accountId, flow])
 
   useEffect(() => { load() }, [load])
 
@@ -77,7 +90,16 @@ export default function VoucherList() {
       <Space style={{ marginBottom: 16, flexWrap: 'wrap' }}>
         <RangePicker value={range} onChange={(v) => { setPage(1); setRange(v as [Dayjs, Dayjs]) }} />
         <Input.Search placeholder="搜索凭证号/摘要" allowClear
-          onSearch={(v) => { setPage(1); setKeyword(v) }} style={{ width: 220 }} />
+          onSearch={(v) => { setPage(1); setKeyword(v) }} style={{ width: 200 }} />
+        <Select allowClear showSearch placeholder="往来单位" style={{ width: 180 }} optionFilterProp="label"
+          value={customerId} onChange={(v) => { setPage(1); setCustomerId(v) }}
+          options={customers.map((c) => ({ value: c.id, label: c.short_name || c.name }))} />
+        <Select allowClear showSearch placeholder="费用/科目类型" style={{ width: 200 }} optionFilterProp="label"
+          value={accountId} onChange={(v) => { setPage(1); setAccountId(v) }}
+          options={accounts.map((a) => ({ value: a.id, label: `${a.code} ${a.name}` }))} />
+        <Select allowClear placeholder="收支类型" style={{ width: 120 }}
+          value={flow} onChange={(v) => { setPage(1); setFlow(v) }}
+          options={[{ value: 'income', label: '收入' }, { value: 'expense', label: '支出' }]} />
         <Button type="primary" icon={<PlusOutlined />}
           onClick={() => navigate('/vouchers/new')}>新建凭证</Button>
       </Space>

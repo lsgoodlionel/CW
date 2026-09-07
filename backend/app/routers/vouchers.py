@@ -94,6 +94,9 @@ def list_vouchers(
     start: date | None = None,
     end: date | None = None,
     keyword: str | None = None,
+    customer_id: int | None = None,
+    account_id: int | None = None,
+    flow: str | None = None,       # income 收入 / expense 支出(按分录科目损益方向)
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -109,6 +112,19 @@ def list_vouchers(
             models.Voucher.voucher_no.ilike(like),
             models.Voucher.note.ilike(like),
         ))
+    if customer_id:
+        stmt = stmt.where(models.Voucher.customer_id == customer_id)
+    if account_id or flow:
+        # 该凭证的分录中存在满足条件的科目(费用类型=具体科目;收支类型=损益类科目方向)
+        sub = (select(models.VoucherEntry.id)
+               .where(models.VoucherEntry.voucher_id == models.Voucher.id))
+        if account_id:
+            sub = sub.where(models.VoucherEntry.account_id == account_id)
+        if flow in ("income", "expense"):
+            sub = sub.join(models.Account, models.Account.id == models.VoucherEntry.account_id)
+            sub = sub.where(models.Account.category == "profit")
+            sub = sub.where(models.Account.direction == ("credit" if flow == "income" else "debit"))
+        stmt = stmt.where(sub.exists())
 
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     stmt = (
