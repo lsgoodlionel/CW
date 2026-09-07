@@ -1,4 +1,6 @@
 """合同管理 API:合同 CRUD + 附件上传 + 关联记账凭证。"""
+from decimal import Decimal, ROUND_HALF_UP
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session, selectinload
@@ -8,6 +10,18 @@ from .. import models, schemas, attach_svc
 from .attachments import read_upload
 
 router = APIRouter(prefix="/api/contracts", tags=["contracts"])
+
+_CENT = Decimal("0.01")
+
+
+def _calc_tax(amount: Decimal, tax_rate: Decimal) -> Decimal:
+    """含税总额价税分离:税金 = 金额 − 金额/(1+税率)。税率为百分数。"""
+    amount = amount or Decimal("0")
+    tax_rate = tax_rate or Decimal("0")
+    if tax_rate <= 0:
+        return Decimal("0.00")
+    tax = amount - amount / (Decimal("1") + tax_rate / Decimal("100"))
+    return tax.quantize(_CENT, rounding=ROUND_HALF_UP)
 
 CATEGORY_LABEL = {
     "sales": "销售合同", "purchase": "采购合同", "service": "服务合同",
@@ -68,6 +82,7 @@ def create_contract(payload: schemas.ContractIn, db: Session = Depends(get_db)):
     if payload.status not in schemas.CONTRACT_STATUSES:
         raise HTTPException(status_code=400, detail="合同状态无效")
     c = models.Contract(**payload.model_dump())
+    c.tax_amount = _calc_tax(c.amount, c.tax_rate)
     db.add(c)
     db.commit()
     return get_contract(c.id, db)
@@ -86,6 +101,7 @@ def update_contract(contract_id: int, payload: schemas.ContractIn,
         raise HTTPException(status_code=400, detail="合同类型无效")
     for k, v in payload.model_dump().items():
         setattr(c, k, v)
+    c.tax_amount = _calc_tax(c.amount, c.tax_rate)
     db.commit()
     return get_contract(contract_id, db)
 

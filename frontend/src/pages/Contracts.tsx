@@ -16,7 +16,8 @@ interface ContractVoucher {
 interface Contract {
   id: number; contract_no: string; name: string; category: string
   customer_id: number | null; customer_name: string; party_name: string
-  amount: number | string; sign_date: string | null; start_date: string | null
+  amount: number | string; tax_rate: number | string; tax_amount: number | string
+  sign_date: string | null; start_date: string | null
   end_date: string | null; status: string; our_signatory: string
   counterparty_contact: string; note: string
   attachments: Attachment[]; vouchers: ContractVoucher[]
@@ -33,6 +34,15 @@ const STATUS_COLOR: Record<string, string> = {
   draft: 'default', active: 'processing', completed: 'success', terminated: 'error',
 }
 const D = (v: string | null | undefined) => (v ? dayjs(v) : undefined)
+const COMMON_RATES = [13, 9, 6, 5, 3, 1, 0]  // 常见增值税率(%)
+
+// 含税总额价税分离:税金 = 金额 − 金额/(1+税率)
+const splitTax = (amount: number, rate: number) => {
+  const amt = Number(amount) || 0
+  const r = Number(rate) || 0
+  const tax = r > 0 ? amt - amt / (1 + r / 100) : 0
+  return { tax: Math.round(tax * 100) / 100, net: Math.round((amt - tax) * 100) / 100 }
+}
 
 export default function Contracts() {
   const navigate = useNavigate()
@@ -45,6 +55,9 @@ export default function Contracts() {
   const [draftId, setDraftId] = useState<number | null>(null)
   const [existingAtt, setExistingAtt] = useState<Attachment[]>([])
   const [form] = Form.useForm()
+  const watchAmount = Form.useWatch('amount', form)
+  const watchRate = Form.useWatch('tax_rate', form)
+  const taxCalc = splitTax(watchAmount, watchRate)
   const [detail, setDetail] = useState<Contract | null>(null)
   const [vouchers, setVouchers] = useState<VoucherListItem[]>([])
   const [linkVoucherId, setLinkVoucherId] = useState<number>()
@@ -72,10 +85,10 @@ export default function Contracts() {
     setEditing(c); setDraftId(null); form.resetFields()
     setExistingAtt(c ? c.attachments : [])
     if (c) form.setFieldsValue({
-      ...c, amount: Number(c.amount),
+      ...c, amount: Number(c.amount), tax_rate: Number(c.tax_rate),
       sign_date: D(c.sign_date), start_date: D(c.start_date), end_date: D(c.end_date),
     })
-    else form.setFieldsValue({ category: 'other', status: 'active', amount: 0 })
+    else form.setFieldsValue({ category: 'other', status: 'active', amount: 0, tax_rate: 0 })
     setOpen(true)
   }
   const _payload = (v: Record<string, unknown>) => ({
@@ -121,7 +134,9 @@ export default function Contracts() {
     { title: '合同名称', dataIndex: 'name', ellipsis: true },
     { title: '类型', dataIndex: 'category', width: 100, render: (v: string) => <Tag>{CATEGORY_LABEL[v] || v}</Tag> },
     { title: '对方单位', dataIndex: 'customer_name', width: 140, render: (v: string) => v || '-' },
-    { title: '金额', dataIndex: 'amount', width: 120, align: 'right' as const, render: (v: number | string) => formatYuan(v) },
+    { title: '含税金额', dataIndex: 'amount', width: 120, align: 'right' as const, render: (v: number | string) => formatYuan(v) },
+    { title: '税金', dataIndex: 'tax_amount', width: 110, align: 'right' as const,
+      render: (v: number | string, r: Contract) => (Number(r.tax_rate) > 0 ? `${formatYuan(v)} (${Number(r.tax_rate)}%)` : '-') },
     { title: '状态', dataIndex: 'status', width: 90, render: (s: string) => <Tag color={STATUS_COLOR[s]}>{STATUS_LABEL[s] || s}</Tag> },
     { title: '附件', dataIndex: 'attachments', width: 60, align: 'center' as const, render: (a: Attachment[]) => a.length || '-' },
     {
@@ -167,10 +182,23 @@ export default function Contracts() {
             <Form.Item name="status" label="状态">
               <Select style={{ width: 120 }} options={Object.entries(STATUS_LABEL).map(([value, label]) => ({ value, label }))} />
             </Form.Item>
-            <Form.Item name="amount" label="合同金额(元)">
+            <Form.Item name="amount" label="合同金额(含税,元)">
               <InputNumber min={0} precision={2} style={{ width: 160 }} />
             </Form.Item>
           </Space>
+          <Form.Item label="税率 / 税金(价税分离,自动计算)">
+            <Space wrap>
+              <Form.Item name="tax_rate" noStyle>
+                <InputNumber min={0} max={100} precision={2} addonAfter="%" style={{ width: 130 }} />
+              </Form.Item>
+              <Segmented size="small" value={watchRate}
+                options={COMMON_RATES.map((r) => ({ label: `${r}%`, value: r }))}
+                onChange={(val) => form.setFieldValue('tax_rate', val)} />
+              <span style={{ color: '#666' }}>
+                税金 <b style={{ color: '#cf1322' }}>{formatYuan(taxCalc.tax)}</b> · 不含税 {formatYuan(taxCalc.net)}
+              </span>
+            </Space>
+          </Form.Item>
           <Space wrap>
             <Form.Item name="customer_id" label="对方往来单位">
               <Select allowClear showSearch style={{ width: 220 }} optionFilterProp="label" placeholder="选择往来单位(可选)"
@@ -200,7 +228,9 @@ export default function Contracts() {
           <>
             <p><b>{detail.name}</b> <Tag>{CATEGORY_LABEL[detail.category]}</Tag>
               <Tag color={STATUS_COLOR[detail.status]}>{STATUS_LABEL[detail.status]}</Tag></p>
-            <p>对方:{detail.customer_name || detail.party_name || '-'} · 金额 {formatYuan(detail.amount)}</p>
+            <p>对方:{detail.customer_name || detail.party_name || '-'} · 含税金额 {formatYuan(detail.amount)}
+              {Number(detail.tax_rate) > 0 && <> · 税率 {Number(detail.tax_rate)}% · 税金 {formatYuan(detail.tax_amount)}
+                · 不含税 {formatYuan(Number(detail.amount) - Number(detail.tax_amount))}</>}</p>
             <p>签订 {detail.sign_date || '-'} · 期限 {detail.start_date || '-'} ~ {detail.end_date || '-'}</p>
             {detail.note && <p style={{ color: '#666' }}>备注:{detail.note}</p>}
             <Divider orientation="left" plain>合同附件</Divider>

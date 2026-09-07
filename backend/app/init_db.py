@@ -47,6 +47,10 @@ _ADDED_COLUMNS = {
     "customers": [
         ("party_type", "VARCHAR(20) DEFAULT 'enterprise'"),
     ],
+    "contracts": [
+        ("tax_rate", "NUMERIC(6,2) DEFAULT 0"),
+        ("tax_amount", "NUMERIC(18,2) DEFAULT 0"),
+    ],
     "operation_logs": [
         ("detail", "TEXT DEFAULT ''"),
         ("operator", "VARCHAR(50) DEFAULT ''"),

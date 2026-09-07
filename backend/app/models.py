@@ -551,6 +551,8 @@ class Contract(Base):
     )
     party_name: Mapped[str] = mapped_column(String(200), default="")   # 对方单位(未选往来单位时手填)
     amount: Mapped[Decimal] = mapped_column(MONEY, default=0)          # 合同金额(含税)
+    tax_rate: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=0)   # 税率(百分数,如 13 表示 13%)
+    tax_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)      # 税金(价税分离,按税率自动计算)
     sign_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)

@@ -563,6 +563,7 @@ class ContractIn(BaseModel):
     customer_id: int | None = None
     party_name: str = ""
     amount: Decimal = Decimal("0")
+    tax_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100)   # 税率(百分数)
     sign_date: date | None = None
     start_date: date | None = None
     end_date: date | None = None
@@ -592,6 +593,8 @@ class ContractOut(BaseModel):
     customer_name: str = ""
     party_name: str
     amount: Decimal
+    tax_rate: Decimal = Decimal("0")
+    tax_amount: Decimal = Decimal("0")
     sign_date: date | None
     start_date: date | None
     end_date: date | None
