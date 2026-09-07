@@ -7,6 +7,7 @@ import { PlusOutlined, DownloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { http, Attachment, formatYuan, withToken } from '../api'
 import AttachmentEditor from '../components/AttachmentEditor'
+import AttachmentPreview from '../components/AttachmentPreview'
 
 interface TaxFiling {
   id: number; tax_type: string; taxpayer_type: string; period: string
@@ -77,6 +78,8 @@ function Filings({ meta }: { meta: Meta }) {
   const [editing, setEditing] = useState<TaxFiling | null>(null)
   const [draftId, setDraftId] = useState<number | null>(null)
   const [existingAtt, setExistingAtt] = useState<Attachment[]>([])
+  const [attView, setAttView] = useState<TaxFiling | null>(null)   // 查看某记录附件列表
+  const [previewing, setPreviewing] = useState<Attachment | null>(null)
   const [form] = Form.useForm()
 
   const load = useCallback(() => {
@@ -128,6 +131,10 @@ function Filings({ meta }: { meta: Meta }) {
     { title: '已缴', dataIndex: 'paid_amount', width: 110, align: 'right' as const, render: (v: number | string) => formatYuan(v) },
     { title: '申报日期', dataIndex: 'filed_date', width: 110, render: (v: string) => v || '-' },
     { title: '状态', dataIndex: 'status', width: 90, render: (s: string) => <Tag color={STATUS_COLOR[s]}>{meta.status[s] || s}</Tag> },
+    { title: '备注', dataIndex: 'note', ellipsis: true, render: (v: string) => v || '-' },
+    { title: '附件', dataIndex: 'attachments', width: 70, align: 'center' as const,
+      render: (a: Attachment[], r: TaxFiling) => (a && a.length
+        ? <a onClick={() => setAttView(r)}>{a.length} 个</a> : '-') },
     {
       title: '操作', width: 130, render: (_: unknown, r: TaxFiling) => (
         <Space>
@@ -181,6 +188,19 @@ function Filings({ meta }: { meta: Meta }) {
             ensureOwner={ensureOwner} existing={existingAtt} onChange={setExistingAtt} defaultKind="tax_payment" />
         </Form>
       </Modal>
+
+      <Modal title={`附件 · ${attView?.tax_type ? (meta.tax_type[attView.tax_type] || '') : ''} ${attView?.period || ''}`}
+        open={Boolean(attView)} footer={null} onCancel={() => setAttView(null)} width={560}>
+        <Table rowKey="id" size="small" pagination={false} dataSource={attView?.attachments || []}
+          locale={{ emptyText: '暂无附件' }}
+          columns={[
+            { title: '文件名', dataIndex: 'original_name',
+              render: (name: string, a: Attachment) => <a onClick={() => setPreviewing(a)}>{name}</a> },
+            { title: '大小', dataIndex: 'size_bytes', width: 100, render: (b: number) => `${(b / 1024).toFixed(1)} KB` },
+            { title: '操作', width: 80, render: (_: unknown, a: Attachment) => <a onClick={() => setPreviewing(a)}>预览</a> },
+          ]} />
+      </Modal>
+      <AttachmentPreview attachment={previewing} open={Boolean(previewing)} onClose={() => setPreviewing(null)} />
     </>
   )
 }
