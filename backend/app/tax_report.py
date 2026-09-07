@@ -614,9 +614,9 @@ _A105_ROWS = [
     ("11", "(九)其他", 1, "detail"),
     ("12", "二、扣除类调整项目(13+14+…24+26+27+28+29+30)", 0, "sum"),
     ("13", "(一)视同销售成本(填写A105010)", 1, "detail"),
-    ("14", "(二)职工薪酬(填写A105050)", 1, "detail"),
+    ("14", "(二)职工薪酬(填写A105050)", 1, "linked"),
     ("15", "(三)业务招待费支出", 1, "detail"),
-    ("16", "(四)广告费和业务宣传费支出(填写A105060)", 1, "detail"),
+    ("16", "(四)广告费和业务宣传费支出(填写A105060)", 1, "linked"),
     ("17", "(五)捐赠支出(填写A105070)", 1, "detail"),
     ("18", "(六)利息支出", 1, "detail"),
     ("19", "(七)罚金、罚款和被没收财物的损失", 1, "detail"),
@@ -682,11 +682,12 @@ def compute_a105000(db: Session, year: int):
                         "add": r.add_amount, "reduce": r.reduce_amount}
         else:
             vals[ln] = {k: Z for k in _A105_COLS}
-    # 行32 资产折旧、摊销:由 A105080 带出(账载−税收:>0 调增,<0 调减)
-    dep_adj = a105080_adjust_total(db, year)
-    vals["32"] = {"book": Z, "tax": Z,
-                  "add": dep_adj if dep_adj > 0 else Z,
-                  "reduce": -dep_adj if dep_adj < 0 else Z}
+    # 行14/16/32 由专表带出(账载−税收:>0 调增,<0 调减)
+    def _linked(adj):
+        return {"book": Z, "tax": Z, "add": adj if adj > 0 else Z, "reduce": -adj if adj < 0 else Z}
+    vals["14"] = _linked(a105050_adjust_total(db, year))   # 职工薪酬 A105050
+    vals["16"] = _linked(a105060_adjust_total(db, year))   # 广宣费 A105060
+    vals["32"] = _linked(a105080_adjust_total(db, year))   # 资产折旧摊销 A105080
     for total, members in _A105_SUBTOTALS:
         for k in _A105_COLS:
             vals[total][k] = sum((vals[m][k] for m in members), Z)
@@ -906,6 +907,95 @@ def compute_a107012(db: Session, report_year: int):
 def a107012_deduction_total(db: Session, report_year: int) -> Decimal:
     """本年研发费用加计扣除总额(行51,供主表行22联动)。"""
     return {r[0]: r for r in compute_a107012(db, report_year)}["51"][2]
+
+
+# ---------- 附表 A105050 职工薪酬支出及纳税调整明细表 ----------
+
+# (行次, 项目, 层级, 类型)。sum=合计;detail=可录入;memo=其中/子项(不计入合计)。
+_A105050_ROWS = [
+    ("1", "一、工资薪金支出", 0, "detail"),
+    ("2", "其中:股权激励", 1, "memo"),
+    ("3", "二、职工福利费支出", 0, "detail"),
+    ("4", "三、职工教育经费支出", 0, "detail"),
+    ("5", "其中:按税收规定比例扣除的职工教育经费", 1, "memo"),
+    ("6", "按税收规定全额扣除的职工培训费用", 1, "memo"),
+    ("7", "四、工会经费支出", 0, "detail"),
+    ("8", "五、各类基本社会保障性缴款", 0, "detail"),
+    ("9", "六、住房公积金", 0, "detail"),
+    ("10", "七、补充养老保险", 0, "detail"),
+    ("11", "八、补充医疗保险", 0, "detail"),
+    ("12", "九、其他", 0, "detail"),
+    ("13", "合计(1+3+4+7+8+9+10+11+12)", 0, "sum"),
+]
+_A105050_SUM_MEMBERS = ["1", "3", "4", "7", "8", "9", "10", "11", "12"]
+
+
+def compute_a105050(db: Session, report_year: int):
+    """职工薪酬纳税调整:返回 (行次, 项目, 账载, 实际发生, 以前结转, 税收金额, 纳税调整, 结转以后, 层级, 可录入)。
+    纳税调整=账载−税收;结转以后=实际+以前结转−税收;合计联动 A105000 行14。"""
+    recs = {r.line_no: r for r in db.scalars(
+        select(models.TaxSalaryAdjust).where(
+            models.TaxSalaryAdjust.report_year == report_year)).all()}
+    cols = ("book", "actual", "prev", "tax")
+    vals: dict[str, dict] = {}
+    for ln, _item, _lv, kind in _A105050_ROWS:
+        r = recs.get(ln)
+        if kind in ("detail", "memo") and r is not None:
+            vals[ln] = {"book": r.book_amount, "actual": r.actual_amount,
+                        "prev": r.prev_carry, "tax": r.tax_amount}
+        else:
+            vals[ln] = {k: Z for k in cols}
+    for k in cols:
+        vals["13"][k] = sum((vals[m][k] for m in _A105050_SUM_MEMBERS), Z)
+    out = []
+    for ln, item, lv, kind in _A105050_ROWS:
+        v = vals[ln]
+        adjust = v["book"] - v["tax"]
+        carry = v["actual"] + v["prev"] - v["tax"]
+        out.append((ln, item, v["book"], v["actual"], v["prev"], v["tax"],
+                    adjust, carry, lv, kind in ("detail", "memo")))
+    return out
+
+
+def a105050_adjust_total(db: Session, report_year: int) -> Decimal:
+    """职工薪酬纳税调整合计(账载−税收,供 A105000 行14联动)。"""
+    return {r[0]: r for r in compute_a105050(db, report_year)}["13"][6]
+
+
+# ---------- 附表 A105060 广告费和业务宣传费跨年度纳税调整明细表 ----------
+
+# (行次, 项目, 类型)。detail=录入;ratio=扣除率;formula=公式;base=营业收入基数(自动)。
+_A105060_ROWS = [
+    ("1", "本年广告费和业务宣传费支出", "detail"),
+    ("2", "税收规定扣除率(如 0.15=15%)", "ratio"),
+    ("3", "本年计算扣除限额(营业收入×扣除率)", "formula"),
+    ("4", "以前年度累计结转扣除额", "detail"),
+    ("5", "本年扣除的广宣费(不超过限额)", "formula"),
+    ("6", "纳税调整金额(本年支出−本年扣除)", "formula"),
+    ("7", "累计结转以后年度扣除额(本年支出+以前结转−本年扣除)", "formula"),
+]
+
+
+def compute_a105060(db: Session, report_year: int):
+    """广宣费跨年度纳税调整:返回 (行次, 项目, 金额, 可录入)。行6纳税调整联动 A105000 行16。"""
+    recs = {r.line_no: r.amount for r in db.scalars(
+        select(models.TaxAdMedia).where(models.TaxAdMedia.report_year == report_year)).all()}
+    start, end = date(report_year, 1, 1), date(report_year, 12, 31)
+    revenue = _core_amounts(db, start, end)["revenue"]           # 营业收入基数
+    v = {}
+    v["1"] = recs.get("1", Z)
+    v["2"] = recs.get("2") if recs.get("2") else Decimal("0.15")  # 扣除率默认 15%
+    v["3"] = (revenue * v["2"]).quantize(Decimal("0.01"))        # 扣除限额
+    v["4"] = recs.get("4", Z)
+    v["5"] = min(v["1"] + v["4"], v["3"])                        # 本年可扣除
+    v["6"] = v["1"] - v["5"]                                     # 纳税调整(通常调增)
+    v["7"] = v["1"] + v["4"] - v["5"]                            # 结转以后
+    return [(ln, item, v[ln], kind in ("detail", "ratio")) for ln, item, kind in _A105060_ROWS]
+
+
+def a105060_adjust_total(db: Session, report_year: int) -> Decimal:
+    """广宣费纳税调整金额(行6,供 A105000 行16联动)。"""
+    return {r[0]: r for r in compute_a105060(db, report_year)}["6"][2]
 
 
 # ---------- Excel 渲染 ----------
@@ -1261,6 +1351,75 @@ def _write_a201020(ws, title: str, company, period: str, rows: list) -> None:
         ws.column_dimensions[col].width = 15
 
 
+def _write_a105050(ws, title: str, company, period: str, rows: list) -> None:
+    """A105050 职工薪酬明细表:行次/项目/账载/实际发生/以前结转/税收金额/纳税调整/结转以后。"""
+    thin = Side(style="thin", color="BBBBBB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    right = Alignment(horizontal="right", vertical="center")
+    last_col = 8
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
+    ws.cell(1, 1, title).font = Font(size=14, bold=True)
+    ws.cell(1, 1).alignment = center
+    ws.row_dimensions[1].height = 30
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_col)
+    ws.cell(2, 1, f"税款所属期间:{period}    金额单位:人民币元(列至角分)").alignment = left
+    head = ["行次", "项目", "账载金额", "实际发生额", "以前年度累计结转扣除额",
+            "税收金额", "纳税调整金额", "累计结转以后年度扣除额"]
+    for c, h in enumerate(head, start=1):
+        cell = ws.cell(3, c, h)
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.fill = PatternFill("solid", fgColor="1F6FEB")
+        cell.alignment = center
+        cell.border = border
+    r = 4
+    for ln, item, book, actual, prev, tax, adjust, carry, level, _ed in rows:
+        ws.cell(r, 1, ln).alignment = center
+        ws.cell(r, 2, item).alignment = Alignment(horizontal="left", vertical="center",
+                                                  wrap_text=True, indent=level * 2)
+        for c, val in ((3, book), (4, actual), (5, prev), (6, tax), (7, adjust), (8, carry)):
+            ws.cell(r, c, round(float(val), 2)).alignment = right
+        for c in range(1, last_col + 1):
+            ws.cell(r, c).border = border
+        r += 1
+    for col, w in (("A", 8), ("B", 34), ("C", 13), ("D", 13), ("E", 18), ("F", 13), ("G", 13), ("H", 20)):
+        ws.column_dimensions[col].width = w
+
+
+def _write_a105060(ws, title: str, company, period: str, rows: list) -> None:
+    """A105060 广宣费明细表:行次/项目/金额。"""
+    thin = Side(style="thin", color="BBBBBB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    right = Alignment(horizontal="right", vertical="center")
+    last_col = 3
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
+    ws.cell(1, 1, title).font = Font(size=14, bold=True)
+    ws.cell(1, 1).alignment = center
+    ws.row_dimensions[1].height = 30
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_col)
+    ws.cell(2, 1, f"税款所属期间:{period}    金额单位:人民币元(列至角分)").alignment = left
+    for c, h in enumerate(["行次", "项目", "金额"], start=1):
+        cell = ws.cell(3, c, h)
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.fill = PatternFill("solid", fgColor="1F6FEB")
+        cell.alignment = center
+        cell.border = border
+    r = 4
+    for ln, item, amount, _ed in rows:
+        ws.cell(r, 1, ln).alignment = center
+        ws.cell(r, 2, item).alignment = left
+        ws.cell(r, 3, round(float(amount), 2)).alignment = right
+        for c in range(1, last_col + 1):
+            ws.cell(r, c).border = border
+        r += 1
+    ws.column_dimensions["A"].width = 8
+    ws.column_dimensions["B"].width = 56
+    ws.column_dimensions["C"].width = 18
+
+
 def build_cit_quarterly_xlsx(db: Session, year: int, quarter: int) -> bytes:
     company = db.get(models.CompanyInfo, 1)
     start, end = date(year, 1, 1), _quarter_end(year, quarter)
@@ -1298,6 +1457,10 @@ def build_cit_annual_xlsx(db: Session, year: int) -> bytes:
                    company, period, compute_a105080(db, year))
     _write_a107(wb.create_sheet("A107012"), "A107012 研发费用加计扣除优惠明细表",
                 company, period, compute_a107012(db, year))
+    _write_a105050(wb.create_sheet("A105050"), "A105050 职工薪酬支出及纳税调整明细表",
+                   company, period, compute_a105050(db, year))
+    _write_a105060(wb.create_sheet("A105060"), "A105060 广告费和业务宣传费跨年度纳税调整明细表",
+                   company, period, compute_a105060(db, year))
     return _save(wb)
 
 

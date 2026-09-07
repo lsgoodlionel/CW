@@ -748,3 +748,28 @@ class TaxPreferenceSave(BaseModel):
     """按年批量保存税收优惠事项金额。"""
     report_year: int = Field(ge=2000, le=2100)
     items: list[TaxPreferenceItem] = []
+
+
+# ---------- 职工薪酬(A105050)录入 ----------
+class TaxSalaryItem(BaseModel):
+    line_no: str
+    book_amount: Decimal = Decimal("0")
+    actual_amount: Decimal = Decimal("0")
+    prev_carry: Decimal = Decimal("0")
+    tax_amount: Decimal = Decimal("0")
+
+
+class TaxSalarySave(BaseModel):
+    report_year: int = Field(ge=2000, le=2100)
+    items: list[TaxSalaryItem] = []
+
+
+# ---------- 广宣费(A105060)录入 ----------
+class TaxAdMediaItem(BaseModel):
+    line_no: str
+    amount: Decimal = Decimal("0")
+
+
+class TaxAdMediaSave(BaseModel):
+    report_year: int = Field(ge=2000, le=2100)
+    items: list[TaxAdMediaItem] = []

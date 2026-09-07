@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Table, Tag, Button, Space, Modal, Form, Input, Select, InputNumber, DatePicker,
-  Popconfirm, message, Tabs, Card, Divider, Alert, Segmented,
+  Popconfirm, message, Tabs, Card, Divider, Alert, Segmented, Collapse,
 } from 'antd'
 import { PlusOutlined, DownloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -32,6 +32,11 @@ interface A105080Row {
 interface A107Row {
   line_no: string; item: string; amount: number; level: number; editable: boolean
 }
+interface A105050Row {
+  line_no: string; item: string; level: number; editable: boolean
+  book: number; actual: number; prev: number; tax: number; adjust: number; carry: number
+}
+interface A105060Row { line_no: string; item: string; amount: number; editable: boolean }
 interface A201020Row {
   line_no: string; item: string; level: number; editable: boolean
   orig: number; book: number; normal: number; accel: number; reduce: number; benefit: number
@@ -201,8 +206,20 @@ function ReportCheckPanel({ checks, isAnnual }: { checks: ReportChecks; isAnnual
     ? `自动复核:${sm.qualified ? '符合' : '不符合'}小型微利企业,本期按${sm.effective ? '小型微利优惠(实际税负5%)' : '法定25%'}计算`
     : `手动模式:按手动值${sm.effective ? '(是)' : '(否)'}计算;自动复核结果为${sm.qualified ? '符合' : '不符合'}`
 
-  return (
-    <div style={{ marginBottom: 12 }}>
+  const hasIssue = !sm.qualified || tk.mismatch
+  // 折叠头:仅显示简要结果,点击展开全部
+  const summary = (
+    <Space size={6} wrap>
+      <Tag color={hasIssue ? 'warning' : 'success'}>复核</Tag>
+      <span>小型微利:<b>{sm.qualified ? '符合' : '不符合'}</b>(本期按{sm.effective ? '优惠5%' : '25%'})</span>
+      <span>· 增值税身份:{tk.mismatch ? <b style={{ color: '#cf1322' }}>需转一般纳税人</b> : '正常'}</span>
+      {isAnnual && <span>· 年度/季度核对</span>}
+      <span style={{ color: '#8c8c8c' }}>(点击展开明细)</span>
+    </Space>
+  )
+
+  const detail = (
+    <>
       <Alert type={smType} showIcon style={{ marginBottom: 8 }}
         message={smTitle}
         description={
@@ -230,11 +247,10 @@ function ReportCheckPanel({ checks, isAnnual }: { checks: ReportChecks; isAnnual
             </div>
           </>
         } />
-      {tk.mismatch && (
+      {tk.mismatch ? (
         <Alert type="warning" showIcon style={{ marginBottom: 8 }}
           message="增值税纳税人身份复核:已超过小规模标准" description={tk.reason} />
-      )}
-      {!tk.mismatch && (
+      ) : (
         <Alert type="info" showIcon style={{ marginBottom: 8 }}
           message={`增值税身份复核:近12个月销售额 ${formatYuan(tk.sales_12m)} 元,当前为${tk.current === 'general' ? '一般纳税人' : '小规模纳税人'},符合标准(小规模 ≤ ${formatYuan(tk.limit)} 元)。`} />
       )}
@@ -243,7 +259,12 @@ function ReportCheckPanel({ checks, isAnnual }: { checks: ReportChecks; isAnnual
           message={`年度与季度核对:年报应纳税所得额 ${formatYuan(checks.reconcile.annual_taxable)} 元,第四季度预缴口径实际利润额 ${formatYuan(checks.reconcile.q4_prepay_profit)} 元,差异 ${formatYuan(checks.reconcile.diff)} 元。`}
           description={checks.reconcile.note} />
       )}
-    </div>
+    </>
+  )
+
+  return (
+    <Collapse ghost size="small" style={{ marginBottom: 12 }}
+      items={[{ key: 'chk', label: summary, children: detail }]} />
   )
 }
 
@@ -363,6 +384,12 @@ function TaxReports() {
           ) },
           { key: 'a107012', label: 'A107012 研发加计', children: (
             <A107Editor year={year} onSaved={loadPreview} />
+          ) },
+          { key: 'a105050', label: 'A105050 职工薪酬', children: (
+            <A105050Editor year={year} onSaved={loadPreview} />
+          ) },
+          { key: 'a105060', label: 'A105060 广宣费', children: (
+            <A105060Editor year={year} onSaved={loadPreview} />
           ) },
           { key: 'pref', label: '税收优惠', children: (
             <PrefEditor year={year} onSaved={loadPreview} />
@@ -664,6 +691,93 @@ function PrefEditor({ year, onSaved }: { year: number; onSaved: () => void }) {
               <InputNumber size="small" value={v} controls={false} precision={2} style={{ width: 130 }}
                 onChange={(nv) => setAmount(r.code, nv as number | null)} />
             ) },
+        ]} />
+    </>
+  )
+}
+
+// A105050 职工薪酬录入:明细行录入账载/实际发生/以前结转/税收金额,纳税调整=账载−税收,联动 A105000 行14
+function A105050Editor({ year, onSaved }: { year: number; onSaved: () => void }) {
+  const [rows, setRows] = useState<A105050Row[]>([])
+  const [saving, setSaving] = useState(false)
+  const load = useCallback(() => {
+    http.get<{ rows: A105050Row[] }>('/tax/salary-adjusts', { params: { year } })
+      .then((r) => setRows(r.data.rows))
+  }, [year])
+  useEffect(() => { load() }, [load])
+  const setCell = (ln: string, key: 'book' | 'actual' | 'prev' | 'tax', v: number | null) =>
+    setRows((rs) => rs.map((r) => (r.line_no === ln ? { ...r, [key]: v ?? 0 } : r)))
+  const save = async () => {
+    setSaving(true)
+    try {
+      const items = rows.filter((r) => r.editable).map((r) => ({
+        line_no: r.line_no, book_amount: r.book, actual_amount: r.actual,
+        prev_carry: r.prev, tax_amount: r.tax,
+      }))
+      const res = await http.put<{ rows: A105050Row[] }>('/tax/salary-adjusts', { report_year: year, items })
+      setRows(res.data.rows); message.success('职工薪酬已保存'); onSaved()
+    } finally { setSaving(false) }
+  }
+  const numCell = (key: 'book' | 'actual' | 'prev' | 'tax') =>
+    (v: number, r: A105050Row) => (r.editable
+      ? <InputNumber size="small" value={v} controls={false} precision={2} style={{ width: 100 }}
+          onChange={(nv) => setCell(r.line_no, key, nv as number | null)} />
+      : formatYuan(v))
+  return (
+    <>
+      <Space style={{ marginBottom: 8 }} wrap>
+        <Button type="primary" loading={saving} onClick={save}>保存职工薪酬</Button>
+        <span style={{ color: '#888' }}>录入各项账载/实际发生/税收金额;纳税调整=账载−税收,合计联动 A105000 行14、主表纳税调整。</span>
+      </Space>
+      <Table rowKey="line_no" size="small" pagination={false} dataSource={rows} scroll={{ x: 880 }}
+        columns={[
+          { title: '行次', dataIndex: 'line_no', width: 50 },
+          { title: '项目', dataIndex: 'item', render: renderLabel },
+          { title: '账载金额', dataIndex: 'book', width: 104, align: 'right' as const, render: numCell('book') },
+          { title: '实际发生额', dataIndex: 'actual', width: 104, align: 'right' as const, render: numCell('actual') },
+          { title: '以前年度结转', dataIndex: 'prev', width: 110, align: 'right' as const, render: numCell('prev') },
+          { title: '税收金额', dataIndex: 'tax', width: 104, align: 'right' as const, render: numCell('tax') },
+          { title: '纳税调整', dataIndex: 'adjust', width: 104, align: 'right' as const, render: (v: number) => formatYuan(v) },
+          { title: '结转以后', dataIndex: 'carry', width: 104, align: 'right' as const, render: (v: number) => formatYuan(v) },
+        ]} />
+    </>
+  )
+}
+
+// A105060 广宣费录入:行1本年支出、行2扣除率、行4以前结转 可录入;限额/扣除/调整/结转自动,纳税调整联动 A105000 行16
+function A105060Editor({ year, onSaved }: { year: number; onSaved: () => void }) {
+  const [rows, setRows] = useState<A105060Row[]>([])
+  const [saving, setSaving] = useState(false)
+  const load = useCallback(() => {
+    http.get<{ rows: A105060Row[] }>('/tax/ad-medias', { params: { year } })
+      .then((r) => setRows(r.data.rows))
+  }, [year])
+  useEffect(() => { load() }, [load])
+  const setAmount = (ln: string, v: number | null) =>
+    setRows((rs) => rs.map((r) => (r.line_no === ln ? { ...r, amount: v ?? 0 } : r)))
+  const save = async () => {
+    setSaving(true)
+    try {
+      const items = rows.filter((r) => r.editable).map((r) => ({ line_no: r.line_no, amount: r.amount }))
+      const res = await http.put<{ rows: A105060Row[] }>('/tax/ad-medias', { report_year: year, items })
+      setRows(res.data.rows); message.success('广宣费已保存'); onSaved()
+    } finally { setSaving(false) }
+  }
+  return (
+    <>
+      <Space style={{ marginBottom: 8 }} wrap>
+        <Button type="primary" loading={saving} onClick={save}>保存广宣费</Button>
+        <span style={{ color: '#888' }}>录入本年支出、扣除率(默认0.15)、以前年度结转;扣除限额=营业收入×扣除率,纳税调整联动 A105000 行16。</span>
+      </Space>
+      <Table rowKey="line_no" size="small" pagination={false} dataSource={rows} scroll={{ x: 560 }}
+        columns={[
+          { title: '行次', dataIndex: 'line_no', width: 56 },
+          { title: '项目', dataIndex: 'item' },
+          { title: '金额', dataIndex: 'amount', width: 160, align: 'right' as const,
+            render: (v: number, r: A105060Row) => (r.editable
+              ? <InputNumber size="small" value={v} controls={false} precision={r.line_no === '2' ? 4 : 2}
+                  style={{ width: 130 }} onChange={(nv) => setAmount(r.line_no, nv as number | null)} />
+              : formatYuan(v)) },
         ]} />
     </>
   )

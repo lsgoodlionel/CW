@@ -193,8 +193,21 @@ def cit_annual_preview(year: int = Query(...), db: Session = Depends(get_db)):
             "schedules": {"A101010": a101010, "A102010": a102010,
                           "A104000": a104000, "A105000": a105000,
                           "A106000": a106000, "A105080": a105080, "A107012": a107012,
+                          "A105050": _a105050_rows(db, year), "A105060": _a105060_rows(db, year),
                           "preferences": _pref_rows(db, year)},
             "checks": tax_report.annual_report_checks(db, year)}
+
+
+def _a105050_rows(db: Session, year: int) -> list[dict]:
+    return [{"line_no": ln, "item": it, "book": float(bk), "actual": float(ac),
+             "prev": float(pv), "tax": float(tx), "adjust": float(aj), "carry": float(cy),
+             "level": lv, "editable": ed}
+            for ln, it, bk, ac, pv, tx, aj, cy, lv, ed in tax_report.compute_a105050(db, year)]
+
+
+def _a105060_rows(db: Session, year: int) -> list[dict]:
+    return [{"line_no": ln, "item": it, "amount": float(am), "editable": ed}
+            for ln, it, am, ed in tax_report.compute_a105060(db, year)]
 
 
 def _a107_rows(db: Session, year: int) -> list[dict]:
@@ -345,3 +358,48 @@ def save_accel(payload: schemas.TaxAccelSave, db: Session = Depends(get_db)):
             reduce_amount=it.reduce_amount))
     db.commit()
     return {"year": payload.year, "rows": _a201020_rows(db, payload.year)}
+
+
+@router.get("/salary-adjusts")
+def list_salary(year: int = Query(...), db: Session = Depends(get_db)):
+    """A105050 职工薪酬明细。"""
+    return {"year": year, "rows": _a105050_rows(db, year)}
+
+
+@router.put("/salary-adjusts")
+def save_salary(payload: schemas.TaxSalarySave, db: Session = Depends(get_db)):
+    """按年保存职工薪酬录入(明细行;整表覆盖)。"""
+    editable = {ln for ln, _i, _l, kind in tax_report._A105050_ROWS if kind in ("detail", "memo")}
+    db.execute(models.TaxSalaryAdjust.__table__.delete().where(
+        models.TaxSalaryAdjust.report_year == payload.report_year))
+    for it in payload.items:
+        if it.line_no not in editable:
+            continue
+        if not (it.book_amount or it.actual_amount or it.prev_carry or it.tax_amount):
+            continue
+        db.add(models.TaxSalaryAdjust(
+            report_year=payload.report_year, line_no=it.line_no, book_amount=it.book_amount,
+            actual_amount=it.actual_amount, prev_carry=it.prev_carry, tax_amount=it.tax_amount))
+    db.commit()
+    return {"year": payload.report_year, "rows": _a105050_rows(db, payload.report_year)}
+
+
+@router.get("/ad-medias")
+def list_ad(year: int = Query(...), db: Session = Depends(get_db)):
+    """A105060 广宣费明细。"""
+    return {"year": year, "rows": _a105060_rows(db, year)}
+
+
+@router.put("/ad-medias")
+def save_ad(payload: schemas.TaxAdMediaSave, db: Session = Depends(get_db)):
+    """按年保存广宣费录入(行1本年支出、行2扣除率、行4以前结转;整表覆盖)。"""
+    editable = {ln for ln, _i, kind in tax_report._A105060_ROWS if kind in ("detail", "ratio")}
+    db.execute(models.TaxAdMedia.__table__.delete().where(
+        models.TaxAdMedia.report_year == payload.report_year))
+    for it in payload.items:
+        if it.line_no not in editable or not it.amount:
+            continue
+        db.add(models.TaxAdMedia(
+            report_year=payload.report_year, line_no=it.line_no, amount=it.amount))
+    db.commit()
+    return {"year": payload.report_year, "rows": _a105060_rows(db, payload.report_year)}

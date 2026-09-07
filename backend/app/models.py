@@ -719,3 +719,32 @@ class TaxPreference(Base):
     amount: Mapped[Decimal] = mapped_column(MONEY, default=0)          # 优惠金额
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class TaxSalaryAdjust(Base):
+    """职工薪酬支出及纳税调整(A105050)按年录入。纳税调整=账载金额−税收金额。"""
+    __tablename__ = "tax_salary_adjusts"
+    __table_args__ = (UniqueConstraint("report_year", "line_no", name="uq_tax_salary_year_line"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    report_year: Mapped[int] = mapped_column(Integer, index=True)
+    line_no: Mapped[str] = mapped_column(String(10), index=True)       # A105050 行次
+    book_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)     # 账载金额
+    actual_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)   # 实际发生额
+    prev_carry: Mapped[Decimal] = mapped_column(MONEY, default=0)      # 以前年度累计结转扣除额
+    tax_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)      # 税收金额(准予税前扣除)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class TaxAdMedia(Base):
+    """广告费和业务宣传费跨年度纳税调整(A105060)按年+行次录入金额(行2为扣除率)。"""
+    __tablename__ = "tax_ad_medias"
+    __table_args__ = (UniqueConstraint("report_year", "line_no", name="uq_tax_ad_year_line"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    report_year: Mapped[int] = mapped_column(Integer, index=True)
+    line_no: Mapped[str] = mapped_column(String(10), index=True)       # A105060 行次
+    amount: Mapped[Decimal] = mapped_column(MONEY, default=0)          # 金额(行2为扣除率,如0.15)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

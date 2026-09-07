@@ -24,10 +24,10 @@ from ..schemas_read import DataImportOut
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-EXPORT_VERSION = 18
+EXPORT_VERSION = 19
 # 1-7 见历史;8:用户/角色/权限;9:费用申请 + 附件多归属(扁平附件表)
 # 10:企业信息导出全部字段;11:合同管理 + 税务申报记录(含其附件归属)
-SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}
+SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19}
 
 
 def _company_dict(c: models.CompanyInfo | None) -> dict:
@@ -228,6 +228,17 @@ def build_backup_zip(db: Session) -> bytes:
              "amount": str(pf.amount), "note": pf.note}
             for pf in db.scalars(select(models.TaxPreference)).all()
         ],
+        "tax_salary_adjusts": [
+            {"report_year": s.report_year, "line_no": s.line_no,
+             "book_amount": str(s.book_amount), "actual_amount": str(s.actual_amount),
+             "prev_carry": str(s.prev_carry), "tax_amount": str(s.tax_amount), "note": s.note}
+            for s in db.scalars(select(models.TaxSalaryAdjust)).all()
+        ],
+        "tax_ad_medias": [
+            {"report_year": m.report_year, "line_no": m.line_no,
+             "amount": str(m.amount), "note": m.note}
+            for m in db.scalars(select(models.TaxAdMedia)).all()
+        ],
         "roles": [
             {"name": r.name, "note": r.note, "is_system": r.is_system,
              "perms": [p.perm for p in r.permissions]}
@@ -367,6 +378,8 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     db.execute(delete(models.TaxRdDeduction))
     db.execute(delete(models.TaxAccelDepr))
     db.execute(delete(models.TaxPreference))
+    db.execute(delete(models.TaxSalaryAdjust))
+    db.execute(delete(models.TaxAdMedia))
     db.execute(delete(models.SubAccount))
     db.execute(delete(models.Account))
     db.execute(delete(models.Customer))
@@ -796,6 +809,17 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
         db.add(models.TaxPreference(
             report_year=int(pf["report_year"]), code=pf.get("code", ""),
             amount=Decimal(str(pf.get("amount", "0"))), note=pf.get("note", "")))
+    for s2 in payload.get("tax_salary_adjusts", []):
+        db.add(models.TaxSalaryAdjust(
+            report_year=int(s2["report_year"]), line_no=s2.get("line_no", ""),
+            book_amount=Decimal(str(s2.get("book_amount", "0"))),
+            actual_amount=Decimal(str(s2.get("actual_amount", "0"))),
+            prev_carry=Decimal(str(s2.get("prev_carry", "0"))),
+            tax_amount=Decimal(str(s2.get("tax_amount", "0"))), note=s2.get("note", "")))
+    for m in payload.get("tax_ad_medias", []):
+        db.add(models.TaxAdMedia(
+            report_year=int(m["report_year"]), line_no=m.get("line_no", ""),
+            amount=Decimal(str(m.get("amount", "0"))), note=m.get("note", "")))
     db.flush()
 
     # 5e. 扁平附件表:按 ref 映射到凭证/费用申请/费用报销/合同/税务并落盘
