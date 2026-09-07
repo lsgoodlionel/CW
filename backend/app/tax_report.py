@@ -33,6 +33,95 @@ SMALL_MICRO_STAFF_LIMIT = 300                       # 从业人数 ≤ 300 人
 SMALL_MICRO_ASSET_LIMIT = Decimal("50000000")      # 资产总额 ≤ 5000 万元
 # 小规模纳税人标准:连续 12 个月应征增值税销售额 ≤ 500 万元
 VAT_SMALL_SALES_LIMIT = Decimal("5000000")
+# 小规模增值税:季度销售额 ≤ 30 万元免征;征收率默认 1%(2023-2027优惠,可选3%)
+VAT_FREE_QUARTER = Decimal("300000")
+VAT_RATE_DEFAULT = Decimal("0.01")
+# 附加税费率:城建税(市区7%)、教育费附加3%、地方教育附加2%
+SURTAX_CITY = Decimal("0.07")
+SURTAX_EDU = Decimal("0.03")
+SURTAX_LOCAL_EDU = Decimal("0.02")
+
+
+def compute_vat_small(db: Session, year: int, quarter: int,
+                      rate: Decimal | None = None, half_surtax: bool = True) -> dict:
+    """增值税及附加税费申报表(小规模纳税人适用)本季度计算。
+    销售额取本季度 6001/6051;季销售额≤30万免征;附加税以实纳增值税为基,小微「六税两费」减半。"""
+    start = date(year, quarter * 3 - 2, 1)
+    end = _quarter_end(year, quarter)
+    sales = reports_cn.Balances(reports_cn._movement(db, start, end)).net_credit("6001", "6051")
+    rate = Decimal(str(rate)) if rate else VAT_RATE_DEFAULT
+    free = sales <= VAT_FREE_QUARTER
+    gross_vat = (sales * rate).quantize(Decimal("0.01"))
+    relief = gross_vat if free else Z                 # 小微免征减征额
+    vat = gross_vat - relief                           # 本期应纳(减免后)增值税
+    half = Decimal("0.5") if half_surtax else Decimal("1")
+    city = (vat * SURTAX_CITY * half).quantize(Decimal("0.01"))
+    edu = (vat * SURTAX_EDU * half).quantize(Decimal("0.01"))
+    local = (vat * SURTAX_LOCAL_EDU * half).quantize(Decimal("0.01"))
+    surtax = city + edu + local
+    rows = [
+        ("一、应征增值税不含税销售额", sales, ""),
+        ("二、征收率", rate, "小规模征收率(优惠1%/一般3%)"),
+        ("三、本期应纳增值税额(一×二)", gross_vat, ""),
+        ("四、小微免征增值税减征额", relief, "季度销售额≤30万免征" if free else "本季销售额超30万,不免征"),
+        ("五、本期实纳增值税额(三−四)", vat, ""),
+        ("六、城市维护建设税(五×7%)", city, "小微减半" if half_surtax else ""),
+        ("七、教育费附加(五×3%)", edu, "小微减半" if half_surtax else ""),
+        ("八、地方教育附加(五×2%)", local, "小微减半" if half_surtax else ""),
+        ("九、附加税费合计(六+七+八)", surtax, ""),
+        ("十、本期应纳税费合计(五+九)", vat + surtax, "增值税+附加税费"),
+    ]
+    return {"year": year, "quarter": quarter, "sales": sales, "rate": rate, "free": free,
+            "gross_vat": gross_vat, "relief": relief, "vat": vat,
+            "city": city, "edu": edu, "local": local, "surtax": surtax,
+            "total": vat + surtax, "rows": rows}
+
+
+def build_vat_small_xlsx(db: Session, year: int, quarter: int,
+                         rate: Decimal | None = None, half_surtax: bool = True) -> bytes:
+    company = db.get(models.CompanyInfo, 1)
+    data = compute_vat_small(db, year, quarter, rate, half_surtax)
+    start = date(year, quarter * 3 - 2, 1)
+    period = f"{start:%Y-%m-%d} 至 {_quarter_end(year, quarter):%Y-%m-%d}"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "增值税及附加税费申报表"
+    thin = Side(style="thin", color="BBBBBB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    right = Alignment(horizontal="right", vertical="center")
+    ws.merge_cells("A1:C1")
+    ws["A1"] = "增值税及附加税费申报表(小规模纳税人适用)"
+    ws["A1"].font = Font(size=14, bold=True)
+    ws["A1"].alignment = center
+    ws.row_dimensions[1].height = 30
+    for i, m in enumerate((f"税款所属期间:{period}",
+                           f"纳税人名称:{(company.name if company else '') or ''}    金额单位:人民币元")):
+        ws.merge_cells(start_row=2 + i, start_column=1, end_row=2 + i, end_column=3)
+        ws.cell(2 + i, 1, m).alignment = left
+    r = 4
+    for c, h in enumerate(["项目", "金额/比率", "说明"], start=1):
+        cell = ws.cell(r, c, h)
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.fill = PatternFill("solid", fgColor="1F6FEB")
+        cell.alignment = center
+        cell.border = border
+    r += 1
+    for item, amount, note in data["rows"]:
+        ws.cell(r, 1, item).alignment = left
+        if item.startswith("二、征收率"):
+            ws.cell(r, 2, f"{float(amount) * 100:.0f}%").alignment = right
+        else:
+            ws.cell(r, 2, round(float(amount), 2)).alignment = right
+        ws.cell(r, 3, note).alignment = left
+        for c in (1, 2, 3):
+            ws.cell(r, c).border = border
+        r += 1
+    ws.column_dimensions["A"].width = 34
+    ws.column_dimensions["B"].width = 18
+    ws.column_dimensions["C"].width = 30
+    return _save(wb)
 
 def _total_assets(db: Session, as_of: date) -> Decimal:
     """资产总额:资产类科目净额合计(借-贷,备抵科目自然抵减);口径含在产品/生产成本,与资产负债表存货一致。"""

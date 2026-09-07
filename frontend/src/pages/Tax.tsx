@@ -268,31 +268,40 @@ function ReportCheckPanel({ checks, isAnnual }: { checks: ReportChecks; isAnnual
   )
 }
 
+interface VatRow { item: string; amount: number; note: string }
+
 function TaxReports() {
   const now = dayjs()
-  const [reportType, setReportType] = useState<'quarterly' | 'annual'>('quarterly')
+  const [reportType, setReportType] = useState<'quarterly' | 'annual' | 'vat'>('quarterly')
   const [year, setYear] = useState<number>(now.year())
   const [quarter, setQuarter] = useState<number>(Math.floor((now.month()) / 3) + 1)
   const [preview, setPreview] = useState<CitRow[]>([])
   const [sched, setSched] = useState<Schedules | null>(null)
   const [checks, setChecks] = useState<ReportChecks | null>(null)
+  const [vatRate, setVatRate] = useState<number>(0.01)
+  const [vatRows, setVatRows] = useState<VatRow[]>([])
 
   const isAnnual = reportType === 'annual'
+  const isVat = reportType === 'vat'
   const loadPreview = useCallback(() => {
-    if (isAnnual) {
+    if (reportType === 'annual') {
       http.get<{ rows: CitRow[]; schedules: Schedules; checks: ReportChecks }>('/tax/report/cit-annual/preview', { params: { year } })
         .then((r) => { setPreview(r.data.rows); setSched(r.data.schedules); setChecks(r.data.checks) })
+    } else if (reportType === 'vat') {
+      http.get<{ rows: VatRow[] }>('/tax/report/vat-small/preview', { params: { year, quarter, rate: vatRate } })
+        .then((r) => setVatRows(r.data.rows))
     } else {
       http.get<{ rows: CitRow[]; checks: ReportChecks }>('/tax/report/cit-quarterly/preview', { params: { year, quarter } })
         .then((r) => { setPreview(r.data.rows); setSched(null); setChecks(r.data.checks) })
     }
-  }, [isAnnual, year, quarter])
+  }, [reportType, year, quarter, vatRate])
   useEffect(() => { loadPreview() }, [loadPreview])
 
   const download = () => {
-    const url = isAnnual
-      ? `/api/tax/report/cit-annual?year=${year}`
-      : `/api/tax/report/cit-quarterly?year=${year}&quarter=${quarter}`
+    let url = ''
+    if (reportType === 'annual') url = `/api/tax/report/cit-annual?year=${year}`
+    else if (reportType === 'vat') url = `/api/tax/report/vat-small?year=${year}&quarter=${quarter}&rate=${vatRate}`
+    else url = `/api/tax/report/cit-quarterly?year=${year}&quarter=${quarter}`
     window.open(withToken(url), '_blank')
   }
 
@@ -313,17 +322,20 @@ function TaxReports() {
     { title: '本年金额', dataIndex: 'amount', width: 160, align: 'right' as const, render: renderAmount },
   ]
 
-  const title = isAnnual
-    ? '企业所得税年度纳税申报表(A类)· A100000'
-    : '企业所得税月(季)度预缴纳税申报表(A类)· A200000'
+  const title = isVat
+    ? '增值税及附加税费申报表(小规模纳税人适用)'
+    : isAnnual
+      ? '企业所得税年度纳税申报表(A类)· A100000'
+      : '企业所得税月(季)度预缴纳税申报表(A类)· A200000'
 
   return (
     <Card size="small" title={title}
       extra={<Button type="primary" icon={<DownloadOutlined />} onClick={download}>导出 Excel</Button>}>
       <Space style={{ marginBottom: 12 }} wrap>
-        <Segmented value={reportType} onChange={(v) => setReportType(v as 'quarterly' | 'annual')}
-          options={[{ label: '季度预缴(A200000)', value: 'quarterly' },
-            { label: '年度汇算(A100000)', value: 'annual' }]} />
+        <Segmented value={reportType} onChange={(v) => setReportType(v as 'quarterly' | 'annual' | 'vat')}
+          options={[{ label: '企税季度预缴(A200000)', value: 'quarterly' },
+            { label: '企税年度汇算(A100000)', value: 'annual' },
+            { label: '增值税及附加(小规模)', value: 'vat' }]} />
         <span>年度</span>
         <InputNumber value={year} min={2000} max={2100} onChange={(v) => v && setYear(v)} style={{ width: 100 }} />
         {!isAnnual && <>
@@ -331,13 +343,29 @@ function TaxReports() {
           <Select value={quarter} style={{ width: 90 }} onChange={setQuarter}
             options={[1, 2, 3, 4].map((q) => ({ value: q, label: `第${q}季度` }))} />
         </>}
+        {isVat && <>
+          <span>征收率</span>
+          <Select value={vatRate} style={{ width: 90 }} onChange={setVatRate}
+            options={[{ value: 0.01, label: '1%' }, { value: 0.03, label: '3%' }]} />
+        </>}
       </Space>
       <Alert type="info" showIcon style={{ marginBottom: 12 }}
-        message={isAnnual
-          ? '年报按账套全年数据自动计算利润总额及应纳税额;境外所得、纳税调整、各类优惠、预缴税额及总分机构分摊等行次默认 0,导出后可结合各附表按实际手工调整再报送。'
-          : '本表按账套数据自动计算本年累计(年初→季末);优惠、预缴、纳税调整等行次默认 0,导出后可在 Excel 中按实际手工调整再报送。'} />
-      {checks && <ReportCheckPanel checks={checks} isAnnual={isAnnual} />}
-      {!isAnnual && (
+        message={isVat
+          ? '按本季度账套销售额(6001/6051)自动计算小规模增值税及附加税费;季销售额≤30万免征增值税,附加税费按小微「六税两费」减半;实际请以开票/免税分类核对后申报。'
+          : isAnnual
+            ? '年报按账套全年数据自动计算利润总额及应纳税额;境外所得、纳税调整、各类优惠、预缴税额及总分机构分摊等行次默认 0,导出后可结合各附表按实际手工调整再报送。'
+            : '本表按账套数据自动计算本年累计(年初→季末);优惠、预缴、纳税调整等行次默认 0,导出后可在 Excel 中按实际手工调整再报送。'} />
+      {checks && !isVat && <ReportCheckPanel checks={checks} isAnnual={isAnnual} />}
+      {isVat && (
+        <Table rowKey="item" size="small" pagination={false} dataSource={vatRows}
+          columns={[
+            { title: '项目', dataIndex: 'item' },
+            { title: '金额/比率', dataIndex: 'amount', width: 150, align: 'right' as const,
+              render: (v: number, r: VatRow) => (r.item.startsWith('二、征收率') ? `${(v * 100).toFixed(0)}%` : formatYuan(v)) },
+            { title: '说明', dataIndex: 'note', width: 220, render: (v: string) => <span style={{ color: '#888' }}>{v}</span> },
+          ]} />
+      )}
+      {reportType === 'quarterly' && (
         <Tabs size="small" items={[
           { key: 'main', label: 'A200000 主表', children: (
             <Table rowKey="line_no" size="small" pagination={false} dataSource={preview} columns={quarterlyCols} />

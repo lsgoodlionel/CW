@@ -174,6 +174,30 @@ def cit_annual(year: int = Query(...), db: Session = Depends(get_db)):
     )
 
 
+@router.get("/report/vat-small")
+def vat_small(year: int = Query(...), quarter: int = Query(..., ge=1, le=4),
+              rate: float | None = Query(None), half_surtax: bool = Query(True),
+              db: Session = Depends(get_db)):
+    """增值税及附加税费申报表(小规模纳税人适用),导出 Excel。"""
+    content = tax_report.build_vat_small_xlsx(db, year, quarter, rate, half_surtax)
+    fname = f"增值税及附加税费申报表-{year}年第{quarter}季度.xlsx"
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"},
+    )
+
+
+@router.get("/report/vat-small/preview")
+def vat_small_preview(year: int = Query(...), quarter: int = Query(..., ge=1, le=4),
+                      rate: float | None = Query(None), half_surtax: bool = Query(True),
+                      db: Session = Depends(get_db)):
+    """小规模增值税及附加申报表结构化预览。"""
+    d = tax_report.compute_vat_small(db, year, quarter, rate, half_surtax)
+    return {"year": year, "quarter": quarter, "free": d["free"], "rate": float(d["rate"]),
+            "rows": [{"item": it, "amount": float(am), "note": nt} for it, am, nt in d["rows"]]}
+
+
 @router.get("/report/cit-annual/preview")
 def cit_annual_preview(year: int = Query(...), db: Session = Depends(get_db)):
     """年报主表 + 附表行次的结构化预览(供页面展示,不下载)。"""
