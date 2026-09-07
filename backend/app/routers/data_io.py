@@ -24,10 +24,10 @@ from ..schemas_read import DataImportOut
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-EXPORT_VERSION = 10
+EXPORT_VERSION = 11
 # 1-7 见历史;8:用户/角色/权限;9:费用申请 + 附件多归属(扁平附件表)
-# 10:企业信息导出全部字段(税号/地址/开户行/行业/本位币/准则/启用期间等)
-SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+# 10:企业信息导出全部字段;11:合同管理 + 税务申报记录(含其附件归属)
+SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
 
 
 def _company_dict(c: models.CompanyInfo | None) -> dict:
@@ -164,6 +164,32 @@ def build_backup_zip(db: Session) -> bytes:
             for c in db.scalars(select(models.ExpenseClaim)
                                 .options(selectinload(models.ExpenseClaim.items))).all()
         ],
+        "contracts": [
+            {"ref": ct.id, "contract_no": ct.contract_no, "name": ct.name,
+             "category": ct.category, "customer_ref": ct.customer_id,
+             "party_name": ct.party_name, "amount": str(ct.amount),
+             "sign_date": ct.sign_date.isoformat() if ct.sign_date else None,
+             "start_date": ct.start_date.isoformat() if ct.start_date else None,
+             "end_date": ct.end_date.isoformat() if ct.end_date else None,
+             "status": ct.status, "our_signatory": ct.our_signatory,
+             "counterparty_contact": ct.counterparty_contact, "note": ct.note,
+             "created_at": ct.created_at.isoformat() if ct.created_at else None,
+             "voucher_links": [{"voucher_ref": lk.voucher_id, "note": lk.note}
+                               for lk in ct.voucher_links]}
+            for ct in db.scalars(select(models.Contract)
+                                 .options(selectinload(models.Contract.voucher_links))).all()
+        ],
+        "tax_filings": [
+            {"ref": t.id, "tax_type": t.tax_type, "taxpayer_type": t.taxpayer_type, "period": t.period,
+             "period_start": t.period_start.isoformat() if t.period_start else None,
+             "period_end": t.period_end.isoformat() if t.period_end else None,
+             "tax_basis": str(t.tax_basis), "tax_amount": str(t.tax_amount),
+             "paid_amount": str(t.paid_amount),
+             "filed_date": t.filed_date.isoformat() if t.filed_date else None,
+             "status": t.status, "note": t.note,
+             "created_at": t.created_at.isoformat() if t.created_at else None}
+            for t in db.scalars(select(models.TaxFiling)).all()
+        ],
         "roles": [
             {"name": r.name, "note": r.note, "is_system": r.is_system,
              "perms": [p.perm for p in r.permissions]}
@@ -224,6 +250,8 @@ def build_backup_zip(db: Session) -> bytes:
             "voucher_ref": att.voucher_id,
             "application_ref": att.expense_application_id,
             "claim_ref": att.expense_claim_id,
+            "contract_ref": att.contract_id,
+            "tax_filing_ref": att.tax_filing_id,
         })
         if src.exists():
             file_map.append((arc_name, src))
@@ -287,11 +315,14 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     db.execute(delete(models.VoucherLink))
     db.execute(delete(models.VoucherEntry))
     db.execute(delete(models.Attachment))
+    db.execute(delete(models.ContractVoucherLink))
     db.execute(delete(models.ExpenseItem))
     db.execute(delete(models.ExpenseApplicationItem))
     db.execute(delete(models.ExpenseClaim))
     db.execute(delete(models.ExpenseApplication))
     db.execute(delete(models.Voucher))
+    db.execute(delete(models.Contract))
+    db.execute(delete(models.TaxFiling))
     db.execute(delete(models.SubAccount))
     db.execute(delete(models.Account))
     db.execute(delete(models.Customer))
@@ -617,7 +648,57 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
             ref_to_claim[c["ref"]] = claim
     db.flush()
 
-    # 5c. 扁平附件表(v9):按 ref 映射到凭证/费用申请/费用报销并落盘
+    # 5c. 合同 + 合同↔凭证关联
+    ref_to_contract: dict[int, models.Contract] = {}
+    for ct in payload.get("contracts", []):
+        cust = ref_to_customer.get(ct.get("customer_ref"))
+        ts = ct.get("created_at")
+        contract = models.Contract(
+            contract_no=ct.get("contract_no", ""), name=ct.get("name", ""),
+            category=ct.get("category", "other"),
+            customer_id=cust.id if cust else None, party_name=ct.get("party_name", ""),
+            amount=Decimal(str(ct.get("amount", "0"))),
+            sign_date=date.fromisoformat(ct["sign_date"]) if ct.get("sign_date") else None,
+            start_date=date.fromisoformat(ct["start_date"]) if ct.get("start_date") else None,
+            end_date=date.fromisoformat(ct["end_date"]) if ct.get("end_date") else None,
+            status=ct.get("status", "active"), our_signatory=ct.get("our_signatory", ""),
+            counterparty_contact=ct.get("counterparty_contact", ""), note=ct.get("note", ""),
+            created_at=datetime.fromisoformat(ts) if ts else None)
+        db.add(contract)
+        if ct.get("ref") is not None:
+            ref_to_contract[ct["ref"]] = contract
+    db.flush()
+    for ct in payload.get("contracts", []):
+        contract = ref_to_contract.get(ct.get("ref"))
+        if contract is None:
+            continue
+        for lk in ct.get("voucher_links", []):
+            v = ref_to_voucher.get(lk.get("voucher_ref"))
+            if v is not None:
+                db.add(models.ContractVoucherLink(
+                    contract_id=contract.id, voucher_id=v.id, note=lk.get("note", "")))
+
+    # 5d. 税务申报记录
+    ref_to_tax: dict[int, models.TaxFiling] = {}
+    for t in payload.get("tax_filings", []):
+        ts = t.get("created_at")
+        tf = models.TaxFiling(
+            tax_type=t.get("tax_type", "other"),
+            taxpayer_type=t.get("taxpayer_type", "enterprise"), period=t.get("period", ""),
+            period_start=date.fromisoformat(t["period_start"]) if t.get("period_start") else None,
+            period_end=date.fromisoformat(t["period_end"]) if t.get("period_end") else None,
+            tax_basis=Decimal(str(t.get("tax_basis", "0"))),
+            tax_amount=Decimal(str(t.get("tax_amount", "0"))),
+            paid_amount=Decimal(str(t.get("paid_amount", "0"))),
+            filed_date=date.fromisoformat(t["filed_date"]) if t.get("filed_date") else None,
+            status=t.get("status", "pending"), note=t.get("note", ""),
+            created_at=datetime.fromisoformat(ts) if ts else None)
+        db.add(tf)
+        if t.get("ref") is not None:
+            ref_to_tax[t["ref"]] = tf
+    db.flush()
+
+    # 5e. 扁平附件表:按 ref 映射到凭证/费用申请/费用报销/合同/税务并落盘
     for att in payload.get("attachments", []):
         arc = att.get("archive_name")
         if not arc:
@@ -628,9 +709,13 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
         vch = ref_to_voucher.get(att.get("voucher_ref"))
         application = ref_to_application.get(att.get("application_ref"))
         claim = ref_to_claim.get(att.get("claim_ref"))
+        contract = ref_to_contract.get(att.get("contract_ref"))
+        tax = ref_to_tax.get(att.get("tax_filing_ref"))
         owner_dir = (f"{vch.id}" if vch else
                      f"apply_{application.id}" if application else
-                     f"claim_{claim.id}" if claim else "misc")
+                     f"claim_{claim.id}" if claim else
+                     f"contract_{contract.id}" if contract else
+                     f"tax_{tax.id}" if tax else "misc")
         sub_dir = upload_root / owner_dir
         sub_dir.mkdir(parents=True, exist_ok=True)
         suffix = Path(att.get("original_name", "")).suffix
@@ -640,6 +725,8 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
             voucher_id=vch.id if vch else None,
             expense_application_id=application.id if application else None,
             expense_claim_id=claim.id if claim else None,
+            contract_id=contract.id if contract else None,
+            tax_filing_id=tax.id if tax else None,
             kind=att.get("kind", "other"), original_name=att.get("original_name", ""),
             stored_path=str(stored), mime_type=att.get("mime_type", ""),
             size_bytes=att.get("size_bytes", 0)))

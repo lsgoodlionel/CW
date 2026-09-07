@@ -62,6 +62,7 @@ MODULES = {
     "voucher": "记账凭证", "account": "会计科目", "customer": "往来单位",
     "personnel": "人员管理", "workflow": "流程设计", "approval": "审批中心",
     "expense_apply": "费用申请", "expense": "费用报销",
+    "contract": "合同管理", "tax": "税务管理",
     "report": "财务报表", "ledger": "会计账簿", "company": "企业信息",
     "data": "数据备份", "logs": "操作日志", "user": "用户与权限",
 }
@@ -77,6 +78,9 @@ MODULE_ACTIONS["company"] = ["view", "edit"]
 MODULE_ACTIONS["workflow"] = ["view", "create", "edit", "delete"]
 # 审批中心:查看/审批(通过驳回)/管理(改派撤销=edit)/删除实例
 MODULE_ACTIONS["approval"] = ["view", "approve", "edit", "delete"]
+# 合同管理 / 税务管理:常规增删改查(税务报表按 view 归类)
+MODULE_ACTIONS["contract"] = ["view", "create", "edit", "delete"]
+MODULE_ACTIONS["tax"] = ["view", "create", "edit", "delete"]
 
 
 def catalog() -> list[dict]:
@@ -92,6 +96,7 @@ _PREFIX_MODULE = [
     ("/api/accounts", "account"), ("/api/customers", "customer"),
     ("/api/personnel", "personnel"), ("/api/workflow", "workflow"),
     ("/api/expense-apply", "expense_apply"), ("/api/expense", "expense"),
+    ("/api/contracts", "contract"), ("/api/tax", "tax"),
     ("/api/reports", "report"),
     ("/api/ledgers", "ledger"), ("/api/company", "company"),
     ("/api/data", "data"), ("/api/logs", "logs"),

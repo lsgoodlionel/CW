@@ -5,6 +5,7 @@ import {
   SettingOutlined, BookOutlined, HistoryOutlined, TeamOutlined, IdcardOutlined,
   PartitionOutlined, SolutionOutlined, SafetyCertificateOutlined, UserOutlined,
   LogoutOutlined, KeyOutlined, FileDoneOutlined, AuditOutlined, InfoCircleOutlined,
+  FileProtectOutlined, CalculatorOutlined,
 } from '@ant-design/icons'
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
@@ -22,6 +23,8 @@ import Ledgers from './pages/Ledgers'
 import Logs from './pages/Logs'
 import UsersAdmin from './pages/Users'
 import Settings from './pages/Settings'
+import Contracts from './pages/Contracts'
+import Tax from './pages/Tax'
 import About from './pages/About'
 import Login from './pages/Login'
 import { http, getToken, clearToken, AuthUser, hasPerm } from './api'
@@ -41,6 +44,8 @@ const MENU = [
   { key: '/approvals', icon: <AuditOutlined />, label: '审批中心', module: 'approval' },
   { key: '/expense-apply', icon: <FileDoneOutlined />, label: '费用申请', module: 'expense_apply' },
   { key: '/expense', icon: <SolutionOutlined />, label: '费用报销', module: 'expense' },
+  { key: '/contracts', icon: <FileProtectOutlined />, label: '合同管理', module: 'contract' },
+  { key: '/tax', icon: <CalculatorOutlined />, label: '税务管理', module: 'tax' },
   { key: '/logs', icon: <HistoryOutlined />, label: '操作日志', module: 'logs' },
   { key: '/users', icon: <SafetyCertificateOutlined />, label: '用户与权限', module: 'user' },
   { key: '/settings', icon: <SettingOutlined />, label: '企业信息', module: 'company' },
@@ -127,6 +132,8 @@ export default function App() {
             <Route path="/approvals" element={<ApprovalCenter />} />
             <Route path="/expense-apply" element={<ExpenseApply />} />
             <Route path="/expense" element={<Expense />} />
+            <Route path="/contracts" element={<Contracts />} />
+            <Route path="/tax" element={<Tax />} />
             <Route path="/about" element={<About />} />
             <Route path="/logs" element={<Logs />} />
             <Route path="/users" element={<UsersAdmin />} />

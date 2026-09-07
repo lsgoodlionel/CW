@@ -140,6 +140,8 @@ class AttachmentOut(BaseModel):
     voucher_id: int | None = None
     expense_application_id: int | None = None
     expense_claim_id: int | None = None
+    contract_id: int | None = None
+    tax_filing_id: int | None = None
     kind: str
     original_name: str
     mime_type: str
@@ -547,3 +549,94 @@ class VoucherPage(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ---------- 合同管理 ----------
+CONTRACT_CATEGORIES = {"sales", "purchase", "service", "lease", "labor", "loan", "other"}
+CONTRACT_STATUSES = {"draft", "active", "completed", "terminated"}
+
+
+class ContractIn(BaseModel):
+    contract_no: str = Field(min_length=1, max_length=60)
+    name: str = Field(min_length=1, max_length=200)
+    category: str = "other"
+    customer_id: int | None = None
+    party_name: str = ""
+    amount: Decimal = Decimal("0")
+    sign_date: date | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    status: str = "active"
+    our_signatory: str = ""
+    counterparty_contact: str = ""
+    note: str = ""
+
+
+class ContractVoucherBrief(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    voucher_id: int
+    voucher_no: str = ""
+    voucher_date: date | None = None
+    total_debit: Decimal = Decimal("0")
+    note: str = ""
+
+
+class ContractOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    contract_no: str
+    name: str
+    category: str
+    customer_id: int | None
+    customer_name: str = ""
+    party_name: str
+    amount: Decimal
+    sign_date: date | None
+    start_date: date | None
+    end_date: date | None
+    status: str
+    our_signatory: str
+    counterparty_contact: str
+    note: str
+    created_at: datetime
+    attachments: list[AttachmentOut] = []
+    vouchers: list[ContractVoucherBrief] = []
+
+
+# ---------- 税务管理 ----------
+TAX_TYPES = {"stamp", "vat", "vat_surtax", "cit", "iit", "other"}
+TAXPAYER_TYPES = {"enterprise", "individual"}
+TAX_FILING_STATUSES = {"pending", "filed", "paid"}
+
+
+class TaxFilingIn(BaseModel):
+    tax_type: str
+    taxpayer_type: str = "enterprise"
+    period: str = Field(min_length=1, max_length=20)
+    period_start: date | None = None
+    period_end: date | None = None
+    tax_basis: Decimal = Decimal("0")
+    tax_amount: Decimal = Decimal("0")
+    paid_amount: Decimal = Decimal("0")
+    filed_date: date | None = None
+    status: str = "pending"
+    note: str = ""
+
+
+class TaxFilingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    tax_type: str
+    taxpayer_type: str
+    period: str
+    period_start: date | None
+    period_end: date | None
+    tax_basis: Decimal
+    tax_amount: Decimal
+    paid_amount: Decimal
+    filed_date: date | None
+    status: str
+    note: str
+    created_at: datetime
+    attachments: list[AttachmentOut] = []

@@ -13,7 +13,7 @@ from .auth_mw import AuthMiddleware
 from .routers import (
     company, accounts, vouchers, attachments, reports, data_io, ledgers, logs,
     customers, personnel, workflow, expense, expense_apply, auth, users, presets,
-    about,
+    about, contracts, tax,
 )
 
 
@@ -63,3 +63,5 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(presets.router)
 app.include_router(about.router)
+app.include_router(contracts.router)
+app.include_router(tax.router)

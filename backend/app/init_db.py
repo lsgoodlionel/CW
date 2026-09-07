@@ -38,6 +38,8 @@ _ADDED_COLUMNS = {
     "attachments": [
         ("expense_application_id", "INTEGER"),
         ("expense_claim_id", "INTEGER"),
+        ("contract_id", "INTEGER"),
+        ("tax_filing_id", "INTEGER"),
     ],
     "expense_claims": [
         ("application_id", "INTEGER"),
@@ -126,8 +128,8 @@ def _seed_auth(db) -> None:
         for m in auth_svc.MODULES:
             readonly.permissions.append(models.RolePermission(perm=f"{m}:view"))
         db.add(readonly)
-        finance = models.Role(name="财务操作", note="凭证/科目/往来/报表/账簿/申请/报销 常规操作", is_system=True)
-        for m in ("voucher", "account", "customer", "expense_apply", "expense"):
+        finance = models.Role(name="财务操作", note="凭证/科目/往来/合同/税务/报表/账簿/申请/报销 常规操作", is_system=True)
+        for m in ("voucher", "account", "customer", "expense_apply", "expense", "contract", "tax"):
             for a in ("view", "create", "edit", "delete"):
                 finance.permissions.append(models.RolePermission(perm=f"{m}:{a}"))
         for m in ("report", "ledger", "company", "approval"):

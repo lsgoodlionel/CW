@@ -163,6 +163,12 @@ class Attachment(Base):
     expense_claim_id: Mapped[int | None] = mapped_column(
         ForeignKey("expense_claims.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    contract_id: Mapped[int | None] = mapped_column(
+        ForeignKey("contracts.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    tax_filing_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tax_filings.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     kind: Mapped[str] = mapped_column(String(20), default="other")  # invoice/receipt/contract/tax_payment/other
     original_name: Mapped[str] = mapped_column(String(255))
     stored_path: Mapped[str] = mapped_column(Text)
@@ -529,3 +535,80 @@ class EmployeePosition(Base):
 
     employee: Mapped["Employee"] = relationship(back_populates="positions")
     org_unit: Mapped["OrgUnit | None"] = relationship()
+
+
+class Contract(Base):
+    """合同:录入合同信息,可关联往来单位与多张记账凭证。"""
+    __tablename__ = "contracts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    contract_no: Mapped[str] = mapped_column(String(60), index=True)   # 合同编号
+    name: Mapped[str] = mapped_column(String(200))                     # 合同名称
+    # sales 销售 / purchase 采购 / service 服务 / lease 租赁 / labor 劳务 / loan 借款 / other 其他
+    category: Mapped[str] = mapped_column(String(20), default="other", index=True)
+    customer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    party_name: Mapped[str] = mapped_column(String(200), default="")   # 对方单位(未选往来单位时手填)
+    amount: Mapped[Decimal] = mapped_column(MONEY, default=0)          # 合同金额(含税)
+    sign_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # active 履行中 / completed 已完成 / terminated 已终止 / draft 草稿
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    our_signatory: Mapped[str] = mapped_column(String(60), default="")     # 我方签署人
+    counterparty_contact: Mapped[str] = mapped_column(String(120), default="")  # 对方联系人/电话
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    customer: Mapped["Customer | None"] = relationship()
+    attachments: Mapped[list["Attachment"]] = relationship(
+        foreign_keys="Attachment.contract_id", cascade="all, delete-orphan",
+    )
+    voucher_links: Mapped[list["ContractVoucherLink"]] = relationship(
+        back_populates="contract", cascade="all, delete-orphan",
+    )
+
+
+class ContractVoucherLink(Base):
+    """合同↔凭证 关联(一份合同可对应多张凭证,如分期收付款)。"""
+    __tablename__ = "contract_voucher_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    contract_id: Mapped[int] = mapped_column(
+        ForeignKey("contracts.id", ondelete="CASCADE"), index=True
+    )
+    voucher_id: Mapped[int] = mapped_column(
+        ForeignKey("vouchers.id", ondelete="CASCADE"), index=True
+    )
+    note: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    contract: Mapped["Contract"] = relationship(back_populates="voucher_links")
+    voucher: Mapped["Voucher"] = relationship()
+
+
+class TaxFiling(Base):
+    """税务申报记录:记录各税种(国税/自然人)申报结果与缴纳情况。"""
+    __tablename__ = "tax_filings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # stamp 印花税 / vat 增值税 / vat_surtax 增值税及附加 / cit 企业所得税 / iit 个人所得税 / other 其他
+    tax_type: Mapped[str] = mapped_column(String(20), index=True)
+    # enterprise 国税(企业) / individual 自然人
+    taxpayer_type: Mapped[str] = mapped_column(String(20), default="enterprise", index=True)
+    period: Mapped[str] = mapped_column(String(20), index=True)        # 所属期,如 2026Q2 / 2026-06 / 2026
+    period_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    period_end: Mapped[date | None] = mapped_column(Date, nullable=True)
+    tax_basis: Mapped[Decimal] = mapped_column(MONEY, default=0)       # 计税依据
+    tax_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)      # 应纳税额
+    paid_amount: Mapped[Decimal] = mapped_column(MONEY, default=0)     # 已缴税额
+    filed_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # 申报日期
+    # pending 待申报 / filed 已申报 / paid 已缴纳
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    attachments: Mapped[list["Attachment"]] = relationship(
+        foreign_keys="Attachment.tax_filing_id", cascade="all, delete-orphan",
+    )
