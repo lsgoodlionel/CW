@@ -196,47 +196,47 @@ def build_backup_zip(db: Session) -> bytes:
             {"year": a.year, "line_no": a.line_no,
              "book_amount": str(a.book_amount), "tax_amount": str(a.tax_amount),
              "add_amount": str(a.add_amount), "reduce_amount": str(a.reduce_amount),
-             "note": a.note}
+             "note": a.note, "created_at": a.created_at.isoformat() if a.created_at else None}
             for a in db.scalars(select(models.TaxAdjustment)).all()
         ],
         "tax_loss_carryovers": [
             {"report_year": lc.report_year, "line_no": lc.line_no,
              "loss_amount": str(lc.loss_amount), "pending_amount": str(lc.pending_amount),
-             "offset_amount": str(lc.offset_amount), "note": lc.note}
+             "offset_amount": str(lc.offset_amount), "note": lc.note, "created_at": lc.created_at.isoformat() if lc.created_at else None}
             for lc in db.scalars(select(models.TaxLossCarryover)).all()
         ],
         "tax_asset_depreciations": [
             {"report_year": ad.report_year, "line_no": ad.line_no,
              "orig_value": str(ad.orig_value), "book_dep": str(ad.book_dep),
-             "tax_basis": str(ad.tax_basis), "tax_dep": str(ad.tax_dep), "note": ad.note}
+             "tax_basis": str(ad.tax_basis), "tax_dep": str(ad.tax_dep), "note": ad.note, "created_at": ad.created_at.isoformat() if ad.created_at else None}
             for ad in db.scalars(select(models.TaxAssetDepreciation)).all()
         ],
         "tax_rd_deductions": [
             {"report_year": rd.report_year, "line_no": rd.line_no,
-             "amount": str(rd.amount), "note": rd.note}
+             "amount": str(rd.amount), "note": rd.note, "created_at": rd.created_at.isoformat() if rd.created_at else None}
             for rd in db.scalars(select(models.TaxRdDeduction)).all()
         ],
         "tax_accel_deprs": [
             {"year": ac.year, "line_no": ac.line_no, "orig_value": str(ac.orig_value),
              "book_dep": str(ac.book_dep), "tax_normal": str(ac.tax_normal),
              "accel_dep": str(ac.accel_dep), "reduce_amount": str(ac.reduce_amount),
-             "note": ac.note}
+             "note": ac.note, "created_at": ac.created_at.isoformat() if ac.created_at else None}
             for ac in db.scalars(select(models.TaxAccelDepr)).all()
         ],
         "tax_preferences": [
             {"report_year": pf.report_year, "code": pf.code,
-             "amount": str(pf.amount), "note": pf.note}
+             "amount": str(pf.amount), "note": pf.note, "created_at": pf.created_at.isoformat() if pf.created_at else None}
             for pf in db.scalars(select(models.TaxPreference)).all()
         ],
         "tax_salary_adjusts": [
             {"report_year": s.report_year, "line_no": s.line_no,
              "book_amount": str(s.book_amount), "actual_amount": str(s.actual_amount),
-             "prev_carry": str(s.prev_carry), "tax_amount": str(s.tax_amount), "note": s.note}
+             "prev_carry": str(s.prev_carry), "tax_amount": str(s.tax_amount), "note": s.note, "created_at": s.created_at.isoformat() if s.created_at else None}
             for s in db.scalars(select(models.TaxSalaryAdjust)).all()
         ],
         "tax_ad_medias": [
             {"report_year": m.report_year, "line_no": m.line_no,
-             "amount": str(m.amount), "note": m.note}
+             "amount": str(m.amount), "note": m.note, "created_at": m.created_at.isoformat() if m.created_at else None}
             for m in db.scalars(select(models.TaxAdMedia)).all()
         ],
         "roles": [
@@ -355,6 +355,12 @@ async def import_data(file: UploadFile = File(...), db: Session = Depends(get_db
 
     counts = _restore(db, zf, payload)
     return {"success": True, **counts}
+
+
+def _dt(v):
+    """ISO 字符串→datetime,空则 None。"""
+    from datetime import datetime as _DT
+    return _DT.fromisoformat(v) if v else None
 
 
 def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
@@ -776,14 +782,14 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
             tax_amount=Decimal(str(a.get("tax_amount", "0"))),
             add_amount=Decimal(str(a.get("add_amount", "0"))),
             reduce_amount=Decimal(str(a.get("reduce_amount", "0"))),
-            note=a.get("note", "")))
+            note=a.get("note", ""), created_at=_dt(a.get("created_at"))))
     for lc in payload.get("tax_loss_carryovers", []):
         db.add(models.TaxLossCarryover(
             report_year=int(lc["report_year"]), line_no=lc.get("line_no", ""),
             loss_amount=Decimal(str(lc.get("loss_amount", "0"))),
             pending_amount=Decimal(str(lc.get("pending_amount", "0"))),
             offset_amount=Decimal(str(lc.get("offset_amount", "0"))),
-            note=lc.get("note", "")))
+            note=lc.get("note", ""), created_at=_dt(lc.get("created_at"))))
     for ad in payload.get("tax_asset_depreciations", []):
         db.add(models.TaxAssetDepreciation(
             report_year=int(ad["report_year"]), line_no=ad.get("line_no", ""),
@@ -791,11 +797,11 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
             book_dep=Decimal(str(ad.get("book_dep", "0"))),
             tax_basis=Decimal(str(ad.get("tax_basis", "0"))),
             tax_dep=Decimal(str(ad.get("tax_dep", "0"))),
-            note=ad.get("note", "")))
+            note=ad.get("note", ""), created_at=_dt(ad.get("created_at"))))
     for rd in payload.get("tax_rd_deductions", []):
         db.add(models.TaxRdDeduction(
             report_year=int(rd["report_year"]), line_no=rd.get("line_no", ""),
-            amount=Decimal(str(rd.get("amount", "0"))), note=rd.get("note", "")))
+            amount=Decimal(str(rd.get("amount", "0"))), note=rd.get("note", ""), created_at=_dt(rd.get("created_at"))))
     for ac in payload.get("tax_accel_deprs", []):
         db.add(models.TaxAccelDepr(
             year=int(ac["year"]), line_no=ac.get("line_no", ""),
@@ -804,22 +810,22 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
             tax_normal=Decimal(str(ac.get("tax_normal", "0"))),
             accel_dep=Decimal(str(ac.get("accel_dep", "0"))),
             reduce_amount=Decimal(str(ac.get("reduce_amount", "0"))),
-            note=ac.get("note", "")))
+            note=ac.get("note", ""), created_at=_dt(ac.get("created_at"))))
     for pf in payload.get("tax_preferences", []):
         db.add(models.TaxPreference(
             report_year=int(pf["report_year"]), code=pf.get("code", ""),
-            amount=Decimal(str(pf.get("amount", "0"))), note=pf.get("note", "")))
+            amount=Decimal(str(pf.get("amount", "0"))), note=pf.get("note", ""), created_at=_dt(pf.get("created_at"))))
     for s2 in payload.get("tax_salary_adjusts", []):
         db.add(models.TaxSalaryAdjust(
             report_year=int(s2["report_year"]), line_no=s2.get("line_no", ""),
             book_amount=Decimal(str(s2.get("book_amount", "0"))),
             actual_amount=Decimal(str(s2.get("actual_amount", "0"))),
             prev_carry=Decimal(str(s2.get("prev_carry", "0"))),
-            tax_amount=Decimal(str(s2.get("tax_amount", "0"))), note=s2.get("note", "")))
+            tax_amount=Decimal(str(s2.get("tax_amount", "0"))), note=s2.get("note", ""), created_at=_dt(s2.get("created_at"))))
     for m in payload.get("tax_ad_medias", []):
         db.add(models.TaxAdMedia(
             report_year=int(m["report_year"]), line_no=m.get("line_no", ""),
-            amount=Decimal(str(m.get("amount", "0"))), note=m.get("note", "")))
+            amount=Decimal(str(m.get("amount", "0"))), note=m.get("note", ""), created_at=_dt(m.get("created_at"))))
     db.flush()
 
     # 5e. 扁平附件表:按 ref 映射到凭证/费用申请/费用报销/合同/税务并落盘

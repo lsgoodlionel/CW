@@ -7,11 +7,33 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..config import settings
-from .. import models, schemas, attach_svc
+from .. import models, schemas, attach_svc, auth_svc
+from ..auth_mw import current_user
 
 router = APIRouter(prefix="/api", tags=["attachments"])
 
 ALLOWED_KINDS = attach_svc.ALLOWED_KINDS
+
+
+def _att_module(att: models.Attachment) -> str:
+    """按附件真实归属实体推断其所属权限模块。"""
+    if att.contract_id:
+        return "contract"
+    if att.tax_filing_id:
+        return "tax"
+    if att.expense_application_id:
+        return "expense_apply"
+    if att.expense_claim_id:
+        return "expense"
+    return "voucher"
+
+
+def _guard_att(att: models.Attachment, user, action: str) -> None:
+    """按附件归属模块校验当前用户权限(超管放行);无权限抛 403。"""
+    if user is None or getattr(user, "is_super_admin", False):
+        return
+    if not auth_svc.user_has(user, _att_module(att), action):
+        raise HTTPException(status_code=403, detail="无权访问该附件")
 
 
 async def read_upload(file: UploadFile, kind: str) -> bytes:
@@ -52,10 +74,12 @@ async def upload_attachment(
 
 
 @router.get("/attachments/{attachment_id}/download")
-def download_attachment(attachment_id: int, db: Session = Depends(get_db)):
+def download_attachment(attachment_id: int, db: Session = Depends(get_db),
+                        user=Depends(current_user)):
     attachment = db.get(models.Attachment, attachment_id)
     if attachment is None:
         raise HTTPException(status_code=404, detail="附件不存在")
+    _guard_att(attachment, user, "view")
     path = Path(attachment.stored_path)
     if not path.exists():
         raise HTTPException(status_code=410, detail="文件已丢失")
@@ -65,11 +89,13 @@ def download_attachment(attachment_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/attachments/{attachment_id}/preview")
-def preview_attachment(attachment_id: int, db: Session = Depends(get_db)):
+def preview_attachment(attachment_id: int, db: Session = Depends(get_db),
+                       user=Depends(current_user)):
     """在线预览:以 inline 方式返回,浏览器直接渲染图片/PDF。"""
     attachment = db.get(models.Attachment, attachment_id)
     if attachment is None:
         raise HTTPException(status_code=404, detail="附件不存在")
+    _guard_att(attachment, user, "view")
     path = Path(attachment.stored_path)
     if not path.exists():
         raise HTTPException(status_code=410, detail="文件已丢失")
@@ -82,12 +108,14 @@ def preview_attachment(attachment_id: int, db: Session = Depends(get_db)):
 
 @router.patch("/attachments/{attachment_id}", response_model=schemas.AttachmentOut)
 def update_attachment_kind(
-    attachment_id: int, kind: str = Form(...), db: Session = Depends(get_db)
+    attachment_id: int, kind: str = Form(...), db: Session = Depends(get_db),
+    user=Depends(current_user)
 ):
     """变更已上传附件的类型。"""
     attachment = db.get(models.Attachment, attachment_id)
     if attachment is None:
         raise HTTPException(status_code=404, detail="附件不存在")
+    _guard_att(attachment, user, "edit")
     if kind not in ALLOWED_KINDS:
         raise HTTPException(status_code=400, detail=f"kind 必须是 {ALLOWED_KINDS} 之一")
     attachment.kind = kind
@@ -97,10 +125,12 @@ def update_attachment_kind(
 
 
 @router.delete("/attachments/{attachment_id}", status_code=204)
-def delete_attachment(attachment_id: int, db: Session = Depends(get_db)):
+def delete_attachment(attachment_id: int, db: Session = Depends(get_db),
+                      user=Depends(current_user)):
     attachment = db.get(models.Attachment, attachment_id)
     if attachment is None:
         raise HTTPException(status_code=404, detail="附件不存在")
+    _guard_att(attachment, user, "delete")
     path = Path(attachment.stored_path)
     if path.exists():
         path.unlink(missing_ok=True)

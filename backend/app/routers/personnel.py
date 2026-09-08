@@ -164,8 +164,20 @@ def delete_employee(emp_id: int, db: Session = Depends(get_db)):
     emp = db.get(models.Employee, emp_id)
     if emp is None:
         raise HTTPException(status_code=404, detail="员工不存在")
-    db.delete(emp)
-    db.commit()
+    # 被历史费用申请/报销/审批任务引用的员工改为离职(停用),保留经办人可追溯性
+    referenced = (
+        db.scalar(select(models.ExpenseApplication.id).where(
+            models.ExpenseApplication.applicant_employee_id == emp_id).limit(1))
+        or db.scalar(select(models.ExpenseClaim.id).where(
+            models.ExpenseClaim.applicant_employee_id == emp_id).limit(1))
+        or db.scalar(select(models.WorkflowTask.id).where(
+            models.WorkflowTask.approver_employee_id == emp_id).limit(1)))
+    if referenced:
+        emp.status = "left"
+        db.commit()
+    else:
+        db.delete(emp)
+        db.commit()
 
 
 @router.post("/org-units/{unit_id}/members", response_model=schemas.EmployeeOut, status_code=201)

@@ -250,6 +250,17 @@ def delete_voucher(voucher_id: int, db: Session = Depends(get_db)):
     if rev is not None:
         raise HTTPException(status_code=409,
                             detail="该凭证存在红字冲销关联,不能单独删除(请先解除冲销关联)")
+    # 由报销自动生成的凭证受报销单引用,直接删除会导致会计分录丢失且报销状态回退
+    claim = db.scalar(select(models.ExpenseClaim.id).where(
+        models.ExpenseClaim.voucher_id == voucher_id))
+    if claim is not None:
+        raise HTTPException(status_code=409,
+                            detail="该凭证由费用报销生成,不能直接删除(请从对应报销单处理)")
+    # 被合同关联的凭证:先提示解除关联
+    if db.scalar(select(models.ContractVoucherLink.id).where(
+            models.ContractVoucherLink.voucher_id == voucher_id)) is not None:
+        raise HTTPException(status_code=409,
+                            detail="该凭证已关联合同,请先解除合同关联再删除")
     db.delete(voucher)
     db.commit()
 

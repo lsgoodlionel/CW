@@ -122,6 +122,8 @@ def update_contract(contract_id: int, payload: schemas.ContractIn,
         raise HTTPException(status_code=400, detail="合同类型无效")
     if payload.direction not in schemas.CONTRACT_DIRECTIONS:
         raise HTTPException(status_code=400, detail="合同收支方向无效")
+    if payload.status not in schemas.CONTRACT_STATUSES:
+        raise HTTPException(status_code=400, detail="合同状态无效")
     for k, v in payload.model_dump().items():
         setattr(c, k, v)
     c.tax_amount = _calc_tax(c.amount, c.tax_rate)

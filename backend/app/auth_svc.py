@@ -92,7 +92,8 @@ def catalog() -> list[dict]:
 # ---------- 路径 → 所需权限 ----------
 _PREFIX_MODULE = [
     ("/api/users", "user"), ("/api/roles", "user"), ("/api/auth-presets", "user"),
-    ("/api/vouchers", "voucher"), ("/api/attachments", "voucher"),
+    ("/api/vouchers", "voucher"),
+    # /api/attachments 不做前缀级固定映射:通用附件端点在其内部按附件真实归属模块校验权限
     ("/api/accounts", "account"), ("/api/customers", "customer"),
     ("/api/personnel", "personnel"), ("/api/workflow", "workflow"),
     ("/api/expense-apply", "expense_apply"), ("/api/expense", "expense"),
@@ -135,8 +136,11 @@ def classify_perm(method: str, path: str) -> tuple[str, str] | None:
     module = next((mod for pre, mod in _PREFIX_MODULE if path.startswith(pre)), None)
     if module is None:
         return None
-    if path.endswith("/approve") or path.endswith("/reject") or path.endswith("/submit"):
+    if path.endswith("/approve") or path.endswith("/reject"):
         return module, "approve"
+    if path.endswith("/submit"):
+        # 提交自己的单据属编辑/流转动作,不应要求审批权限
+        return module, "edit"
     if method == "GET":
         return module, "view"
     if method in ("POST",):

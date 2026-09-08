@@ -47,12 +47,18 @@ def list_filings(tax_type: str | None = None, taxpayer_type: str | None = None,
     return list(db.scalars(stmt).all())
 
 
-@router.post("/filings", response_model=schemas.TaxFilingOut, status_code=201)
-def create_filing(payload: schemas.TaxFilingIn, db: Session = Depends(get_db)):
+def _validate_filing(payload: schemas.TaxFilingIn) -> None:
     if payload.tax_type not in schemas.TAX_TYPES:
         raise HTTPException(status_code=400, detail="税种无效")
     if payload.taxpayer_type not in schemas.TAXPAYER_TYPES:
         raise HTTPException(status_code=400, detail="纳税人类型无效")
+    if payload.status not in schemas.TAX_FILING_STATUSES:
+        raise HTTPException(status_code=400, detail="申报状态无效")
+
+
+@router.post("/filings", response_model=schemas.TaxFilingOut, status_code=201)
+def create_filing(payload: schemas.TaxFilingIn, db: Session = Depends(get_db)):
+    _validate_filing(payload)
     f = models.TaxFiling(**payload.model_dump())
     db.add(f)
     db.commit()
@@ -67,6 +73,7 @@ def get_filing(fid: int, db: Session = Depends(get_db)):
 @router.put("/filings/{fid}", response_model=schemas.TaxFilingOut)
 def update_filing(fid: int, payload: schemas.TaxFilingIn, db: Session = Depends(get_db)):
     f = _load(db, fid)
+    _validate_filing(payload)
     for k, v in payload.model_dump().items():
         setattr(f, k, v)
     db.commit()

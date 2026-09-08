@@ -1515,6 +1515,39 @@ def _write_a105060(ws, title: str, company, period: str, rows: list) -> None:
     ws.column_dimensions["C"].width = 18
 
 
+def _write_preferences(ws, title: str, company, period: str, rows: list) -> None:
+    """税收优惠事项明细表:类别 / 代码 / 项目 / 金额。"""
+    thin = Side(style="thin", color="BBBBBB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    right = Alignment(horizontal="right", vertical="center")
+    last_col = 4
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
+    ws.cell(1, 1, title).font = Font(size=14, bold=True)
+    ws.cell(1, 1).alignment = center
+    ws.row_dimensions[1].height = 30
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_col)
+    ws.cell(2, 1, f"税款所属期间:{period}    金额单位:人民币元(列至角分)").alignment = left
+    for c, h in enumerate(["类别", "代码", "优惠事项", "金额"], start=1):
+        cell = ws.cell(3, c, h)
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.fill = PatternFill("solid", fgColor="1F6FEB")
+        cell.alignment = center
+        cell.border = border
+    r = 4
+    for cat, cat_label, code, name, amount, _ed in rows:
+        ws.cell(r, 1, cat_label).alignment = center
+        ws.cell(r, 2, code).alignment = center
+        ws.cell(r, 3, name).alignment = left
+        ws.cell(r, 4, round(float(amount), 2)).alignment = right
+        for c in range(1, last_col + 1):
+            ws.cell(r, c).border = border
+        r += 1
+    for col, w in (("A", 24), ("B", 14), ("C", 44), ("D", 16)):
+        ws.column_dimensions[col].width = w
+
+
 def build_cit_quarterly_xlsx(db: Session, year: int, quarter: int) -> bytes:
     company = db.get(models.CompanyInfo, 1)
     start, end = date(year, 1, 1), _quarter_end(year, quarter)
@@ -1526,6 +1559,8 @@ def build_cit_quarterly_xlsx(db: Session, year: int, quarter: int) -> bytes:
               has_category=False)
     _write_a201020(wb.create_sheet("A201020"), "A201020 资产加速折旧、摊销(扣除)优惠明细表",
                    company, period, compute_a201020(db, year))
+    _write_preferences(wb.create_sheet("税收优惠"), "税收优惠事项明细表",
+                       company, period, compute_preferences(db, year))
     return _save(wb)
 
 
@@ -1556,6 +1591,8 @@ def build_cit_annual_xlsx(db: Session, year: int) -> bytes:
                    company, period, compute_a105050(db, year))
     _write_a105060(wb.create_sheet("A105060"), "A105060 广告费和业务宣传费跨年度纳税调整明细表",
                    company, period, compute_a105060(db, year))
+    _write_preferences(wb.create_sheet("税收优惠"), "税收优惠事项明细表",
+                       company, period, compute_preferences(db, year))
     return _save(wb)
 
 

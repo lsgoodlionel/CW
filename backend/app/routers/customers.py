@@ -75,6 +75,10 @@ def delete_customer(customer_id: int, db: Session = Depends(get_db)):
     used = db.scalar(
         select(models.Voucher.id).where(
             models.Voucher.customer_id == customer_id).limit(1))
+    if not used:   # 合同引用同样保护:被合同关联的往来单位改为停用而非硬删,避免合同单位信息丢失
+        used = db.scalar(
+            select(models.Contract.id).where(
+                models.Contract.customer_id == customer_id).limit(1))
     if used:
         customer.is_active = False
         db.commit()
