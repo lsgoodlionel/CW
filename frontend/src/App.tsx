@@ -68,6 +68,22 @@ export default function App() {
       .finally(() => setLoading(false))
   }, [])
 
+  // 空闲自动退出:登录后 30 分钟内无任何操作则清除登录并跳转登录页
+  useEffect(() => {
+    if (!user) return
+    const IDLE_MS = 30 * 60 * 1000
+    let timer: ReturnType<typeof setTimeout>
+    const doLogout = () => {
+      clearToken(); setUser(null); navigate('/login')
+      message.warning('超过 30 分钟未操作,已自动退出,请重新登录')
+    }
+    const reset = () => { clearTimeout(timer); timer = setTimeout(doLogout, IDLE_MS) }
+    const events = ['mousedown', 'keydown', 'mousemove', 'wheel', 'touchstart', 'click']
+    events.forEach((e) => window.addEventListener(e, reset, { passive: true }))
+    reset()
+    return () => { clearTimeout(timer); events.forEach((e) => window.removeEventListener(e, reset)) }
+  }, [user, navigate])
+
   if (loading) return <Spin style={{ display: 'block', marginTop: '20vh' }} size="large" />
 
   if (location.pathname === '/login' || !user) {
