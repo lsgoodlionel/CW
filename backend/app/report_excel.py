@@ -4,10 +4,13 @@
 """
 import io
 
+from decimal import Decimal
+
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Side, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from . import models, reports_cn
@@ -40,6 +43,7 @@ def build_report_workbook(db: Session, period: Period) -> bytes:
     _sheet_balance(wb, db, period, name)
     _sheet_income(wb, db, period, name)
     _sheet_cashflow(wb, db, period, name)
+    _sheet_trial_balance(wb, db, period, name)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -170,3 +174,59 @@ def _statement_sheet(ws, title, form_no, name, period: Period, data):
 
     for c, w in enumerate([48, 6, 18, 18], 1):
         ws.column_dimensions[get_column_letter(c)].width = w
+
+
+def _sheet_trial_balance(wb: Workbook, db: Session, period: Period, name: str) -> None:
+    """科目汇总表:各科目本期借/贷发生额与期末余额(仅已过账凭证)。"""
+    ws = wb.create_sheet("科目汇总表")
+    start, end = period.cur_start, period.cur_end
+    stmt = (
+        select(models.VoucherEntry.account_id,
+               func.coalesce(func.sum(models.VoucherEntry.debit), 0),
+               func.coalesce(func.sum(models.VoucherEntry.credit), 0))
+        .join(models.Voucher, models.Voucher.id == models.VoucherEntry.voucher_id)
+        .where(models.Voucher.status == "posted")
+        .group_by(models.VoucherEntry.account_id))
+    if start:
+        stmt = stmt.where(models.Voucher.voucher_date >= start)
+    if end:
+        stmt = stmt.where(models.Voucher.voucher_date <= end)
+    sums = {aid: (Decimal(d), Decimal(c)) for aid, d, c in db.execute(stmt).all()}
+    accounts = {a.id: a for a in db.scalars(select(models.Account)).all()}
+
+    r = _header_block(ws, "科目汇总表", "科目发生额及余额", name, period, 5)
+    heads = ["科目编码", "科目名称", "借方发生额", "贷方发生额", "期末余额"]
+    for c, h in enumerate(heads, start=1):
+        cell = ws.cell(r, c, h)
+        cell.font = BOLD
+        cell.fill = HEAD_FILL
+        cell.alignment = CENTER
+        cell.border = BORDER
+    r += 1
+    rows = []
+    for aid, (d, c) in sums.items():
+        acc = accounts.get(aid)
+        if acc is None:
+            continue
+        bal = d - c if acc.direction == "debit" else c - d
+        rows.append((acc.code, acc.name, float(d), float(c), float(bal)))
+    rows.sort(key=lambda x: x[0])
+    td = tc = Decimal("0")
+    for code, aname, d, c, bal in rows:
+        ws.cell(r, 1, code).alignment = CENTER
+        ws.cell(r, 2, aname).alignment = LEFT
+        ws.cell(r, 3, round(d, 2)).alignment = RIGHT
+        ws.cell(r, 4, round(c, 2)).alignment = RIGHT
+        ws.cell(r, 5, round(bal, 2)).alignment = RIGHT
+        for col in range(1, 6):
+            ws.cell(r, col).border = BORDER
+        td += Decimal(str(d)); tc += Decimal(str(c))
+        r += 1
+    ws.cell(r, 1, "合计").alignment = CENTER
+    ws.cell(r, 3, float(round(td, 2))).alignment = RIGHT
+    ws.cell(r, 4, float(round(tc, 2))).alignment = RIGHT
+    for col in range(1, 6):
+        ws.cell(r, col).font = BOLD
+        ws.cell(r, col).border = BORDER
+    for col, w in (("A", 12), ("B", 28), ("C", 16), ("D", 16), ("E", 16)):
+        ws.column_dimensions[col].width = w

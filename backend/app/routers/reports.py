@@ -82,6 +82,7 @@ def _sum_by_account(db: Session, start: date | None, end: date | None):
             func.coalesce(func.sum(models.VoucherEntry.credit), 0),
         )
         .join(models.Voucher, models.Voucher.id == models.VoucherEntry.voucher_id)
+        .where(models.Voucher.status == "posted")   # 科目汇总仅统计已过账凭证
         .group_by(models.VoucherEntry.account_id)
     )
     if start:
