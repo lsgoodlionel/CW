@@ -19,7 +19,7 @@ interface Contract {
   amount: number | string; tax_rate: number | string; tax_amount: number | string
   sign_date: string | null; start_date: string | null
   end_date: string | null; status: string; our_signatory: string
-  counterparty_contact: string; note: string
+  counterparty_contact: string; note: string; workflow_instance_id: number | null
   attachments: Attachment[]; vouchers: ContractVoucher[]
 }
 
@@ -65,6 +65,15 @@ export default function Contracts() {
   const [detail, setDetail] = useState<Contract | null>(null)
   const [vouchers, setVouchers] = useState<VoucherListItem[]>([])
   const [linkVoucherId, setLinkVoucherId] = useState<number>()
+  const [approvalEnabled, setApprovalEnabled] = useState(false)
+
+  useEffect(() => {
+    http.get<{ approval_enabled?: boolean }>('/contracts/meta/labels')
+      .then((r) => setApprovalEnabled(Boolean(r.data.approval_enabled)))
+  }, [])
+  const submitApproval = (id: number) =>
+    http.post(`/contracts/${id}/submit`).then(() => { message.success('已提交审批'); load() })
+      .catch((e) => message.error(e?.response?.data?.detail || '提交失败'))
 
   const load = useCallback(() => {
     setLoading(true)
@@ -158,13 +167,19 @@ export default function Contracts() {
     { title: '含税金额', dataIndex: 'amount', width: 120, align: 'right' as const, render: (v: number | string) => formatYuan(v) },
     { title: '税金', dataIndex: 'tax_amount', width: 110, align: 'right' as const,
       render: (v: number | string, r: Contract) => (Number(r.tax_rate) > 0 ? `${formatYuan(v)} (${Number(r.tax_rate)}%)` : '-') },
-    { title: '状态', dataIndex: 'status', width: 90, render: (s: string) => <Tag color={STATUS_COLOR[s]}>{STATUS_LABEL[s] || s}</Tag> },
+    { title: '状态', dataIndex: 'status', width: 96, render: (s: string, r: Contract) => (
+      r.workflow_instance_id && s === 'draft'
+        ? <Tag color="processing">审批中</Tag>
+        : <Tag color={STATUS_COLOR[s]}>{STATUS_LABEL[s] || s}</Tag>) },
     { title: '附件', dataIndex: 'attachments', width: 60, align: 'center' as const, render: (a: Attachment[]) => a.length || '-' },
     {
-      title: '操作', width: 150, render: (_: unknown, r: Contract) => (
+      title: '操作', width: 190, render: (_: unknown, r: Contract) => (
         <Space>
           <a onClick={() => openEdit(r)}>编辑</a>
           <a onClick={() => openDetail(r.id)}>详情</a>
+          {approvalEnabled && r.status === 'draft' && !r.workflow_instance_id && (
+            <a onClick={() => submitApproval(r.id)}>提交审批</a>
+          )}
           <Popconfirm title="删除该合同?" onConfirm={() => remove(r.id)}>
             <a style={{ color: '#cf1322' }}>删除</a>
           </Popconfirm>

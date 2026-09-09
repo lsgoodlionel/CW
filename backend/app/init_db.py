@@ -31,6 +31,7 @@ def init_db() -> None:
 _ADDED_COLUMNS = {
     "vouchers": [
         ("customer_id", "INTEGER"),
+        ("workflow_instance_id", "INTEGER"),
     ],
     "voucher_entries": [
         ("sub_account_id", "INTEGER"),
@@ -55,6 +56,10 @@ _ADDED_COLUMNS = {
         ("tax_rate", "NUMERIC(6,2) DEFAULT 0"),
         ("tax_amount", "NUMERIC(18,2) DEFAULT 0"),
         ("direction", "VARCHAR(10) DEFAULT 'income'"),
+        ("workflow_instance_id", "INTEGER"),
+    ],
+    "tax_filings": [
+        ("workflow_instance_id", "INTEGER"),
     ],
     "operation_logs": [
         ("detail", "TEXT DEFAULT ''"),
@@ -75,6 +80,7 @@ _ADDED_COLUMNS = {
         ("is_small_micro", "BOOLEAN DEFAULT FALSE"),
         ("small_micro_auto", "BOOLEAN DEFAULT TRUE"),
         ("restricted_industry", "BOOLEAN DEFAULT FALSE"),
+        ("large_voucher_threshold", "NUMERIC(18,2) DEFAULT 0"),
     ],
 }
 
@@ -145,6 +151,9 @@ def _seed_auth(db) -> None:
         for m in ("voucher", "account", "customer", "expense_apply", "expense", "contract", "tax"):
             for a in ("view", "create", "edit", "delete"):
                 finance.permissions.append(models.RolePermission(perm=f"{m}:{a}"))
+        # 财务操作默认可直录(免审批)合同/税务/凭证
+        for m in ("voucher", "contract", "tax"):
+            finance.permissions.append(models.RolePermission(perm=f"{m}:direct"))
         for m in ("report", "ledger", "company", "approval"):
             finance.permissions.append(models.RolePermission(perm=f"{m}:view"))
         db.add(finance)

@@ -46,6 +46,8 @@ class CompanyInfo(Base):
     small_micro_auto: Mapped[bool] = mapped_column(Boolean, default=True)
     # 是否从事国家限制或禁止行业(影响小型微利判断)
     restricted_industry: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 大额凭证审批阈值(0=不启用凭证审批;>0 且金额≥该值、无直录权限时需审批)
+    large_voucher_threshold: Mapped[Decimal] = mapped_column(MONEY, default=0)
 
 
 class Account(Base):
@@ -119,7 +121,10 @@ class Voucher(Base):
     )
     total_debit: Mapped[Decimal] = mapped_column(MONEY, default=0)
     total_credit: Mapped[Decimal] = mapped_column(MONEY, default=0)
-    status: Mapped[str] = mapped_column(String(20), default="posted")  # draft / posted
+    status: Mapped[str] = mapped_column(String(20), default="posted")  # draft / posted(审批中为 draft 不入账)
+    workflow_instance_id: Mapped[int | None] = mapped_column(
+        ForeignKey("workflow_instances.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -563,6 +568,9 @@ class Contract(Base):
     category: Mapped[str] = mapped_column(String(20), default="other", index=True)
     # 收支方向:income 收入类(我方提供/收款)/ expense 支出类(我方接受/付款)
     direction: Mapped[str] = mapped_column(String(10), default="income", index=True)
+    workflow_instance_id: Mapped[int | None] = mapped_column(
+        ForeignKey("workflow_instances.id", ondelete="SET NULL"), nullable=True
+    )
     customer_id: Mapped[int | None] = mapped_column(
         ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -625,6 +633,9 @@ class TaxFiling(Base):
     filed_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # 申报日期
     # pending 待申报 / filed 已申报 / paid 已缴纳
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    workflow_instance_id: Mapped[int | None] = mapped_column(
+        ForeignKey("workflow_instances.id", ondelete="SET NULL"), nullable=True
+    )
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

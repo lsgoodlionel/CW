@@ -67,6 +67,22 @@ def resolve_approver(db: Session, step: models.WorkflowStep,
     return _first_approver(db)
 
 
+def active_definition(db: Session, biz_type: str):
+    """返回该业务类型启用中的审批流程定义(取最早一条);无则 None。"""
+    from sqlalchemy.orm import selectinload
+    return db.scalar(
+        select(models.WorkflowDefinition)
+        .where(models.WorkflowDefinition.biz_type == biz_type,
+               models.WorkflowDefinition.is_active.is_(True))
+        .order_by(models.WorkflowDefinition.id)
+        .options(selectinload(models.WorkflowDefinition.steps)))
+
+
+def has_active(db: Session, biz_type: str) -> bool:
+    d = active_definition(db, biz_type)
+    return bool(d and d.steps)
+
+
 def create_instance(db: Session, sub, definition: models.WorkflowDefinition
                     ) -> models.WorkflowInstance:
     """发起流程实例并生成第一步待办。"""

@@ -48,11 +48,18 @@ export default function VoucherList() {
 
   const remove = (id: number) =>
     http.delete(`/vouchers/${id}`).then(() => { message.success('已删除'); load() })
+      .catch((e) => message.error(e?.response?.data?.detail || '删除失败'))
+  const submitApproval = (id: number) =>
+    http.post(`/vouchers/${id}/submit`).then(() => { message.success('已提交审批'); load() })
+      .catch((e) => message.error(e?.response?.data?.detail || '提交失败'))
 
   const columns = [
     { title: '凭证号', dataIndex: 'voucher_no', width: 150 },
     { title: '日期', dataIndex: 'voucher_date', width: 120 },
     { title: '摘要', dataIndex: 'note', ellipsis: true },
+    { title: '状态', dataIndex: 'status', width: 84, render: (s: string, r: VoucherListItem) => (
+      s === 'posted' ? <Tag color="success">已过账</Tag>
+        : (r.workflow_instance_id ? <Tag color="processing">审批中</Tag> : <Tag>草稿</Tag>)) },
     {
       title: '往来单位', dataIndex: 'customer_name', width: 140, ellipsis: true,
       render: (v: string) => v || '-',
@@ -77,6 +84,9 @@ export default function VoucherList() {
         <Space>
           <a onClick={() => navigate(`/vouchers/${r.id}`)}>编辑</a>
           <a onClick={() => navigate(`/vouchers/new?copyFrom=${r.id}`)}>复制新建</a>
+          {r.status === 'draft' && !r.workflow_instance_id && (
+            <a onClick={() => submitApproval(r.id)}>提交审批</a>
+          )}
           <Popconfirm title="确认删除该凭证?" onConfirm={() => remove(r.id)}>
             <a style={{ color: '#cf1322' }}>删除</a>
           </Popconfirm>

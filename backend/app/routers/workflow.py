@@ -12,7 +12,8 @@ router = APIRouter(prefix="/api/workflow", tags=["workflow"])
 APPROVER_TYPES = {
     "employee": "指定员工", "role": "按角色", "department_head": "部门负责人", "any": "任一管理层",
 }
-BIZ_TYPES = {"general": "通用", "expense_apply": "费用申请", "expense": "费用报销"}
+BIZ_TYPES = {"general": "通用", "expense_apply": "费用申请", "expense": "费用报销",
+             "contract": "合同", "tax": "税务申报", "voucher": "记账凭证(大额)"}
 STATUS_LABEL = {"pending": "审批中", "approved": "已通过", "rejected": "已驳回", "cancelled": "已撤销"}
 
 
@@ -219,8 +220,31 @@ def _act(task_id: int, approve: bool, comment: str, db: Session) -> schemas.Inst
     if task.result != "pending":
         raise HTTPException(status_code=409, detail="该待办已处理")
     workflow_svc.act(db, task, approve, comment)
+    inst = db.get(models.WorkflowInstance, task.instance_id)
+    if inst is not None and inst.status == "approved":
+        _on_approved(db, inst)      # 审批通过:合同→生效 / 税务→已申报 / 大额凭证→过账入账
+    elif inst is not None and inst.status == "rejected":
+        _revert_biz(db, inst)       # 驳回:关联单据退回草稿并解绑
     db.commit()
     return get_instance(task.instance_id, db)
+
+
+def _on_approved(db: Session, inst: models.WorkflowInstance) -> None:
+    """审批通过后使关联业务单据生效。"""
+    if not inst.biz_id:
+        return
+    if inst.biz_type == "contract":
+        c = db.get(models.Contract, inst.biz_id)
+        if c and c.workflow_instance_id == inst.id:
+            c.status = "active"
+    elif inst.biz_type == "tax":
+        f = db.get(models.TaxFiling, inst.biz_id)
+        if f and f.workflow_instance_id == inst.id:
+            f.status = "filed"
+    elif inst.biz_type == "voucher":
+        v = db.get(models.Voucher, inst.biz_id)
+        if v and v.workflow_instance_id == inst.id:
+            v.status = "posted"     # 过账入账,进入报表与账簿
 
 
 @router.post("/tasks/{task_id}/reassign", response_model=schemas.InstanceOut)
@@ -261,6 +285,18 @@ def _revert_biz(db: Session, inst: models.WorkflowInstance) -> None:
         if app and app.workflow_instance_id == inst.id:
             app.workflow_instance_id = None
             app.status = "draft"
+    elif inst.biz_type == "contract" and inst.biz_id:
+        c = db.get(models.Contract, inst.biz_id)
+        if c and c.workflow_instance_id == inst.id:
+            c.workflow_instance_id = None   # 保持 draft,待修改后重新提交
+    elif inst.biz_type == "tax" and inst.biz_id:
+        f = db.get(models.TaxFiling, inst.biz_id)
+        if f and f.workflow_instance_id == inst.id:
+            f.workflow_instance_id = None   # 保持 pending
+    elif inst.biz_type == "voucher" and inst.biz_id:
+        v = db.get(models.Voucher, inst.biz_id)
+        if v and v.workflow_instance_id == inst.id:
+            v.workflow_instance_id = None   # 保持 draft,不入账
 
 
 @router.post("/instances/{inst_id}/cancel", response_model=schemas.InstanceOut)

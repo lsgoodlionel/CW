@@ -7,7 +7,8 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
-from .. import models, schemas, subaccounts_svc
+from .. import models, schemas, subaccounts_svc, auth_svc, workflow_svc
+from ..auth_mw import current_user
 
 router = APIRouter(prefix="/api/vouchers", tags=["vouchers"])
 
@@ -178,18 +179,38 @@ def get_voucher(voucher_id: int, db: Session = Depends(get_db)):
     return _to_detail(voucher, db)
 
 
+def _voucher_can_direct(db: Session, user) -> bool:
+    if user is None or getattr(user, "is_super_admin", False):
+        return True
+    return auth_svc.user_has(user, "voucher", "direct")
+
+
+def _large_voucher_approval(db: Session, total: Decimal, user) -> bool:
+    """判断大额凭证是否需走审批:阈值>0 且金额≥阈值 且已配置凭证审批流程 且无直录权限。"""
+    company = db.get(models.CompanyInfo, 1)
+    threshold = (company.large_voucher_threshold if company else Decimal("0")) or Decimal("0")
+    if threshold <= 0 or total < threshold:
+        return False
+    return workflow_svc.has_active(db, "voucher") and not _voucher_can_direct(db, user)
+
+
 @router.post("", response_model=schemas.VoucherDetail, status_code=201)
-def create_voucher(payload: schemas.VoucherCreate, db: Session = Depends(get_db)):
+def create_voucher(payload: schemas.VoucherCreate, db: Session = Depends(get_db),
+                   user=Depends(current_user)):
     _validate_accounts(db, payload)
     _validate_customer(db, payload.customer_id)
     total_debit = sum((e.debit for e in payload.entries), Decimal("0"))
     total_credit = sum((e.credit for e in payload.entries), Decimal("0"))
+    status = payload.status
+    # 大额凭证审批:超阈值且无直录权限 → 存为草稿(不入账),经审批通过后过账
+    if status == "posted" and _large_voucher_approval(db, total_debit, user):
+        status = "draft"
     voucher = models.Voucher(
         voucher_no=payload.voucher_no or _next_voucher_no(db, payload.voucher_date),
         voucher_date=payload.voucher_date,
         note=payload.note,
         customer_id=payload.customer_id,
-        status=payload.status,
+        status=status,
         total_debit=total_debit,
         total_credit=total_credit,
     )
@@ -233,6 +254,28 @@ def update_voucher(
     # 整体替换分录(附件保留)
     voucher.entries.clear()
     _build_entries(db, voucher, payload)
+    db.commit()
+    return get_voucher(voucher_id, db)
+
+
+@router.post("/{voucher_id}/submit", response_model=schemas.VoucherDetail)
+def submit_voucher(voucher_id: int, db: Session = Depends(get_db)):
+    """提交大额凭证审批:草稿凭证发起审批,通过后自动过账(posted)入账。"""
+    voucher = db.get(models.Voucher, voucher_id)
+    if voucher is None:
+        raise HTTPException(status_code=404, detail="凭证不存在")
+    if voucher.status == "posted":
+        raise HTTPException(status_code=400, detail="凭证已过账,无需审批")
+    if voucher.workflow_instance_id:
+        raise HTTPException(status_code=400, detail="该凭证已提交审批")
+    definition = workflow_svc.active_definition(db, "voucher")
+    if definition is None or not definition.steps:
+        raise HTTPException(status_code=400, detail="未配置「记账凭证(大额)」审批流程,请先在审批流程页新建并启用")
+    sub = schemas.InstanceSubmit(
+        definition_id=definition.id, biz_type="voucher", biz_id=voucher.id,
+        title=f"{voucher.voucher_no} 凭证 金额{voucher.total_debit}元 · {voucher.note}")
+    inst = workflow_svc.create_instance(db, sub, definition)
+    voucher.workflow_instance_id = inst.id
     db.commit()
     return get_voucher(voucher_id, db)
 

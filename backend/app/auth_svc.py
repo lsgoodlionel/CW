@@ -78,9 +78,10 @@ MODULE_ACTIONS["company"] = ["view", "edit"]
 MODULE_ACTIONS["workflow"] = ["view", "create", "edit", "delete"]
 # 审批中心:查看/审批(通过驳回)/管理(改派撤销=edit)/删除实例
 MODULE_ACTIONS["approval"] = ["view", "approve", "edit", "delete"]
-# 合同管理 / 税务管理:常规增删改查(税务报表按 view 归类)
-MODULE_ACTIONS["contract"] = ["view", "create", "edit", "delete"]
-MODULE_ACTIONS["tax"] = ["view", "create", "edit", "delete"]
+# 合同/税务/凭证:增加 direct(直录免审批)动作——授权者可直接生效,未授权者录入转审批
+MODULE_ACTIONS["contract"] = ["view", "create", "edit", "delete", "direct"]
+MODULE_ACTIONS["tax"] = ["view", "create", "edit", "delete", "direct"]
+MODULE_ACTIONS["voucher"] = ["view", "create", "edit", "delete", "direct"]
 
 
 def catalog() -> list[dict]:

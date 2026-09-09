@@ -7,7 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
-from .. import models, schemas, attach_svc, tax_report
+from .. import models, schemas, attach_svc, tax_report, auth_svc, workflow_svc
+from ..auth_mw import current_user
 from .attachments import read_upload
 
 router = APIRouter(prefix="/api/tax", tags=["tax"])
@@ -29,8 +30,15 @@ def _load(db: Session, fid: int) -> models.TaxFiling:
 
 
 @router.get("/meta")
-def tax_meta():
-    return {"tax_type": TAX_TYPE_LABEL, "taxpayer_type": TAXPAYER_LABEL, "status": STATUS_LABEL}
+def tax_meta(db: Session = Depends(get_db)):
+    return {"tax_type": TAX_TYPE_LABEL, "taxpayer_type": TAXPAYER_LABEL, "status": STATUS_LABEL,
+            "approval_enabled": workflow_svc.has_active(db, "tax")}
+
+
+def _tax_can_direct(db: Session, user) -> bool:
+    if user is None or getattr(user, "is_super_admin", False):
+        return True
+    return auth_svc.user_has(user, "tax", "direct")
 
 
 @router.get("/filings", response_model=list[schemas.TaxFilingOut])
@@ -57,9 +65,14 @@ def _validate_filing(payload: schemas.TaxFilingIn) -> None:
 
 
 @router.post("/filings", response_model=schemas.TaxFilingOut, status_code=201)
-def create_filing(payload: schemas.TaxFilingIn, db: Session = Depends(get_db)):
+def create_filing(payload: schemas.TaxFilingIn, db: Session = Depends(get_db),
+                  user=Depends(current_user)):
     _validate_filing(payload)
     f = models.TaxFiling(**payload.model_dump())
+    # 审批约束:已配置税务审批流程且无 tax:direct 时,不允许直接置为已申报/已缴纳
+    if (f.status in ("filed", "paid") and workflow_svc.has_active(db, "tax")
+            and not _tax_can_direct(db, user)):
+        f.status = "pending"
     db.add(f)
     db.commit()
     return _load(db, f.id)
@@ -84,6 +97,25 @@ def update_filing(fid: int, payload: schemas.TaxFilingIn, db: Session = Depends(
 def delete_filing(fid: int, db: Session = Depends(get_db)):
     db.delete(_load(db, fid))
     db.commit()
+
+
+@router.post("/filings/{fid}/submit", response_model=schemas.TaxFilingOut)
+def submit_filing(fid: int, db: Session = Depends(get_db)):
+    """提交税务申报审批:通过后状态自动变为「已申报(filed)」。"""
+    f = _load(db, fid)
+    if f.workflow_instance_id:
+        raise HTTPException(status_code=400, detail="该申报已提交审批")
+    definition = workflow_svc.active_definition(db, "tax")
+    if definition is None or not definition.steps:
+        raise HTTPException(status_code=400, detail="未配置「税务申报」审批流程,请先在审批流程页新建并启用")
+    sub = schemas.InstanceSubmit(
+        definition_id=definition.id, biz_type="tax", biz_id=f.id,
+        title=f"{TAX_TYPE_LABEL.get(f.tax_type, f.tax_type)} {f.period} 应纳{f.tax_amount}元")
+    inst = workflow_svc.create_instance(db, sub, definition)
+    f.workflow_instance_id = inst.id
+    f.status = "pending"
+    db.commit()
+    return _load(db, fid)
 
 
 @router.post("/filings/{fid}/attachments", response_model=schemas.AttachmentOut, status_code=201)

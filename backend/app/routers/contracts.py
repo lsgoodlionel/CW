@@ -6,7 +6,8 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
-from .. import models, schemas, attach_svc
+from .. import models, schemas, attach_svc, auth_svc, workflow_svc
+from ..auth_mw import current_user
 from .attachments import read_upload
 
 router = APIRouter(prefix="/api/contracts", tags=["contracts"])
@@ -76,8 +77,16 @@ def list_contracts(status: str | None = None, category: str | None = None,
     return [_out(db, c) for c in db.scalars(stmt).all()]
 
 
+def _can_direct(db: Session, user) -> bool:
+    """是否可直录免审批(超管或拥有 contract:direct 权限)。"""
+    if user is None or getattr(user, "is_super_admin", False):
+        return True
+    return auth_svc.user_has(user, "contract", "direct")
+
+
 @router.post("", response_model=schemas.ContractOut, status_code=201)
-def create_contract(payload: schemas.ContractIn, db: Session = Depends(get_db)):
+def create_contract(payload: schemas.ContractIn, db: Session = Depends(get_db),
+                    user=Depends(current_user)):
     if payload.category not in schemas.CONTRACT_CATEGORIES:
         raise HTTPException(status_code=400, detail="合同类型无效")
     if payload.status not in schemas.CONTRACT_STATUSES:
@@ -86,6 +95,10 @@ def create_contract(payload: schemas.ContractIn, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="合同收支方向无效")
     c = models.Contract(**payload.model_dump())
     c.tax_amount = _calc_tax(c.amount, c.tax_rate)
+    # 审批约束:已配置启用的合同审批流程 且 用户无 contract:direct 权限时,强制存为草稿待提交审批
+    if (c.status == "active" and workflow_svc.has_active(db, "contract")
+            and not _can_direct(db, user)):
+        c.status = "draft"
     db.add(c)
     db.commit()
     return get_contract(c.id, db)
@@ -138,6 +151,25 @@ def delete_contract(contract_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+@router.post("/{contract_id}/submit", response_model=schemas.ContractOut)
+def submit_contract(contract_id: int, db: Session = Depends(get_db)):
+    """提交合同审批:创建审批实例,通过后合同状态自动变为「履行中(active)」。"""
+    c = _load(db, contract_id)
+    if c.workflow_instance_id:
+        raise HTTPException(status_code=400, detail="该合同已提交审批")
+    definition = workflow_svc.active_definition(db, "contract")
+    if definition is None or not definition.steps:
+        raise HTTPException(status_code=400, detail="未配置「合同」审批流程,请先在审批流程页新建并启用")
+    sub = schemas.InstanceSubmit(
+        definition_id=definition.id, biz_type="contract", biz_id=c.id,
+        title=f"{c.contract_no} 合同 金额{c.amount}元 · {c.name}")
+    inst = workflow_svc.create_instance(db, sub, definition)
+    c.workflow_instance_id = inst.id
+    c.status = "draft"
+    db.commit()
+    return get_contract(contract_id, db)
+
+
 @router.post("/{contract_id}/attachments", response_model=schemas.AttachmentOut, status_code=201)
 async def upload_attachment(contract_id: int, kind: str = Form("contract"),
                             file: UploadFile = File(...), db: Session = Depends(get_db)):
@@ -182,5 +214,6 @@ def unlink_voucher(link_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/meta/labels")
-def contract_meta():
-    return {"category": CATEGORY_LABEL, "status": STATUS_LABEL, "direction": DIRECTION_LABEL}
+def contract_meta(db: Session = Depends(get_db)):
+    return {"category": CATEGORY_LABEL, "status": STATUS_LABEL, "direction": DIRECTION_LABEL,
+            "approval_enabled": workflow_svc.has_active(db, "contract")}

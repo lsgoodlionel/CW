@@ -34,6 +34,7 @@ class CompanyFields(BaseModel):
     is_small_micro: bool = False       # 是否小型微利企业(手动值)
     small_micro_auto: bool = True      # 小型微利自动判断开关
     restricted_industry: bool = False  # 是否从事国家限制或禁止行业
+    large_voucher_threshold: Decimal = Decimal("0")   # 大额凭证审批阈值(0=不启用)
 
 
 class CompanyOut(CompanyFields):
@@ -532,6 +533,7 @@ class VoucherListItem(BaseModel):
     total_debit: Decimal
     total_credit: Decimal
     status: str
+    workflow_instance_id: int | None = None
     entry_count: int = 0
     attachment_count: int = 0
     link_count: int = 0
@@ -548,6 +550,7 @@ class VoucherDetail(BaseModel):
     total_debit: Decimal
     total_credit: Decimal
     status: str
+    workflow_instance_id: int | None = None
     created_at: datetime
     entries: list[EntryOut]
     attachments: list[AttachmentOut]
@@ -625,6 +628,7 @@ class ContractOut(BaseModel):
     our_signatory: str
     counterparty_contact: str
     note: str
+    workflow_instance_id: int | None = None
     created_at: datetime
     attachments: list[AttachmentOut] = []
     vouchers: list[ContractVoucherBrief] = []
@@ -663,6 +667,7 @@ class TaxFilingOut(BaseModel):
     paid_amount: Decimal
     filed_date: date | None
     status: str
+    workflow_instance_id: int | None = None
     note: str
     created_at: datetime
     attachments: list[AttachmentOut] = []

@@ -14,8 +14,9 @@ interface TaxFiling {
   period_start: string | null; period_end: string | null
   tax_basis: number | string; tax_amount: number | string; paid_amount: number | string
   filed_date: string | null; status: string; note: string; attachments: Attachment[]
+  workflow_instance_id: number | null
 }
-interface Meta { tax_type: Record<string, string>; taxpayer_type: Record<string, string>; status: Record<string, string> }
+interface Meta { tax_type: Record<string, string>; taxpayer_type: Record<string, string>; status: Record<string, string>; approval_enabled?: boolean }
 interface CitRow { line_no: string; label: string; amount: number; level: number; category?: string }
 interface A104Row { line_no: string; label: string; sell: number; admin: number; fin: number }
 interface A105Row {
@@ -121,6 +122,9 @@ function Filings({ meta }: { meta: Meta }) {
     message.success('已保存'); setOpen(false); load()
   }
   const remove = (id: number) => http.delete(`/tax/filings/${id}`).then(() => { message.success('已删除'); load() })
+  const submitApproval = (id: number) =>
+    http.post(`/tax/filings/${id}/submit`).then(() => { message.success('已提交审批'); load() })
+      .catch((e) => message.error(e?.response?.data?.detail || '提交失败'))
 
   const columns = [
     { title: '税种', dataIndex: 'tax_type', width: 120, render: (v: string) => <Tag color="blue">{meta.tax_type[v] || v}</Tag> },
@@ -130,15 +134,21 @@ function Filings({ meta }: { meta: Meta }) {
     { title: '应纳税额', dataIndex: 'tax_amount', width: 120, align: 'right' as const, render: (v: number | string) => formatYuan(v) },
     { title: '已缴', dataIndex: 'paid_amount', width: 110, align: 'right' as const, render: (v: number | string) => formatYuan(v) },
     { title: '申报日期', dataIndex: 'filed_date', width: 110, render: (v: string) => v || '-' },
-    { title: '状态', dataIndex: 'status', width: 90, render: (s: string) => <Tag color={STATUS_COLOR[s]}>{meta.status[s] || s}</Tag> },
+    { title: '状态', dataIndex: 'status', width: 90, render: (s: string, r: TaxFiling) => (
+      r.workflow_instance_id && s === 'pending'
+        ? <Tag color="processing">审批中</Tag>
+        : <Tag color={STATUS_COLOR[s]}>{meta.status[s] || s}</Tag>) },
     { title: '备注', dataIndex: 'note', ellipsis: true, render: (v: string) => v || '-' },
     { title: '附件', dataIndex: 'attachments', width: 70, align: 'center' as const,
       render: (a: Attachment[], r: TaxFiling) => (a && a.length
         ? <a onClick={() => setAttView(r)}>{a.length} 个</a> : '-') },
     {
-      title: '操作', width: 130, render: (_: unknown, r: TaxFiling) => (
+      title: '操作', width: 170, render: (_: unknown, r: TaxFiling) => (
         <Space>
           <a onClick={() => openEdit(r)}>编辑</a>
+          {meta.approval_enabled && r.status === 'pending' && !r.workflow_instance_id && (
+            <a onClick={() => submitApproval(r.id)}>提交审批</a>
+          )}
           <Popconfirm title="删除该记录?" onConfirm={() => remove(r.id)}>
             <a style={{ color: '#cf1322' }}>删除</a>
           </Popconfirm>

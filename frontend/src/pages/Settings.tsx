@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Card, Form, Input, Button, message, Spin, Divider, Space, Upload, Typography, Modal, Row, Col,
-  Select, Switch,
+  Select, Switch, InputNumber,
 } from 'antd'
 import { DownloadOutlined, UploadOutlined, ExclamationCircleFilled } from '@ant-design/icons'
 import { http, Company, withToken } from '../api'
@@ -42,7 +42,10 @@ export default function Settings() {
 
   useEffect(() => {
     http.get<Company>('/company')
-      .then((r) => form.setFieldsValue(r.data))
+      .then((r) => form.setFieldsValue({
+        ...r.data,
+        large_voucher_threshold: Number((r.data as { large_voucher_threshold?: number | string }).large_voucher_threshold || 0),
+      }))
       .finally(() => setLoading(false))
   }, [form])
 
@@ -109,6 +112,15 @@ export default function Settings() {
               <Form.Item name="restricted_industry" label="从事国家限制或禁止行业" valuePropName="checked"
                 tooltip="小型微利企业要求非国家限制或禁止行业;勾选则不符合小型微利条件">
                 <Switch checkedChildren="是" unCheckedChildren="否" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Divider orientation="left" plain>审批设置</Divider>
+          <Row gutter={16}>
+            <Col xs={24} md={12}>
+              <Form.Item name="large_voucher_threshold" label="大额凭证审批阈值(元)"
+                tooltip="0=不启用凭证审批;>0 时,金额≥该值的凭证在无「凭证直录」权限时须提交审批,通过后才过账入账。还需在「流程设计」新建并启用「记账凭证(大额)」流程">
+                <InputNumber min={0} precision={2} style={{ width: 200 }} placeholder="0 表示不启用" />
               </Form.Item>
             </Col>
           </Row>

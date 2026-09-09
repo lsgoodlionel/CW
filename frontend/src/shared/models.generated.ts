@@ -177,6 +177,7 @@ export interface CompanyOut {
   is_small_micro: boolean
   small_micro_auto: boolean
   restricted_industry: boolean
+  large_voucher_threshold: string
   id: number
 }
 
@@ -201,6 +202,7 @@ export interface CompanyUpdate {
   is_small_micro?: boolean
   small_micro_auto?: boolean
   restricted_industry?: boolean
+  large_voucher_threshold?: number | string
 }
 
 export interface ContractIn {
@@ -240,6 +242,7 @@ export interface ContractOut {
   our_signatory: string
   counterparty_contact: string
   note: string
+  workflow_instance_id: number | null
   created_at: string
   attachments: AttachmentOut[]
   vouchers: ContractVoucherBrief[]
@@ -974,6 +977,7 @@ export interface TaxFilingOut {
   paid_amount: string
   filed_date: string | null
   status: string
+  workflow_instance_id: number | null
   note: string
   created_at: string
   attachments: AttachmentOut[]
@@ -1108,6 +1112,7 @@ export interface VoucherDetail {
   total_debit: string
   total_credit: string
   status: string
+  workflow_instance_id: number | null
   created_at: string
   entries: EntryOut[]
   attachments: AttachmentOut[]
@@ -1130,6 +1135,7 @@ export interface VoucherListItem {
   total_debit: string
   total_credit: string
   status: string
+  workflow_instance_id: number | null
   entry_count: number
   attachment_count: number
   link_count: number
