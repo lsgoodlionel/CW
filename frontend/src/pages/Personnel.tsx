@@ -228,6 +228,8 @@ export default function Personnel() {
             </Col>
             <Col span={8}><Form.Item name="phone" label="电话"><Input /></Form.Item></Col>
             <Col span={8}><Form.Item name="hire_date" label="入职日期"><Input placeholder="2024-01-01" /></Form.Item></Col>
+            <Col span={8}><Form.Item name="leave_date" label="离职日期"
+              tooltip="填写后用于精确计算小型微利各季度平均从业人数"><Input placeholder="离职时填,如 2026-06-30" /></Form.Item></Col>
             <Col span={8}>
               <Form.Item name="equity_ratio" label="持股比例(%)">
                 <InputNumber min={0} max={100} precision={4} style={{ width: '100%' }} placeholder="股东填写" />

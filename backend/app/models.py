@@ -263,6 +263,7 @@ class Employee(Base):
     id_number: Mapped[str] = mapped_column(String(40), default="")  # 身份证号
     email: Mapped[str] = mapped_column(String(120), default="")
     hire_date: Mapped[str] = mapped_column(String(20), default="")  # 入职日期
+    leave_date: Mapped[str] = mapped_column(String(20), default="")  # 离职日期(用于历史季度人数精确计算)
     equity_ratio: Mapped[Decimal] = mapped_column(Numeric(7, 4), default=0)  # 持股比例%
     status: Mapped[str] = mapped_column(String(20), default="active")  # active 在职 / left 离职
     note: Mapped[str] = mapped_column(Text, default="")

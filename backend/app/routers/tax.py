@@ -378,7 +378,7 @@ def save_depreciations(payload: schemas.TaxDepreciationSave, db: Session = Depen
 @router.get("/rd-deductions")
 def list_rd(year: int = Query(...), db: Session = Depends(get_db)):
     """A107012 研发费用加计扣除明细(含录入值与自动汇总/加计扣除额)。"""
-    return {"year": year, "rows": _a107_rows(db, year)}
+    return {"year": year, "rows": _a107_rows(db, year), "warnings": tax_report.a107012_warnings(db, year)}
 
 
 @router.put("/rd-deductions")
@@ -394,7 +394,7 @@ def save_rd(payload: schemas.TaxRdSave, db: Session = Depends(get_db)):
         db.add(models.TaxRdDeduction(
             report_year=payload.report_year, line_no=it.line_no, amount=it.amount))
     db.commit()
-    return {"year": payload.report_year, "rows": _a107_rows(db, payload.report_year)}
+    return {"year": payload.report_year, "rows": _a107_rows(db, payload.report_year), "warnings": tax_report.a107012_warnings(db, payload.report_year)}
 
 
 @router.get("/accel-deprs")

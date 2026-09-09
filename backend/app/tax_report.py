@@ -142,19 +142,24 @@ def _avg_headcount(db: Session, year: int, as_of: date) -> Decimal:
     ends = [d for d in (date(year, 3, 31), date(year, 6, 30),
                         date(year, 9, 30), date(year, 12, 31)) if d <= as_of] or [as_of]
 
+    def _pd(v):
+        try:
+            return date.fromisoformat(str(v)[:10]) if v else None
+        except ValueError:
+            return None
+
     def active_at(qe: date) -> int:
         n = 0
         for e in emps:
-            if e.status != "active":
+            hd = _pd(e.hire_date)
+            if hd and hd > qe:            # 该季末尚未入职
                 continue
-            hd = None
-            if e.hire_date:
-                try:
-                    hd = date.fromisoformat(str(e.hire_date)[:10])
-                except ValueError:
-                    hd = None
-            if hd is None or hd <= qe:
-                n += 1
+            ld = _pd(getattr(e, "leave_date", ""))
+            if ld and ld <= qe:           # 该季末已离职
+                continue
+            if ld is None and e.status != "active":
+                continue                  # 无离职日期但当前已离职:保守不计入
+            n += 1
         return n
 
     counts = [active_at(qe) for qe in ends]
@@ -1002,6 +1007,23 @@ def compute_a107012(db: Session, report_year: int):
 def a107012_deduction_total(db: Session, report_year: int) -> Decimal:
     """本年研发费用加计扣除总额(行51,供主表行22联动)。"""
     return {r[0]: r for r in compute_a107012(db, report_year)}["51"][2]
+
+
+def a107012_warnings(db: Session, report_year: int) -> list[str]:
+    """研发费用加计扣除合规校验:委托境外研发限额等。返回警示文本列表(空=无异常)。"""
+    v = {r[0]: r[2] for r in compute_a107012(db, report_year)}
+    warns = []
+    domestic = v.get("2", Z)                 # 境内自主/合作/集中研发费用合计
+    entrust_oversea = v.get("37", Z)         # 委托境外机构研发费用
+    allowed_oversea = v.get("38", Z)         # 其中:允许加计扣除的委托境外费用(录入)
+    # 政策:委托境外研发费用按实际发生额80%计入,且不超过境内符合条件研发费用的2/3
+    limit = min((entrust_oversea * Decimal("0.8")).quantize(Decimal("0.01")),
+                (domestic * Decimal("2") / Decimal("3")).quantize(Decimal("0.01")))
+    if allowed_oversea > limit:
+        warns.append(
+            f"行38「允许加计扣除的委托境外研发费用」{float(allowed_oversea):.2f} 元 已超过限额 "
+            f"{float(limit):.2f} 元(不超过 委托境外×80% 与 境内研发费用×2/3 的较小者),请核减。")
+    return warns
 
 
 # ---------- 附表 A105050 职工薪酬支出及纳税调整明细表 ----------

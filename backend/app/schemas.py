@@ -243,6 +243,7 @@ class EmployeeBase(BaseModel):
     id_number: str = ""
     email: str = ""
     hire_date: str = ""
+    leave_date: str = ""
     equity_ratio: float = 0
     status: str = "active"
     note: str = ""

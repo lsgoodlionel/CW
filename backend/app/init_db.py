@@ -49,6 +49,9 @@ _ADDED_COLUMNS = {
     "expense_applications": [
         ("contract_id", "INTEGER"),
     ],
+    "employees": [
+        ("leave_date", "VARCHAR(20) DEFAULT ''"),
+    ],
     "customers": [
         ("party_type", "VARCHAR(20) DEFAULT 'enterprise'"),
     ],

@@ -615,11 +615,12 @@ function A105080Editor({ year, onSaved }: { year: number; onSaved: () => void })
 // A107012 研发费用加计扣除录入:明细行录入研发费用,行50填加计比例,行51加计扣除总额联动主表行22
 function A107Editor({ year, onSaved }: { year: number; onSaved: () => void }) {
   const [rows, setRows] = useState<A107Row[]>([])
+  const [warnings, setWarnings] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
 
   const load = useCallback(() => {
-    http.get<{ rows: A107Row[] }>('/tax/rd-deductions', { params: { year } })
-      .then((r) => setRows(r.data.rows))
+    http.get<{ rows: A107Row[]; warnings?: string[] }>('/tax/rd-deductions', { params: { year } })
+      .then((r) => { setRows(r.data.rows); setWarnings(r.data.warnings || []) })
   }, [year])
   useEffect(() => { load() }, [load])
 
@@ -630,8 +631,8 @@ function A107Editor({ year, onSaved }: { year: number; onSaved: () => void }) {
     setSaving(true)
     try {
       const items = rows.filter((r) => r.editable).map((r) => ({ line_no: r.line_no, amount: r.amount }))
-      const res = await http.put<{ rows: A107Row[] }>('/tax/rd-deductions', { report_year: year, items })
-      setRows(res.data.rows); message.success('研发加计扣除已保存'); onSaved()
+      const res = await http.put<{ rows: A107Row[]; warnings?: string[] }>('/tax/rd-deductions', { report_year: year, items })
+      setRows(res.data.rows); setWarnings(res.data.warnings || []); message.success('研发加计扣除已保存'); onSaved()
     } finally { setSaving(false) }
   }
 
@@ -641,6 +642,10 @@ function A107Editor({ year, onSaved }: { year: number; onSaved: () => void }) {
         <Button type="primary" loading={saving} onClick={save}>保存研发加计</Button>
         <span style={{ color: '#888' }}>录入各研发费用明细,行50填加计比例(1.00=100%);行51加计扣除总额自动计算并联动主表行22。</span>
       </Space>
+      {warnings.length > 0 && (
+        <Alert type="warning" showIcon style={{ marginBottom: 8 }}
+          message="合规校验提示" description={<ul style={{ margin: 0, paddingLeft: 18 }}>{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>} />
+      )}
       <Table rowKey="line_no" size="small" pagination={false} dataSource={rows} scroll={{ x: 620 }}
         columns={[
           { title: '行次', dataIndex: 'line_no', width: 56 },
