@@ -222,9 +222,10 @@ def _seed_accounts(db) -> None:
         ))
 
 
-def _seed_company(db) -> None:
-    if db.get(models.CompanyInfo, 1) is None:
-        db.add(models.CompanyInfo(id=1, name="我的小微企业"))
+def _seed_company(db, name: str = "我的小微企业") -> None:
+    """按当前租户上下文确保存在一条企业信息(经租户过滤判断)。tenant_id 由 before_flush 回填。"""
+    if db.scalar(select(models.CompanyInfo).limit(1)) is None:
+        db.add(models.CompanyInfo(name=name))
 
 
 def _seed_super_admin(db) -> None:

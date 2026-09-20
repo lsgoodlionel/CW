@@ -92,6 +92,26 @@ class TenantBriefOut(BaseModel):
     is_tenant_admin: bool = False
 
 
+class TenantOut(BaseModel):
+    """平台管理:租户条目。"""
+    id: int
+    name: str
+    code: str
+    is_active: bool
+    note: str
+    created_at: str | None
+    member_count: int = 0
+
+
+class TenantMemberOut(BaseModel):
+    """平台管理:租户成员条目。"""
+    id: int                              # 成员关系(membership)id
+    user_id: int
+    username: str
+    display_name: str
+    is_tenant_admin: bool
+
+
 class LoginOut(BaseModel):
     #: 已解析租户时返回令牌与用户;需选择租户时 token/user 为空、need_tenant=True
     token: str | None = None

@@ -2,6 +2,8 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from sqlalchemy import select
+
 from ..database import get_db
 from .. import models, schemas
 
@@ -9,11 +11,13 @@ router = APIRouter(prefix="/api/company", tags=["company"])
 
 
 def _get_or_create(db: Session) -> models.CompanyInfo:
-    company = db.get(models.CompanyInfo, 1)
+    # 按当前租户定位企业信息(经租户 SELECT 过滤);缺失则新建,tenant_id 由 before_flush 回填。
+    company = db.scalar(select(models.CompanyInfo).order_by(models.CompanyInfo.id).limit(1))
     if company is None:
-        company = models.CompanyInfo(id=1, name="")
+        company = models.CompanyInfo(name="")
         db.add(company)
         db.commit()
+        db.refresh(company)
     return company
 
 

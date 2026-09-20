@@ -121,8 +121,7 @@ def submit_filing(fid: int, db: Session = Depends(get_db)):
 @router.post("/filings/{fid}/attachments", response_model=schemas.AttachmentOut, status_code=201)
 async def upload_attachment(fid: int, kind: str = Form("tax_payment"),
                             file: UploadFile = File(...), db: Session = Depends(get_db)):
-    if db.get(models.TaxFiling, fid) is None:
-        raise HTTPException(status_code=404, detail="税务申报记录不存在")
+    _load(db, fid)                       # 经租户过滤的存在性校验(防跨租户 IDOR)
     content = await read_upload(file, kind)
     stored = attach_svc.store_bytes(f"tax_{fid}", file.filename or "", content)
     att = attach_svc.make_attachment(

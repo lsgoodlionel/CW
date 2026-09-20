@@ -5,7 +5,7 @@ import {
   SettingOutlined, BookOutlined, HistoryOutlined, TeamOutlined, IdcardOutlined,
   PartitionOutlined, SolutionOutlined, SafetyCertificateOutlined, UserOutlined,
   LogoutOutlined, KeyOutlined, FileDoneOutlined, AuditOutlined, InfoCircleOutlined,
-  FileProtectOutlined, CalculatorOutlined,
+  FileProtectOutlined, CalculatorOutlined, ClusterOutlined,
 } from '@ant-design/icons'
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
@@ -23,6 +23,7 @@ import Ledgers from './pages/Ledgers'
 import Logs from './pages/Logs'
 import UsersAdmin from './pages/Users'
 import Settings from './pages/Settings'
+import PlatformAdmin from './pages/PlatformAdmin'
 import Contracts from './pages/Contracts'
 import Tax from './pages/Tax'
 import About from './pages/About'
@@ -32,7 +33,16 @@ import { http, getToken, clearToken, AuthUser, hasPerm } from './api'
 const { Sider, Header, Content } = Layout
 
 // 每个菜单项对应权限模块(用于按 <module>:view 过滤显示)
-const MENU = [
+// superOnly 为 true 的项仅超级管理员可见(如平台管理)
+interface MenuItemDef {
+  key: string
+  icon: JSX.Element
+  label: string
+  module: string
+  superOnly?: boolean
+}
+
+const MENU: MenuItemDef[] = [
   { key: '/', icon: <DashboardOutlined />, label: '仪表盘', module: '' },
   { key: '/vouchers', icon: <FileTextOutlined />, label: '记账凭证', module: 'voucher' },
   { key: '/customers', icon: <TeamOutlined />, label: '往来单位', module: 'customer' },
@@ -49,6 +59,7 @@ const MENU = [
   { key: '/logs', icon: <HistoryOutlined />, label: '操作日志', module: 'logs' },
   { key: '/users', icon: <SafetyCertificateOutlined />, label: '用户与权限', module: 'user' },
   { key: '/settings', icon: <SettingOutlined />, label: '企业信息', module: 'company' },
+  { key: '/platform', icon: <ClusterOutlined />, label: '平台管理', module: '', superOnly: true },
   { key: '/about', icon: <InfoCircleOutlined />, label: '关于系统', module: '' },
 ]
 
@@ -94,7 +105,8 @@ export default function App() {
     )
   }
 
-  const visibleMenu = MENU.filter((m) => !m.module || hasPerm(user, m.module, 'view'))
+  const visibleMenu = MENU.filter((m) =>
+    m.superOnly ? user.is_super_admin : (!m.module || hasPerm(user, m.module, 'view')))
   const selectedKey =
     visibleMenu.map((m) => m.key)
       .filter((k) => k !== '/' && location.pathname.startsWith(k))
@@ -154,6 +166,7 @@ export default function App() {
             <Route path="/logs" element={<Logs />} />
             <Route path="/users" element={<UsersAdmin />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/platform" element={<PlatformAdmin />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Content>

@@ -16,6 +16,7 @@ def provision_tenant(db, tenant_id: int) -> None:
     set_current_tenant(tenant_id)
     try:
         _init._seed_accounts(db)
+        _init._seed_company(db)          # 每租户独立企业信息(缺失则空白建行)
         db.commit()
         _init._seed_subaccounts(db)
         _init._seed_roles(db)

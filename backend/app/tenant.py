@@ -12,7 +12,7 @@ from contextvars import ContextVar
 from sqlalchemy import Integer, event
 from sqlalchemy.orm import Mapped, mapped_column, Session, with_loader_criteria
 
-from .config import DEFAULT_TENANT_ID
+from .config import DEFAULT_TENANT_ID, is_saas
 
 # 当前请求的租户;None 表示不做租户过滤(平台超管跨租户 / 系统初始化)
 _current_tenant: ContextVar[int | None] = ContextVar("current_tenant", default=None)
@@ -56,7 +56,11 @@ def install_tenant_isolation() -> None:
 
     @event.listens_for(Session, "do_orm_execute")
     def _apply_tenant_filter(orm_execute_state):  # noqa: ANN001
-        if not orm_execute_state.is_select:
+        # 对 SELECT / UPDATE / DELETE 统一注入租户过滤——UPDATE/DELETE 亦须过滤,
+        # 否则批量更新/删除(如备份恢复的整表清空)会跨租户执行。
+        if not (orm_execute_state.is_select
+                or orm_execute_state.is_update
+                or orm_execute_state.is_delete):
             return
         if orm_execute_state.execution_options.get("skip_tenant"):
             return
@@ -74,8 +78,15 @@ def install_tenant_isolation() -> None:
     @event.listens_for(Session, "before_flush")
     def _fill_tenant_id(session, flush_context, instances):  # noqa: ANN001
         tid = _current_tenant.get()
+        new_tenant_objs = [o for o in session.new if isinstance(o, TenantMixin)]
         if tid is None:
+            # SaaS 下无租户上下文时禁止写入租户数据,避免静默落入默认租户(平台超管须先选定租户)。
+            if is_saas():
+                offending = [o for o in new_tenant_objs
+                             if getattr(o, "tenant_id", None) in (None, 0)]
+                if offending:
+                    raise RuntimeError("多租户模式下未选定租户,禁止写入租户数据")
             return
-        for obj in session.new:
-            if isinstance(obj, TenantMixin) and getattr(obj, "tenant_id", None) in (None, 0):
+        for obj in new_tenant_objs:
+            if getattr(obj, "tenant_id", None) in (None, 0):
                 obj.tenant_id = tid

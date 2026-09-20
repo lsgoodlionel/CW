@@ -188,7 +188,7 @@ def _voucher_can_direct(db: Session, user) -> bool:
 
 def _large_voucher_approval(db: Session, total: Decimal, user) -> bool:
     """判断大额凭证是否需走审批:阈值>0 且金额≥阈值 且已配置凭证审批流程 且无直录权限。"""
-    company = db.get(models.CompanyInfo, 1)
+    company = db.scalar(select(models.CompanyInfo).order_by(models.CompanyInfo.id).limit(1))
     threshold = (company.large_voucher_threshold if company else Decimal("0")) or Decimal("0")
     if threshold <= 0 or total < threshold:
         return False

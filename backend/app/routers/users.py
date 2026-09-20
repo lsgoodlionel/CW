@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import models, auth_svc
-from ..tenant import tenant_get
+from ..tenant import tenant_get, get_current_tenant
+from ..config import is_saas
 from ..schemas_read import CreatedOut, RoleOut, SuccessOut, UserOut
 from ..auth_mw import current_user
 
@@ -58,9 +59,31 @@ def _set_roles(db: Session, user: models.User, role_ids: list[int]) -> None:
             db.add(models.UserRole(user_id=user.id, role_id=rid))
 
 
+def _tenant_user_get(db: Session, user_id: int) -> models.User | None:
+    """取用户;SaaS 下要求其为当前租户成员(防跨租户操作)。私有化/无上下文不限制。"""
+    user = db.get(models.User, user_id)
+    if user is None:
+        return None
+    tid = get_current_tenant()
+    if is_saas() and tid is not None:
+        member = db.scalar(select(models.TenantMembership.id).where(
+            models.TenantMembership.user_id == user_id,
+            models.TenantMembership.tenant_id == tid))
+        if member is None:
+            return None
+    return user
+
+
 @router.get("/api/users", response_model=list[UserOut])
 def list_users(db: Session = Depends(get_db)):
-    return [_user_out(u) for u in db.scalars(select(models.User).order_by(models.User.id)).all()]
+    stmt = select(models.User).order_by(models.User.id)
+    tid = get_current_tenant()
+    if is_saas() and tid is not None:
+        # 仅列出当前租户成员(User 为全局表,不受租户 SELECT 过滤)
+        stmt = (stmt.join(models.TenantMembership,
+                          models.TenantMembership.user_id == models.User.id)
+                .where(models.TenantMembership.tenant_id == tid))
+    return [_user_out(u) for u in db.scalars(stmt).all()]
 
 
 @router.post("/api/users", status_code=201, response_model=UserOut)
@@ -77,6 +100,10 @@ def create_user(payload: UserCreate, request: Request, db: Session = Depends(get
     db.add(user)
     db.flush()
     _set_roles(db, user, payload.role_ids)
+    # SaaS:新建用户自动加入当前租户,否则无成员关系将无法登录且不在租户用户列表中
+    tid = get_current_tenant()
+    if is_saas() and tid is not None:
+        db.add(models.TenantMembership(user_id=user.id, tenant_id=tid, is_tenant_admin=False))
     db.commit()
     db.refresh(user)
     return _user_out(user)
@@ -84,7 +111,7 @@ def create_user(payload: UserCreate, request: Request, db: Session = Depends(get
 
 @router.put("/api/users/{user_id}", response_model=UserOut)
 def update_user(user_id: int, payload: UserUpdate, request: Request, db: Session = Depends(get_db)):
-    user = db.get(models.User, user_id)
+    user = _tenant_user_get(db, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="用户不存在")
     data = payload.model_dump(exclude_unset=True)
@@ -109,7 +136,7 @@ def update_user(user_id: int, payload: UserUpdate, request: Request, db: Session
 
 @router.post("/api/users/{user_id}/reset-password", response_model=SuccessOut)
 def reset_password(user_id: int, payload: ResetPwIn, db: Session = Depends(get_db)):
-    user = db.get(models.User, user_id)
+    user = _tenant_user_get(db, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="用户不存在")
     user.password_hash = auth_svc.hash_password(payload.new_password)
@@ -119,7 +146,7 @@ def reset_password(user_id: int, payload: ResetPwIn, db: Session = Depends(get_d
 
 @router.delete("/api/users/{user_id}", status_code=204)
 def delete_user(user_id: int, request: Request, db: Session = Depends(get_db)):
-    user = db.get(models.User, user_id)
+    user = _tenant_user_get(db, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="用户不存在")
     if user.username == "admin":
