@@ -9,12 +9,39 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
+from .tenant import TenantMixin
 
 # 金额统一精度:18 位整数 + 2 位小数
 MONEY = Numeric(18, 2)
 
 
-class CompanyInfo(Base):
+class Tenant(Base):
+    """租户(SaaS 多租户)。私有化模式下仅有默认租户 id=1。"""
+    __tablename__ = "tenants"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))                    # 租户/企业名称
+    code: Mapped[str] = mapped_column(String(40), default="", index=True)  # 租户编码(可选)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class TenantMembership(Base):
+    """用户↔租户成员关系(登录选租户);is_tenant_admin 标识该租户管理员。"""
+    __tablename__ = "tenant_memberships"
+    __table_args__ = (UniqueConstraint("user_id", "tenant_id", name="uq_membership_user_tenant"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    is_tenant_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CompanyInfo(Base, TenantMixin):
     """企业基本信息(单例,id 恒为 1)。"""
     __tablename__ = "company_info"
 
@@ -50,7 +77,7 @@ class CompanyInfo(Base):
     large_voucher_threshold: Mapped[Decimal] = mapped_column(MONEY, default=0)
 
 
-class Account(Base):
+class Account(Base, TenantMixin):
     """会计科目。"""
     __tablename__ = "accounts"
 
@@ -69,7 +96,7 @@ class Account(Base):
     )
 
 
-class SubAccount(Base):
+class SubAccount(Base, TenantMixin):
     """二级明细科目(隶属于一级会计科目)。编码 = 一级编码(4位) + 顺序(2位)。"""
     __tablename__ = "sub_accounts"
 
@@ -86,7 +113,7 @@ class SubAccount(Base):
     account: Mapped["Account"] = relationship(back_populates="sub_accounts")
 
 
-class Customer(Base):
+class Customer(Base, TenantMixin):
     """往来单位:企业客户/个人客户/供应商/往来单位(银行、平台、租赁对象等)。"""
     __tablename__ = "customers"
 
@@ -108,7 +135,7 @@ class Customer(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-class Voucher(Base):
+class Voucher(Base, TenantMixin):
     """记账凭证。"""
     __tablename__ = "vouchers"
 
@@ -140,7 +167,7 @@ class Voucher(Base):
     )
 
 
-class VoucherEntry(Base):
+class VoucherEntry(Base, TenantMixin):
     """凭证分录(明细行)。一行只填借方或贷方。"""
     __tablename__ = "voucher_entries"
 
@@ -162,7 +189,7 @@ class VoucherEntry(Base):
     account: Mapped["Account"] = relationship()
 
 
-class Attachment(Base):
+class Attachment(Base, TenantMixin):
     """附件:发票/回单/合同等原始单据。可归属凭证/费用申请/费用报销(多归属)。"""
     __tablename__ = "attachments"
 
@@ -193,7 +220,7 @@ class Attachment(Base):
     voucher: Mapped["Voucher | None"] = relationship(back_populates="attachments")
 
 
-class VoucherLink(Base):
+class VoucherLink(Base, TenantMixin):
     """凭证关联:预收款/挂账/核销/应收款等人工关联,用于展示相关凭证。"""
     __tablename__ = "voucher_links"
 
@@ -210,7 +237,7 @@ class VoucherLink(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-class OperationLog(Base):
+class OperationLog(Base, TenantMixin):
     """操作日志:记录全系统数据变更与导入导出/下载行为。"""
     __tablename__ = "operation_logs"
 
@@ -232,7 +259,7 @@ class OperationLog(Base):
     detail: Mapped[str] = mapped_column(Text, default="")   # 变更详情(提交内容/差异 JSON)
 
 
-class OrgUnit(Base):
+class OrgUnit(Base, TenantMixin):
     """组织架构单元(可自引用形成多级组织树)。"""
     __tablename__ = "org_units"
 
@@ -245,7 +272,7 @@ class OrgUnit(Base):
     note: Mapped[str] = mapped_column(String(200), default="")
 
 
-class Employee(Base):
+class Employee(Base, TenantMixin):
     """员工档案(个人信息);部门与角色见 employee_positions(支持一人多岗兼职)。"""
     __tablename__ = "employees"
 
@@ -293,7 +320,7 @@ class User(Base):
     roles: Mapped[list["Role"]] = relationship(secondary="user_roles", lazy="selectin")
 
 
-class Role(Base):
+class Role(Base, TenantMixin):
     """角色(权限集合),可授予多个用户。"""
     __tablename__ = "roles"
 
@@ -307,7 +334,7 @@ class Role(Base):
     )
 
 
-class RolePermission(Base):
+class RolePermission(Base, TenantMixin):
     """角色权限点:perm 形如 'voucher:create'。"""
     __tablename__ = "role_permissions"
 
@@ -318,7 +345,7 @@ class RolePermission(Base):
     perm: Mapped[str] = mapped_column(String(50))
 
 
-class AuthPreset(Base):
+class AuthPreset(Base, TenantMixin):
     """授权预设:某部门 + 某员工角色 → 授予某系统角色。用于按部门/职位预设权限。"""
     __tablename__ = "auth_presets"
 
@@ -333,7 +360,7 @@ class AuthPreset(Base):
     note: Mapped[str] = mapped_column(String(200), default="")
 
 
-class UserRole(Base):
+class UserRole(Base, TenantMixin):
     __tablename__ = "user_roles"
 
     user_id: Mapped[int] = mapped_column(
@@ -344,7 +371,7 @@ class UserRole(Base):
     )
 
 
-class ExpenseApplication(Base):
+class ExpenseApplication(Base, TenantMixin):
     """费用申请单(事前审批)。审批通过后可据此发起费用报销(事后管理)。"""
     __tablename__ = "expense_applications"
 
@@ -380,7 +407,7 @@ class ExpenseApplication(Base):
     )
 
 
-class ExpenseApplicationItem(Base):
+class ExpenseApplicationItem(Base, TenantMixin):
     """费用申请明细行(预算/预计费用),字段与报销明细一致以便带出。"""
     __tablename__ = "expense_application_items"
 
@@ -399,7 +426,7 @@ class ExpenseApplicationItem(Base):
     application: Mapped["ExpenseApplication"] = relationship(back_populates="items")
 
 
-class ExpenseClaim(Base):
+class ExpenseClaim(Base, TenantMixin):
     """费用报销申请单(复用审批流程,通过后可生成记账凭证)。"""
     __tablename__ = "expense_claims"
 
@@ -440,7 +467,7 @@ class ExpenseClaim(Base):
     application: Mapped["ExpenseApplication | None"] = relationship()
 
 
-class ExpenseItem(Base):
+class ExpenseItem(Base, TenantMixin):
     """报销明细行。account_id/sub_account 用于生成凭证的费用科目。"""
     __tablename__ = "expense_items"
 
@@ -459,7 +486,7 @@ class ExpenseItem(Base):
     claim: Mapped["ExpenseClaim"] = relationship(back_populates="items")
 
 
-class WorkflowDefinition(Base):
+class WorkflowDefinition(Base, TenantMixin):
     """审批流程定义(可复用于报销等业务单据)。"""
     __tablename__ = "workflow_definitions"
 
@@ -476,7 +503,7 @@ class WorkflowDefinition(Base):
     )
 
 
-class WorkflowStep(Base):
+class WorkflowStep(Base, TenantMixin):
     """流程步骤:第 N 步由谁审批。"""
     __tablename__ = "workflow_steps"
 
@@ -496,7 +523,7 @@ class WorkflowStep(Base):
     definition: Mapped["WorkflowDefinition"] = relationship(back_populates="steps")
 
 
-class WorkflowInstance(Base):
+class WorkflowInstance(Base, TenantMixin):
     """流程实例:一张业务单据走一次审批。"""
     __tablename__ = "workflow_instances"
 
@@ -518,7 +545,7 @@ class WorkflowInstance(Base):
     )
 
 
-class WorkflowTask(Base):
+class WorkflowTask(Base, TenantMixin):
     """审批任务/轨迹:某实例某步骤指派给某审批人的处理记录。"""
     __tablename__ = "workflow_tasks"
 
@@ -538,7 +565,7 @@ class WorkflowTask(Base):
     instance: Mapped["WorkflowInstance"] = relationship(back_populates="tasks")
 
 
-class EmployeePosition(Base):
+class EmployeePosition(Base, TenantMixin):
     """员工任职:一名员工在某部门担任某角色/职位(支持跨多部门兼职)。"""
     __tablename__ = "employee_positions"
 
@@ -558,7 +585,7 @@ class EmployeePosition(Base):
     org_unit: Mapped["OrgUnit | None"] = relationship()
 
 
-class Contract(Base):
+class Contract(Base, TenantMixin):
     """合同:录入合同信息,可关联往来单位与多张记账凭证。"""
     __tablename__ = "contracts"
 
@@ -598,7 +625,7 @@ class Contract(Base):
     )
 
 
-class ContractVoucherLink(Base):
+class ContractVoucherLink(Base, TenantMixin):
     """合同↔凭证 关联(一份合同可对应多张凭证,如分期收付款)。"""
     __tablename__ = "contract_voucher_links"
 
@@ -616,7 +643,7 @@ class ContractVoucherLink(Base):
     voucher: Mapped["Voucher"] = relationship()
 
 
-class TaxFiling(Base):
+class TaxFiling(Base, TenantMixin):
     """税务申报记录:记录各税种(国税/自然人)申报结果与缴纳情况。"""
     __tablename__ = "tax_filings"
 
@@ -645,7 +672,7 @@ class TaxFiling(Base):
     )
 
 
-class TaxAdjustment(Base):
+class TaxAdjustment(Base, TenantMixin):
     """企业所得税年度纳税调整明细(A105000)按年录入:各行次的账载/税收/调增/调减金额。"""
     __tablename__ = "tax_adjustments"
     __table_args__ = (UniqueConstraint("year", "line_no", name="uq_tax_adj_year_line"),)
@@ -661,7 +688,7 @@ class TaxAdjustment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-class TaxLossCarryover(Base):
+class TaxLossCarryover(Base, TenantMixin):
     """企业所得税弥补亏损明细(A106000)按年录入:各年度亏损额、待弥补额、本年弥补额。"""
     __tablename__ = "tax_loss_carryovers"
     __table_args__ = (UniqueConstraint("report_year", "line_no", name="uq_tax_loss_year_line"),)
@@ -676,7 +703,7 @@ class TaxLossCarryover(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-class TaxAssetDepreciation(Base):
+class TaxAssetDepreciation(Base, TenantMixin):
     """企业所得税资产折旧摊销及纳税调整(A105080)按年录入:各资产类别的账载/税收折旧。"""
     __tablename__ = "tax_asset_depreciations"
     __table_args__ = (UniqueConstraint("report_year", "line_no", name="uq_tax_dep_year_line"),)
@@ -692,7 +719,7 @@ class TaxAssetDepreciation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-class TaxRdDeduction(Base):
+class TaxRdDeduction(Base, TenantMixin):
     """研发费用加计扣除优惠(A107012)按年录入:各研发费用归集行的金额(行50存加计比例)。"""
     __tablename__ = "tax_rd_deductions"
     __table_args__ = (UniqueConstraint("report_year", "line_no", name="uq_tax_rd_year_line"),)
@@ -705,7 +732,7 @@ class TaxRdDeduction(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-class TaxAccelDepr(Base):
+class TaxAccelDepr(Base, TenantMixin):
     """季报资产加速折旧摊销(扣除)优惠(A201020)按年录入:本年累计口径。"""
     __tablename__ = "tax_accel_deprs"
     __table_args__ = (UniqueConstraint("year", "line_no", name="uq_tax_accel_year_line"),)
@@ -722,7 +749,7 @@ class TaxAccelDepr(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-class TaxPreference(Base):
+class TaxPreference(Base, TenantMixin):
     """企业所得税税收优惠事项(免税/减计/所得减免/减免所得税)按年+事项代码录入金额。"""
     __tablename__ = "tax_preferences"
     __table_args__ = (UniqueConstraint("report_year", "code", name="uq_tax_pref_year_code"),)
@@ -735,7 +762,7 @@ class TaxPreference(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-class TaxSalaryAdjust(Base):
+class TaxSalaryAdjust(Base, TenantMixin):
     """职工薪酬支出及纳税调整(A105050)按年录入。纳税调整=账载金额−税收金额。"""
     __tablename__ = "tax_salary_adjusts"
     __table_args__ = (UniqueConstraint("report_year", "line_no", name="uq_tax_salary_year_line"),)
@@ -751,7 +778,7 @@ class TaxSalaryAdjust(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-class TaxAdMedia(Base):
+class TaxAdMedia(Base, TenantMixin):
     """广告费和业务宣传费跨年度纳税调整(A105060)按年+行次录入金额(行2为扣除率)。"""
     __tablename__ = "tax_ad_medias"
     __table_args__ = (UniqueConstraint("report_year", "line_no", name="uq_tax_ad_year_line"),)

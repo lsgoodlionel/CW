@@ -50,6 +50,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if settings.require_auth and user is None:
             return JSONResponse({"detail": "未登录或登录已过期"}, status_code=401)
 
+        # 设置租户上下文:私有化恒为默认租户;SaaS 取会话选定租户(token 携带,阶段二完善)。
+        from .config import is_saas, DEFAULT_TENANT_ID
+        from . import tenant as tenant_ctx
+        if not is_saas():
+            tenant_ctx.set_current_tenant(DEFAULT_TENANT_ID)
+        else:
+            # 阶段二:从签名令牌解析选定租户并校验成员关系;当前占位为默认租户
+            tid = getattr(request.state, "tenant_id", None) or DEFAULT_TENANT_ID
+            tenant_ctx.set_current_tenant(tid)
+
         if user is not None and not user.is_super_admin:
             need = auth_svc.classify_perm(method, path)
             if need is not None:

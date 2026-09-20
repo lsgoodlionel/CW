@@ -13,6 +13,7 @@ def init_db() -> None:
     _migrate(engine)
     db = SessionLocal()
     try:
+        _seed_tenant(db)                 # 默认租户须先于其它种子(存量数据归属租户1)
         _seed_accounts(db)
         _seed_company(db)
         db.commit()
@@ -22,9 +23,35 @@ def init_db() -> None:
         _seed_auth(db)
         _backfill_approval_perms(db)
         _seed_workflow(db)
+        _seed_membership(db)             # 为已有用户补齐默认租户成员关系
         db.commit()
     finally:
         db.close()
+
+
+def _seed_tenant(db) -> None:
+    """确保默认租户(id=1)存在;私有化模式与存量数据均归属该租户。"""
+    if db.get(models.Tenant, 1) is None:
+        company = db.get(models.CompanyInfo, 1)
+        name = (company.name if company else None) or "默认企业"
+        db.add(models.Tenant(id=1, name=name, code="default", is_active=True))
+        db.commit()
+
+
+def _seed_membership(db) -> None:
+    """为所有用户补齐与默认租户的成员关系(超管为租户管理员)。幂等。"""
+    existing = {uid for (uid,) in db.execute(
+        select(models.TenantMembership.user_id).where(
+            models.TenantMembership.tenant_id == 1)).all()}
+    changed = False
+    for u in db.scalars(select(models.User)).all():
+        if u.id in existing:
+            continue
+        db.add(models.TenantMembership(
+            user_id=u.id, tenant_id=1, is_tenant_admin=bool(u.is_super_admin)))
+        changed = True
+    if changed:
+        db.commit()
 
 
 # 已存在的表在版本迭代中新增的列:{表名: [(列名, 建列 DDL 片段), ...]}
@@ -100,7 +127,28 @@ def _migrate(bind) -> None:
             if name not in have:
                 with bind.begin() as conn:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+    _migrate_tenant_id(bind, inspector, existing_tables)
     _relax_attachment_voucher(bind, inspector)
+
+
+def _migrate_tenant_id(bind, inspector, existing_tables) -> None:
+    """为所有租户业务表补充 tenant_id 列并回填默认租户(存量数据归属租户 1)。幂等。"""
+    from .tenant import TenantMixin
+    from .config import DEFAULT_TENANT_ID
+    # 取所有继承 TenantMixin 的映射表名
+    tenant_tables = {
+        m.local_table.name for m in Base.registry.mappers
+        if issubclass(m.class_, TenantMixin)
+    }
+    for table in tenant_tables:
+        if table not in existing_tables:
+            continue
+        have = {c["name"] for c in inspector.get_columns(table)}
+        if "tenant_id" not in have:
+            with bind.begin() as conn:
+                conn.execute(text(
+                    f"ALTER TABLE {table} ADD COLUMN tenant_id INTEGER "
+                    f"NOT NULL DEFAULT {DEFAULT_TENANT_ID}"))
 
 
 def _relax_attachment_voucher(bind, inspector) -> None:

@@ -19,6 +19,8 @@ from .routers import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from .tenant import install_tenant_isolation
+    install_tenant_isolation()   # 注册租户隔离事件(启动一次)
     init_db()
     yield
 

@@ -23,5 +23,14 @@ class Settings(BaseSettings):
     token_ttl_hours: int = 12
     admin_password: str = "admin123"
 
+    # 部署模式:private=私有化单租户(默认,行为同单机版,隐藏租户/平台管理)
+    #           saas=多租户(登录选租户、平台管理后台、按租户隔离)
+    deploy_mode: str = "private"
+
 
 settings = Settings()
+
+DEFAULT_TENANT_ID = 1   # 私有化/存量数据的默认租户
+
+def is_saas() -> bool:
+    return settings.deploy_mode == "saas"
