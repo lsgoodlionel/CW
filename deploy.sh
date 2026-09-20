@@ -39,11 +39,19 @@ else
   info "已存在 .env,沿用现有配置。"
 fi
 
-# 3. 构建并启动
-info "构建并启动容器(首次较慢)..."
-$DC up -d --build
+# 3. 启动:优先拉取预构建镜像(GHCR,免服务器本地 pip/npm 构建);失败回退本地构建
+if [ "${FORCE_BUILD:-0}" = "1" ]; then
+  info "FORCE_BUILD=1,本地构建并启动..."
+  $DC up -d --build
+elif $DC pull backend frontend >/dev/null 2>&1; then
+  info "已拉取预构建镜像(GHCR),直接启动(免本地构建)..."
+  $DC up -d
+else
+  warn "未能拉取预构建镜像(镜像未发布/网络受限/包为私有),回退本地构建..."
+  $DC up -d --build
+fi
 
-# 记录本次已构建部署的代码版本(供升级脚本判断容器是否落后于代码)
+# 记录本次部署的代码版本(供升级脚本判断容器是否落后于代码)
 git rev-parse HEAD > .deployed_sha 2>/dev/null || true
 
 # 4. 健康检查
