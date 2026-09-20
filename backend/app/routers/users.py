@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import models, auth_svc
+from ..tenant import tenant_get
 from ..schemas_read import CreatedOut, RoleOut, SuccessOut, UserOut
 from ..auth_mw import current_user
 
@@ -53,7 +54,7 @@ def _user_out(u: models.User) -> dict:
 def _set_roles(db: Session, user: models.User, role_ids: list[int]) -> None:
     db.execute(delete(models.UserRole).where(models.UserRole.user_id == user.id))
     for rid in role_ids:
-        if db.get(models.Role, rid):
+        if tenant_get(db, models.Role, rid):
             db.add(models.UserRole(user_id=user.id, role_id=rid))
 
 
@@ -157,7 +158,7 @@ def create_role(payload: RoleIn, db: Session = Depends(get_db)):
 
 @router.put("/api/roles/{role_id}", response_model=SuccessOut)
 def update_role(role_id: int, payload: RoleIn, db: Session = Depends(get_db)):
-    role = db.get(models.Role, role_id)
+    role = tenant_get(db, models.Role, role_id)
     if role is None:
         raise HTTPException(status_code=404, detail="角色不存在")
     role.name, role.note = payload.name, payload.note
@@ -170,7 +171,7 @@ def update_role(role_id: int, payload: RoleIn, db: Session = Depends(get_db)):
 
 @router.delete("/api/roles/{role_id}", status_code=204)
 def delete_role(role_id: int, db: Session = Depends(get_db)):
-    role = db.get(models.Role, role_id)
+    role = tenant_get(db, models.Role, role_id)
     if role is None:
         raise HTTPException(status_code=404, detail="角色不存在")
     db.delete(role)

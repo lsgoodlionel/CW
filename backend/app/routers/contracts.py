@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..database import get_db
 from .. import models, schemas, attach_svc, auth_svc, workflow_svc
 from ..auth_mw import current_user
+from ..tenant import tenant_get
 from .attachments import read_upload
 
 router = APIRouter(prefix="/api/contracts", tags=["contracts"])
@@ -173,7 +174,7 @@ def submit_contract(contract_id: int, db: Session = Depends(get_db)):
 @router.post("/{contract_id}/attachments", response_model=schemas.AttachmentOut, status_code=201)
 async def upload_attachment(contract_id: int, kind: str = Form("contract"),
                             file: UploadFile = File(...), db: Session = Depends(get_db)):
-    if db.get(models.Contract, contract_id) is None:
+    if tenant_get(db, models.Contract, contract_id) is None:
         raise HTTPException(status_code=404, detail="合同不存在")
     content = await read_upload(file, kind)
     stored = attach_svc.store_bytes(f"contract_{contract_id}", file.filename or "", content)
@@ -189,9 +190,9 @@ async def upload_attachment(contract_id: int, kind: str = Form("contract"),
 @router.post("/{contract_id}/link", response_model=schemas.ContractOut)
 def link_voucher(contract_id: int, voucher_id: int, note: str = "",
                  db: Session = Depends(get_db)):
-    if db.get(models.Contract, contract_id) is None:
+    if tenant_get(db, models.Contract, contract_id) is None:
         raise HTTPException(status_code=404, detail="合同不存在")
-    if db.get(models.Voucher, voucher_id) is None:
+    if tenant_get(db, models.Voucher, voucher_id) is None:
         raise HTTPException(status_code=400, detail="凭证不存在")
     exists = db.scalar(select(models.ContractVoucherLink.id).where(
         models.ContractVoucherLink.contract_id == contract_id,
@@ -206,7 +207,7 @@ def link_voucher(contract_id: int, voucher_id: int, note: str = "",
 
 @router.delete("/link/{link_id}", status_code=204)
 def unlink_voucher(link_id: int, db: Session = Depends(get_db)):
-    link = db.get(models.ContractVoucherLink, link_id)
+    link = tenant_get(db, models.ContractVoucherLink, link_id)
     if link is None:
         raise HTTPException(status_code=404, detail="关联不存在")
     db.delete(link)

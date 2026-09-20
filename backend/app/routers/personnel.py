@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..database import get_db
 from ..schemas_read import PersonnelMetaOut
 from .. import models, schemas
+from ..tenant import tenant_get
 
 router = APIRouter(prefix="/api/personnel", tags=["personnel"])
 
@@ -39,7 +40,7 @@ def list_org_units(db: Session = Depends(get_db)):
 
 @router.post("/org-units", response_model=schemas.OrgUnitOut, status_code=201)
 def create_org_unit(payload: schemas.OrgUnitCreate, db: Session = Depends(get_db)):
-    if payload.parent_id and db.get(models.OrgUnit, payload.parent_id) is None:
+    if payload.parent_id and tenant_get(db, models.OrgUnit, payload.parent_id) is None:
         raise HTTPException(status_code=400, detail="上级部门不存在")
     nxt = (db.scalar(select(func.coalesce(func.max(models.OrgUnit.sort_no), 0))) or 0) + 1
     unit = models.OrgUnit(name=payload.name, parent_id=payload.parent_id,
@@ -54,7 +55,7 @@ def create_org_unit(payload: schemas.OrgUnitCreate, db: Session = Depends(get_db
 def update_org_unit(
     unit_id: int, payload: schemas.OrgUnitUpdate, db: Session = Depends(get_db)
 ):
-    unit = db.get(models.OrgUnit, unit_id)
+    unit = tenant_get(db, models.OrgUnit, unit_id)
     if unit is None:
         raise HTTPException(status_code=404, detail="部门不存在")
     if payload.parent_id == unit_id:
@@ -68,7 +69,7 @@ def update_org_unit(
 
 @router.delete("/org-units/{unit_id}", status_code=204)
 def delete_org_unit(unit_id: int, db: Session = Depends(get_db)):
-    unit = db.get(models.OrgUnit, unit_id)
+    unit = tenant_get(db, models.OrgUnit, unit_id)
     if unit is None:
         raise HTTPException(status_code=404, detail="部门不存在")
     has_child = db.scalar(select(models.OrgUnit.id).where(
@@ -94,7 +95,7 @@ def _employee_out(e: models.Employee, unit_names: dict[int, str]) -> schemas.Emp
 def _apply_positions(db: Session, emp: models.Employee, positions) -> None:
     emp.positions.clear()
     for i, p in enumerate(positions, start=1):
-        if p.org_unit_id and db.get(models.OrgUnit, p.org_unit_id) is None:
+        if p.org_unit_id and tenant_get(db, models.OrgUnit, p.org_unit_id) is None:
             raise HTTPException(status_code=400, detail="任职部门不存在")
         emp.positions.append(models.EmployeePosition(
             org_unit_id=p.org_unit_id, role_type=p.role_type,
@@ -146,7 +147,7 @@ def create_employee(payload: schemas.EmployeeCreate, db: Session = Depends(get_d
 def update_employee(
     emp_id: int, payload: schemas.EmployeeUpdate, db: Session = Depends(get_db)
 ):
-    emp = db.get(models.Employee, emp_id)
+    emp = tenant_get(db, models.Employee, emp_id)
     if emp is None:
         raise HTTPException(status_code=404, detail="员工不存在")
     data = payload.model_dump(exclude_unset=True, exclude={"positions"})
@@ -161,7 +162,7 @@ def update_employee(
 
 @router.delete("/employees/{emp_id}", status_code=204)
 def delete_employee(emp_id: int, db: Session = Depends(get_db)):
-    emp = db.get(models.Employee, emp_id)
+    emp = tenant_get(db, models.Employee, emp_id)
     if emp is None:
         raise HTTPException(status_code=404, detail="员工不存在")
     # 被历史费用申请/报销/审批任务引用的员工改为离职(停用),保留经办人可追溯性
@@ -185,10 +186,10 @@ def add_member(
     unit_id: int, payload: schemas.AddMemberIn, db: Session = Depends(get_db)
 ):
     """向部门添加成员:选已有员工则新增一条任职;否则新建员工并任职。"""
-    if db.get(models.OrgUnit, unit_id) is None:
+    if tenant_get(db, models.OrgUnit, unit_id) is None:
         raise HTTPException(status_code=404, detail="部门不存在")
     if payload.employee_id:
-        emp = db.get(models.Employee, payload.employee_id)
+        emp = tenant_get(db, models.Employee, payload.employee_id)
         if emp is None:
             raise HTTPException(status_code=404, detail="员工不存在")
     else:

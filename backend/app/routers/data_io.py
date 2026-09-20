@@ -878,7 +878,7 @@ def _ensure_super_admin(db: Session) -> None:
     """备份恢复后,若无可用超级管理员则重置默认 admin,并补齐默认角色。幂等。"""
     from .. import auth_svc
     from ..config import settings
-    from ..init_db import _seed_auth
+    from ..init_db import _seed_roles
 
     has_super = db.scalar(select(models.User.id).where(
         models.User.is_super_admin.is_(True), models.User.is_active.is_(True)).limit(1))

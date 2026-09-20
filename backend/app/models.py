@@ -81,8 +81,11 @@ class Account(Base, TenantMixin):
     """会计科目。"""
     __tablename__ = "accounts"
 
+    # 科目编码按租户唯一(多租户下不同租户可各自使用同一编码)
+    __table_args__ = (UniqueConstraint("tenant_id", "code", name="uq_account_tenant_code"),)
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    code: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    code: Mapped[str] = mapped_column(String(20), index=True)
     name: Mapped[str] = mapped_column(String(100), index=True)
     # asset 资产 / liability 负债 / equity 权益 / cost 成本 / profit 损益
     category: Mapped[str] = mapped_column(String(20), index=True)
@@ -99,12 +102,14 @@ class Account(Base, TenantMixin):
 class SubAccount(Base, TenantMixin):
     """二级明细科目(隶属于一级会计科目)。编码 = 一级编码(4位) + 顺序(2位)。"""
     __tablename__ = "sub_accounts"
+    # 二级科目编码按租户唯一
+    __table_args__ = (UniqueConstraint("tenant_id", "code", name="uq_subaccount_tenant_code"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     account_id: Mapped[int] = mapped_column(
         ForeignKey("accounts.id", ondelete="CASCADE"), index=True
     )
-    code: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    code: Mapped[str] = mapped_column(String(20), index=True)
     name: Mapped[str] = mapped_column(String(100), index=True)
     note: Mapped[str] = mapped_column(String(200), default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -323,9 +328,11 @@ class User(Base):
 class Role(Base, TenantMixin):
     """角色(权限集合),可授予多个用户。"""
     __tablename__ = "roles"
+    # 角色名按租户唯一(各租户可有同名角色)
+    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_role_tenant_name"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(50), index=True)
     note: Mapped[str] = mapped_column(String(200), default="")
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -675,7 +682,7 @@ class TaxFiling(Base, TenantMixin):
 class TaxAdjustment(Base, TenantMixin):
     """企业所得税年度纳税调整明细(A105000)按年录入:各行次的账载/税收/调增/调减金额。"""
     __tablename__ = "tax_adjustments"
-    __table_args__ = (UniqueConstraint("year", "line_no", name="uq_tax_adj_year_line"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "year", "line_no", name="uq_tax_adj_year_line"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     year: Mapped[int] = mapped_column(Integer, index=True)             # 所属年度
@@ -691,7 +698,7 @@ class TaxAdjustment(Base, TenantMixin):
 class TaxLossCarryover(Base, TenantMixin):
     """企业所得税弥补亏损明细(A106000)按年录入:各年度亏损额、待弥补额、本年弥补额。"""
     __tablename__ = "tax_loss_carryovers"
-    __table_args__ = (UniqueConstraint("report_year", "line_no", name="uq_tax_loss_year_line"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "report_year", "line_no", name="uq_tax_loss_year_line"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     report_year: Mapped[int] = mapped_column(Integer, index=True)      # 申报年度
@@ -706,7 +713,7 @@ class TaxLossCarryover(Base, TenantMixin):
 class TaxAssetDepreciation(Base, TenantMixin):
     """企业所得税资产折旧摊销及纳税调整(A105080)按年录入:各资产类别的账载/税收折旧。"""
     __tablename__ = "tax_asset_depreciations"
-    __table_args__ = (UniqueConstraint("report_year", "line_no", name="uq_tax_dep_year_line"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "report_year", "line_no", name="uq_tax_dep_year_line"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     report_year: Mapped[int] = mapped_column(Integer, index=True)      # 申报年度
@@ -722,7 +729,7 @@ class TaxAssetDepreciation(Base, TenantMixin):
 class TaxRdDeduction(Base, TenantMixin):
     """研发费用加计扣除优惠(A107012)按年录入:各研发费用归集行的金额(行50存加计比例)。"""
     __tablename__ = "tax_rd_deductions"
-    __table_args__ = (UniqueConstraint("report_year", "line_no", name="uq_tax_rd_year_line"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "report_year", "line_no", name="uq_tax_rd_year_line"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     report_year: Mapped[int] = mapped_column(Integer, index=True)      # 申报年度
@@ -735,7 +742,7 @@ class TaxRdDeduction(Base, TenantMixin):
 class TaxAccelDepr(Base, TenantMixin):
     """季报资产加速折旧摊销(扣除)优惠(A201020)按年录入:本年累计口径。"""
     __tablename__ = "tax_accel_deprs"
-    __table_args__ = (UniqueConstraint("year", "line_no", name="uq_tax_accel_year_line"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "year", "line_no", name="uq_tax_accel_year_line"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     year: Mapped[int] = mapped_column(Integer, index=True)             # 所属年度(本年累计)
@@ -752,7 +759,7 @@ class TaxAccelDepr(Base, TenantMixin):
 class TaxPreference(Base, TenantMixin):
     """企业所得税税收优惠事项(免税/减计/所得减免/减免所得税)按年+事项代码录入金额。"""
     __tablename__ = "tax_preferences"
-    __table_args__ = (UniqueConstraint("report_year", "code", name="uq_tax_pref_year_code"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "report_year", "code", name="uq_tax_pref_year_code"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     report_year: Mapped[int] = mapped_column(Integer, index=True)      # 所属年度(本年累计)
@@ -765,7 +772,7 @@ class TaxPreference(Base, TenantMixin):
 class TaxSalaryAdjust(Base, TenantMixin):
     """职工薪酬支出及纳税调整(A105050)按年录入。纳税调整=账载金额−税收金额。"""
     __tablename__ = "tax_salary_adjusts"
-    __table_args__ = (UniqueConstraint("report_year", "line_no", name="uq_tax_salary_year_line"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "report_year", "line_no", name="uq_tax_salary_year_line"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     report_year: Mapped[int] = mapped_column(Integer, index=True)
@@ -781,7 +788,7 @@ class TaxSalaryAdjust(Base, TenantMixin):
 class TaxAdMedia(Base, TenantMixin):
     """广告费和业务宣传费跨年度纳税调整(A105060)按年+行次录入金额(行2为扣除率)。"""
     __tablename__ = "tax_ad_medias"
-    __table_args__ = (UniqueConstraint("report_year", "line_no", name="uq_tax_ad_year_line"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "report_year", "line_no", name="uq_tax_ad_year_line"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     report_year: Mapped[int] = mapped_column(Integer, index=True)

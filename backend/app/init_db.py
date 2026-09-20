@@ -9,9 +9,14 @@ from . import subaccounts_svc
 
 
 def init_db() -> None:
+    from .tenant import set_current_tenant
+    from .config import DEFAULT_TENANT_ID
     Base.metadata.create_all(bind=engine)
     _migrate(engine)
     db = SessionLocal()
+    # 种子/回填全程置于默认租户上下文:新建对象经 before_flush 自动回填 tenant_id=1,
+    # 存在性检查经 SELECT 过滤仅针对默认租户,行为与单机版一致。
+    set_current_tenant(DEFAULT_TENANT_ID)
     try:
         _seed_tenant(db)                 # 默认租户须先于其它种子(存量数据归属租户1)
         _seed_accounts(db)
@@ -20,12 +25,14 @@ def init_db() -> None:
         _seed_subaccounts(db)
         _backfill_entry_sub_account_id(db)
         _backfill_employee_positions(db)
-        _seed_auth(db)
+        _seed_super_admin(db)            # 平台超管(全局用户,仅首次)
+        _seed_roles(db)                  # 默认租户的系统角色
         _backfill_approval_perms(db)
         _seed_workflow(db)
         _seed_membership(db)             # 为已有用户补齐默认租户成员关系
         db.commit()
     finally:
+        set_current_tenant(None)
         db.close()
 
 
@@ -129,6 +136,7 @@ def _migrate(bind) -> None:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
     _migrate_tenant_id(bind, inspector, existing_tables)
     _relax_attachment_voucher(bind, inspector)
+    _migrate_unique_constraints(bind, inspector)
 
 
 def _migrate_tenant_id(bind, inspector, existing_tables) -> None:
@@ -149,6 +157,44 @@ def _migrate_tenant_id(bind, inspector, existing_tables) -> None:
                 conn.execute(text(
                     f"ALTER TABLE {table} ADD COLUMN tenant_id INTEGER "
                     f"NOT NULL DEFAULT {DEFAULT_TENANT_ID}"))
+
+
+def _migrate_unique_constraints(bind, inspector) -> None:
+    """将科目/二级科目/角色的全局唯一(code/name)迁移为按租户复合唯一。仅 Postgres,幂等。
+
+    存量库用唯一索引 ix_*_code / ix_*_name 强制全局唯一,多租户下会阻止不同租户使用
+    相同编码/角色名。此处删除旧单列唯一索引/约束,改建 (tenant_id, 列) 复合唯一约束。
+    动态发现旧对象名,不依赖硬编码命名。
+    """
+    if bind.dialect.name != "postgresql":
+        return
+    # (表名, 目标单列, 新复合唯一约束名, 复合列 DDL)
+    specs = [
+        ("accounts", "code", "uq_account_tenant_code", "(tenant_id, code)"),
+        ("sub_accounts", "code", "uq_subaccount_tenant_code", "(tenant_id, code)"),
+        ("roles", "name", "uq_role_tenant_name", "(tenant_id, name)"),
+    ]
+    tables = set(inspector.get_table_names())
+    for table, col, new_name, cols in specs:
+        if table not in tables:
+            continue
+        ucs = inspector.get_unique_constraints(table)
+        if any(uc.get("name") == new_name for uc in ucs):
+            continue                      # 已迁移
+        idxs = inspector.get_indexes(table)
+        with bind.begin() as conn:
+            # 删除旧单列唯一约束(如有)
+            for uc in ucs:
+                if uc.get("column_names") == [col]:
+                    conn.execute(text(f'ALTER TABLE {table} DROP CONSTRAINT IF EXISTS "{uc["name"]}"'))
+            # 删除旧单列唯一索引(存量库实际以此强制全局唯一)
+            for ix in idxs:
+                if ix.get("unique") and ix.get("column_names") == [col]:
+                    conn.execute(text(f'DROP INDEX IF EXISTS "{ix["name"]}"'))
+            # 新建按租户复合唯一约束
+            conn.execute(text(f"ALTER TABLE {table} ADD CONSTRAINT {new_name} UNIQUE {cols}"))
+            # 保留单列普通索引以加速按编码/名称查找
+            conn.execute(text(f'CREATE INDEX IF NOT EXISTS ix_{table}_{col} ON {table} ({col})'))
 
 
 def _relax_attachment_voucher(bind, inspector) -> None:
@@ -181,8 +227,8 @@ def _seed_company(db) -> None:
         db.add(models.CompanyInfo(id=1, name="我的小微企业"))
 
 
-def _seed_auth(db) -> None:
-    """首次创建超级管理员与默认角色。幂等。"""
+def _seed_super_admin(db) -> None:
+    """首次创建平台超级管理员(全局用户,不隶属任何租户)。幂等。"""
     from . import auth_svc
     from .config import settings
     if db.scalar(select(models.User.id).limit(1)) is None:
@@ -193,26 +239,38 @@ def _seed_auth(db) -> None:
         db.add(admin)
         print(f"[init] 已创建超级管理员 admin(初始密码来自 ADMIN_PASSWORD,"
               f"默认 admin123),请登录后立即修改。", flush=True)
-    if db.scalar(select(models.Role.id).limit(1)) is None:
-        readonly = models.Role(name="只读查看", note="所有模块仅查看", is_system=True)
-        for m in auth_svc.MODULES:
-            readonly.permissions.append(models.RolePermission(perm=f"{m}:view"))
-        db.add(readonly)
-        finance = models.Role(name="财务操作", note="凭证/科目/往来/合同/税务/报表/账簿/申请/报销 常规操作", is_system=True)
-        for m in ("voucher", "account", "customer", "expense_apply", "expense", "contract", "tax"):
-            for a in ("view", "create", "edit", "delete"):
-                finance.permissions.append(models.RolePermission(perm=f"{m}:{a}"))
-        # 财务操作默认可直录(免审批)合同/税务/凭证
-        for m in ("voucher", "contract", "tax"):
-            finance.permissions.append(models.RolePermission(perm=f"{m}:direct"))
-        for m in ("report", "ledger", "company", "approval"):
-            finance.permissions.append(models.RolePermission(perm=f"{m}:view"))
-        db.add(finance)
-        approver = models.Role(name="审批人", note="审批中心:申请/报销审批", is_system=True)
-        for m in ("approval", "expense_apply", "expense"):
-            approver.permissions.append(models.RolePermission(perm=f"{m}:view"))
-            approver.permissions.append(models.RolePermission(perm=f"{m}:approve"))
-        db.add(approver)
+        db.commit()
+
+
+def _seed_roles(db) -> None:
+    """为当前租户上下文创建 3 个系统角色。幂等(按当前租户判空)。
+
+    依赖调用方已通过 set_current_tenant 设置租户:新建角色/权限经 before_flush
+    自动回填 tenant_id,存在性检查经 SELECT 过滤仅针对当前租户。供 init_db 与
+    tenant_provision 复用,是「按租户初始化角色」的单一实现。
+    """
+    from . import auth_svc
+    if db.scalar(select(models.Role.id).limit(1)) is not None:
+        return
+    readonly = models.Role(name="只读查看", note="所有模块仅查看", is_system=True)
+    for m in auth_svc.MODULES:
+        readonly.permissions.append(models.RolePermission(perm=f"{m}:view"))
+    db.add(readonly)
+    finance = models.Role(name="财务操作", note="凭证/科目/往来/合同/税务/报表/账簿/申请/报销 常规操作", is_system=True)
+    for m in ("voucher", "account", "customer", "expense_apply", "expense", "contract", "tax"):
+        for a in ("view", "create", "edit", "delete"):
+            finance.permissions.append(models.RolePermission(perm=f"{m}:{a}"))
+    # 财务操作默认可直录(免审批)合同/税务/凭证
+    for m in ("voucher", "contract", "tax"):
+        finance.permissions.append(models.RolePermission(perm=f"{m}:direct"))
+    for m in ("report", "ledger", "company", "approval"):
+        finance.permissions.append(models.RolePermission(perm=f"{m}:view"))
+    db.add(finance)
+    approver = models.Role(name="审批人", note="审批中心:申请/报销审批", is_system=True)
+    for m in ("approval", "expense_apply", "expense"):
+        approver.permissions.append(models.RolePermission(perm=f"{m}:view"))
+        approver.permissions.append(models.RolePermission(perm=f"{m}:approve"))
+    db.add(approver)
     db.commit()
 
 

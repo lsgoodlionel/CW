@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import models
+from ..tenant import tenant_get
 from .personnel import ROLE_TYPES
 from ..schemas_read import (
     AuthPresetOut, CreatedOut, PresetApplyOut, PresetResolveOut, SuccessOut,
@@ -56,7 +57,7 @@ def list_presets(db: Session = Depends(get_db)):
 
 @router.post("", status_code=201, response_model=CreatedOut)
 def create_preset(payload: PresetIn, db: Session = Depends(get_db)):
-    if db.get(models.Role, payload.role_id) is None:
+    if tenant_get(db, models.Role, payload.role_id) is None:
         raise HTTPException(status_code=400, detail="系统角色不存在")
     p = models.AuthPreset(**payload.model_dump())
     db.add(p)
@@ -66,7 +67,7 @@ def create_preset(payload: PresetIn, db: Session = Depends(get_db)):
 
 @router.put("/{preset_id}", response_model=SuccessOut)
 def update_preset(preset_id: int, payload: PresetIn, db: Session = Depends(get_db)):
-    p = db.get(models.AuthPreset, preset_id)
+    p = tenant_get(db, models.AuthPreset, preset_id)
     if p is None:
         raise HTTPException(status_code=404, detail="预设不存在")
     for f, v in payload.model_dump().items():
@@ -77,7 +78,7 @@ def update_preset(preset_id: int, payload: PresetIn, db: Session = Depends(get_d
 
 @router.delete("/{preset_id}", status_code=204)
 def delete_preset(preset_id: int, db: Session = Depends(get_db)):
-    p = db.get(models.AuthPreset, preset_id)
+    p = tenant_get(db, models.AuthPreset, preset_id)
     if p is None:
         raise HTTPException(status_code=404, detail="预设不存在")
     db.delete(p)

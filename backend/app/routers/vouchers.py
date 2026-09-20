@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..database import get_db
 from .. import models, schemas, subaccounts_svc, auth_svc, workflow_svc
 from ..auth_mw import current_user
+from ..tenant import tenant_get
 
 router = APIRouter(prefix="/api/vouchers", tags=["vouchers"])
 
@@ -37,7 +38,7 @@ def _linked_vouchers(db: Session, voucher_id: int) -> list[schemas.LinkedVoucher
     for link in links:
         outgoing = link.source_id == voucher_id
         other_id = link.target_id if outgoing else link.source_id
-        other = db.get(models.Voucher, other_id)
+        other = tenant_get(db, models.Voucher, other_id)
         if other is None:
             continue
         out.append(schemas.LinkedVoucher(
@@ -76,7 +77,7 @@ def _to_detail(voucher: models.Voucher, db: Session) -> schemas.VoucherDetail:
 
 
 def _validate_customer(db: Session, customer_id: int | None) -> None:
-    if customer_id is not None and db.get(models.Customer, customer_id) is None:
+    if customer_id is not None and tenant_get(db, models.Customer, customer_id) is None:
         raise HTTPException(status_code=400, detail="客户不存在")
 
 
@@ -237,7 +238,7 @@ def _build_entries(db: Session, voucher: models.Voucher, payload: schemas.Vouche
 def update_voucher(
     voucher_id: int, payload: schemas.VoucherCreate, db: Session = Depends(get_db)
 ):
-    voucher = db.get(models.Voucher, voucher_id)
+    voucher = tenant_get(db, models.Voucher, voucher_id)
     if voucher is None:
         raise HTTPException(status_code=404, detail="凭证不存在")
     _validate_accounts(db, payload)
@@ -261,7 +262,7 @@ def update_voucher(
 @router.post("/{voucher_id}/submit", response_model=schemas.VoucherDetail)
 def submit_voucher(voucher_id: int, db: Session = Depends(get_db)):
     """提交大额凭证审批:草稿凭证发起审批,通过后自动过账(posted)入账。"""
-    voucher = db.get(models.Voucher, voucher_id)
+    voucher = tenant_get(db, models.Voucher, voucher_id)
     if voucher is None:
         raise HTTPException(status_code=404, detail="凭证不存在")
     if voucher.status == "posted":
@@ -282,7 +283,7 @@ def submit_voucher(voucher_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/{voucher_id}", status_code=204)
 def delete_voucher(voucher_id: int, db: Session = Depends(get_db)):
-    voucher = db.get(models.Voucher, voucher_id)
+    voucher = tenant_get(db, models.Voucher, voucher_id)
     if voucher is None:
         raise HTTPException(status_code=404, detail="凭证不存在")
     # 红冲凭证与原凭证互为抵消,须成对存在;禁止单独删除任一方,避免账簿失衡
@@ -313,11 +314,11 @@ def add_link(
     voucher_id: int, payload: schemas.VoucherLinkCreate, db: Session = Depends(get_db)
 ):
     """为凭证添加关联(预收款/挂账/核销/应收款等)。"""
-    if db.get(models.Voucher, voucher_id) is None:
+    if tenant_get(db, models.Voucher, voucher_id) is None:
         raise HTTPException(status_code=404, detail="凭证不存在")
     if payload.target_id == voucher_id:
         raise HTTPException(status_code=400, detail="不能关联自身")
-    if db.get(models.Voucher, payload.target_id) is None:
+    if tenant_get(db, models.Voucher, payload.target_id) is None:
         raise HTTPException(status_code=400, detail="目标凭证不存在")
     # 去重(无向)
     exists = db.scalar(select(models.VoucherLink).where(or_(
@@ -338,7 +339,7 @@ def add_link(
 
 @router.delete("/links/{link_id}", status_code=204)
 def delete_link(link_id: int, db: Session = Depends(get_db)):
-    link = db.get(models.VoucherLink, link_id)
+    link = tenant_get(db, models.VoucherLink, link_id)
     if link is None:
         raise HTTPException(status_code=404, detail="关联不存在")
     db.delete(link)

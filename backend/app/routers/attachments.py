@@ -9,6 +9,7 @@ from ..database import get_db
 from ..config import settings
 from .. import models, schemas, attach_svc, auth_svc
 from ..auth_mw import current_user
+from ..tenant import tenant_get
 
 router = APIRouter(prefix="/api", tags=["attachments"])
 
@@ -58,7 +59,7 @@ async def upload_attachment(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    voucher = db.get(models.Voucher, voucher_id)
+    voucher = tenant_get(db, models.Voucher, voucher_id)
     if voucher is None:
         raise HTTPException(status_code=404, detail="凭证不存在")
     content = await read_upload(file, kind)
@@ -76,7 +77,7 @@ async def upload_attachment(
 @router.get("/attachments/{attachment_id}/download")
 def download_attachment(attachment_id: int, db: Session = Depends(get_db),
                         user=Depends(current_user)):
-    attachment = db.get(models.Attachment, attachment_id)
+    attachment = tenant_get(db, models.Attachment, attachment_id)
     if attachment is None:
         raise HTTPException(status_code=404, detail="附件不存在")
     _guard_att(attachment, user, "view")
@@ -92,7 +93,7 @@ def download_attachment(attachment_id: int, db: Session = Depends(get_db),
 def preview_attachment(attachment_id: int, db: Session = Depends(get_db),
                        user=Depends(current_user)):
     """在线预览:以 inline 方式返回,浏览器直接渲染图片/PDF。"""
-    attachment = db.get(models.Attachment, attachment_id)
+    attachment = tenant_get(db, models.Attachment, attachment_id)
     if attachment is None:
         raise HTTPException(status_code=404, detail="附件不存在")
     _guard_att(attachment, user, "view")
@@ -112,7 +113,7 @@ def update_attachment_kind(
     user=Depends(current_user)
 ):
     """变更已上传附件的类型。"""
-    attachment = db.get(models.Attachment, attachment_id)
+    attachment = tenant_get(db, models.Attachment, attachment_id)
     if attachment is None:
         raise HTTPException(status_code=404, detail="附件不存在")
     _guard_att(attachment, user, "edit")
@@ -127,7 +128,7 @@ def update_attachment_kind(
 @router.delete("/attachments/{attachment_id}", status_code=204)
 def delete_attachment(attachment_id: int, db: Session = Depends(get_db),
                       user=Depends(current_user)):
-    attachment = db.get(models.Attachment, attachment_id)
+    attachment = tenant_get(db, models.Attachment, attachment_id)
     if attachment is None:
         raise HTTPException(status_code=404, detail="附件不存在")
     _guard_att(attachment, user, "delete")

@@ -26,6 +26,23 @@ def get_current_tenant() -> int | None:
     return _current_tenant.get()
 
 
+def tenant_get(db, model, ident):
+    """按主键取对象,并强制校验其归属当前租户(防跨租户越权)。
+
+    `db.get()` 走主键 / identity map,不触发 do_orm_execute 的 SELECT 级租户过滤,
+    因此 A 租户可传入 B 租户对象 id 直接读到并 update/delete。此辅助在取出后断言
+    对象 tenant_id 与当前租户一致,不一致视为「不存在」返回 None(等价 404,不泄露)。
+    当前租户为 None(平台超管跨租户 / 系统初始化)时不校验。非 TenantMixin 对象直接返回。
+    """
+    obj = db.get(model, ident)
+    if obj is None:
+        return None
+    tid = _current_tenant.get()
+    if tid is not None and isinstance(obj, TenantMixin) and getattr(obj, "tenant_id", None) != tid:
+        return None
+    return obj
+
+
 class TenantMixin:
     """业务模型混入:附带 tenant_id 列,自动参与租户隔离。"""
     tenant_id: Mapped[int] = mapped_column(

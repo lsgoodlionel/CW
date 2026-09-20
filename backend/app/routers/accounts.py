@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..database import get_db
 from .. import models, schemas, subaccounts_svc, account_excel
 from ..schemas_read import SubAccountImportOut
+from ..tenant import tenant_get
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
@@ -79,7 +80,7 @@ def list_subaccounts(account_id: int, db: Session = Depends(get_db)):
 def create_subaccount(
     account_id: int, payload: schemas.SubAccountCreate, db: Session = Depends(get_db)
 ):
-    account = db.get(models.Account, account_id)
+    account = tenant_get(db, models.Account, account_id)
     if account is None:
         raise HTTPException(status_code=404, detail="一级科目不存在")
     dup = db.scalar(select(models.SubAccount).where(
@@ -106,7 +107,7 @@ def update_subaccount(
     sub_id: int, payload: schemas.SubAccountUpdate, db: Session = Depends(get_db)
 ):
     """编辑二级科目;改名会同步更新引用它的凭证明细科目。"""
-    sub = db.get(models.SubAccount, sub_id)
+    sub = tenant_get(db, models.SubAccount, sub_id)
     if sub is None:
         raise HTTPException(status_code=404, detail="二级科目不存在")
     data = payload.model_dump(exclude_unset=True)
@@ -124,7 +125,7 @@ def update_subaccount(
 @router.delete("/subaccounts/{sub_id}", status_code=204)
 def delete_subaccount(sub_id: int, db: Session = Depends(get_db)):
     """删除二级科目;若已被凭证引用则改为停用。"""
-    sub = db.get(models.SubAccount, sub_id)
+    sub = tenant_get(db, models.SubAccount, sub_id)
     if sub is None:
         raise HTTPException(status_code=404, detail="二级科目不存在")
     used = db.scalar(select(models.VoucherEntry.id).where(
@@ -155,7 +156,7 @@ def create_account(payload: schemas.AccountCreate, db: Session = Depends(get_db)
 def update_account(
     account_id: int, payload: schemas.AccountUpdate, db: Session = Depends(get_db)
 ):
-    account = db.get(models.Account, account_id)
+    account = tenant_get(db, models.Account, account_id)
     if account is None:
         raise HTTPException(status_code=404, detail="科目不存在")
     for field, value in payload.model_dump(exclude_unset=True).items():
@@ -168,7 +169,7 @@ def update_account(
 @router.delete("/{account_id}", status_code=204)
 def deactivate_account(account_id: int, db: Session = Depends(get_db)):
     """停用科目(软删除);若已被凭证引用则不允许物理删除。"""
-    account = db.get(models.Account, account_id)
+    account = tenant_get(db, models.Account, account_id)
     if account is None:
         raise HTTPException(status_code=404, detail="科目不存在")
     used = db.scalar(

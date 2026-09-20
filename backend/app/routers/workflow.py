@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..database import get_db
 from .. import models, schemas, workflow_svc
 from ..schemas_read import ApproverCheckOut, WorkflowMetaOut
+from ..tenant import tenant_get
 
 router = APIRouter(prefix="/api/workflow", tags=["workflow"])
 
@@ -54,7 +55,7 @@ def create_definition(payload: schemas.WorkflowDefIn, db: Session = Depends(get_
 
 @router.put("/definitions/{def_id}", response_model=schemas.WorkflowDefOut)
 def update_definition(def_id: int, payload: schemas.WorkflowDefIn, db: Session = Depends(get_db)):
-    d = db.get(models.WorkflowDefinition, def_id)
+    d = tenant_get(db, models.WorkflowDefinition, def_id)
     if d is None:
         raise HTTPException(status_code=404, detail="流程不存在")
     d.name, d.biz_type, d.note, d.is_active = payload.name, payload.biz_type, payload.note, payload.is_active
@@ -69,7 +70,7 @@ def update_definition(def_id: int, payload: schemas.WorkflowDefIn, db: Session =
 
 @router.delete("/definitions/{def_id}", status_code=204)
 def delete_definition(def_id: int, db: Session = Depends(get_db)):
-    d = db.get(models.WorkflowDefinition, def_id)
+    d = tenant_get(db, models.WorkflowDefinition, def_id)
     if d is None:
         raise HTTPException(status_code=404, detail="流程不存在")
     db.delete(d)
@@ -214,13 +215,13 @@ def reject_task(task_id: int, payload: schemas.TaskAction, db: Session = Depends
 
 
 def _act(task_id: int, approve: bool, comment: str, db: Session) -> schemas.InstanceOut:
-    task = db.get(models.WorkflowTask, task_id)
+    task = tenant_get(db, models.WorkflowTask, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="待办不存在")
     if task.result != "pending":
         raise HTTPException(status_code=409, detail="该待办已处理")
     workflow_svc.act(db, task, approve, comment)
-    inst = db.get(models.WorkflowInstance, task.instance_id)
+    inst = tenant_get(db, models.WorkflowInstance, task.instance_id)
     if inst is not None and inst.status == "approved":
         _on_approved(db, inst)      # 审批通过:合同→生效 / 税务→已申报 / 大额凭证→过账入账
     elif inst is not None and inst.status == "rejected":
@@ -234,15 +235,15 @@ def _on_approved(db: Session, inst: models.WorkflowInstance) -> None:
     if not inst.biz_id:
         return
     if inst.biz_type == "contract":
-        c = db.get(models.Contract, inst.biz_id)
+        c = tenant_get(db, models.Contract, inst.biz_id)
         if c and c.workflow_instance_id == inst.id:
             c.status = "active"
     elif inst.biz_type == "tax":
-        f = db.get(models.TaxFiling, inst.biz_id)
+        f = tenant_get(db, models.TaxFiling, inst.biz_id)
         if f and f.workflow_instance_id == inst.id:
             f.status = "filed"
     elif inst.biz_type == "voucher":
-        v = db.get(models.Voucher, inst.biz_id)
+        v = tenant_get(db, models.Voucher, inst.biz_id)
         if v and v.workflow_instance_id == inst.id:
             v.status = "posted"     # 过账入账,进入报表与账簿
 
@@ -250,17 +251,17 @@ def _on_approved(db: Session, inst: models.WorkflowInstance) -> None:
 @router.post("/tasks/{task_id}/reassign", response_model=schemas.InstanceOut)
 def reassign_task(task_id: int, payload: schemas.TaskReassign, db: Session = Depends(get_db)):
     """改派当前待办处理人:指定员工;不传则按流程步骤配置自动重新匹配。"""
-    task = db.get(models.WorkflowTask, task_id)
+    task = tenant_get(db, models.WorkflowTask, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="待办不存在")
     if task.result != "pending":
         raise HTTPException(status_code=409, detail="仅未处理的待办可改派")
     if payload.employee_id is not None:
-        if db.get(models.Employee, payload.employee_id) is None:
+        if tenant_get(db, models.Employee, payload.employee_id) is None:
             raise HTTPException(status_code=400, detail="员工不存在")
         task.approver_employee_id = payload.employee_id
     else:
-        inst = db.get(models.WorkflowInstance, task.instance_id)
+        inst = tenant_get(db, models.WorkflowInstance, task.instance_id)
         step = db.scalar(select(models.WorkflowStep).where(
             models.WorkflowStep.definition_id == inst.definition_id,
             models.WorkflowStep.step_no == task.step_no))
@@ -276,25 +277,25 @@ def reassign_task(task_id: int, payload: schemas.TaskReassign, db: Session = Dep
 def _revert_biz(db: Session, inst: models.WorkflowInstance) -> None:
     """撤销/删除流程实例后,把关联的费用申请/报销单退回草稿并解绑,便于改人后重交。"""
     if inst.biz_type == "expense" and inst.biz_id:
-        claim = db.get(models.ExpenseClaim, inst.biz_id)
+        claim = tenant_get(db, models.ExpenseClaim, inst.biz_id)
         if claim and claim.workflow_instance_id == inst.id:
             claim.workflow_instance_id = None
             claim.status = "draft"
     elif inst.biz_type == "expense_apply" and inst.biz_id:
-        app = db.get(models.ExpenseApplication, inst.biz_id)
+        app = tenant_get(db, models.ExpenseApplication, inst.biz_id)
         if app and app.workflow_instance_id == inst.id:
             app.workflow_instance_id = None
             app.status = "draft"
     elif inst.biz_type == "contract" and inst.biz_id:
-        c = db.get(models.Contract, inst.biz_id)
+        c = tenant_get(db, models.Contract, inst.biz_id)
         if c and c.workflow_instance_id == inst.id:
             c.workflow_instance_id = None   # 保持 draft,待修改后重新提交
     elif inst.biz_type == "tax" and inst.biz_id:
-        f = db.get(models.TaxFiling, inst.biz_id)
+        f = tenant_get(db, models.TaxFiling, inst.biz_id)
         if f and f.workflow_instance_id == inst.id:
             f.workflow_instance_id = None   # 保持 pending
     elif inst.biz_type == "voucher" and inst.biz_id:
-        v = db.get(models.Voucher, inst.biz_id)
+        v = tenant_get(db, models.Voucher, inst.biz_id)
         if v and v.workflow_instance_id == inst.id:
             v.workflow_instance_id = None   # 保持 draft,不入账
 
@@ -302,7 +303,7 @@ def _revert_biz(db: Session, inst: models.WorkflowInstance) -> None:
 @router.post("/instances/{inst_id}/cancel", response_model=schemas.InstanceOut)
 def cancel_instance(inst_id: int, db: Session = Depends(get_db)):
     """撤销审批:仅进行中(pending)可撤销;关联单据退回草稿以便修改后重新提交。"""
-    inst = db.get(models.WorkflowInstance, inst_id)
+    inst = tenant_get(db, models.WorkflowInstance, inst_id)
     if inst is None:
         raise HTTPException(status_code=404, detail="审批单不存在")
     if inst.status != "pending":
@@ -316,7 +317,7 @@ def cancel_instance(inst_id: int, db: Session = Depends(get_db)):
 @router.delete("/instances/{inst_id}", status_code=204)
 def delete_instance(inst_id: int, db: Session = Depends(get_db)):
     """删除审批实例(连同待办);关联单据解绑退回草稿。用于清理错误发起的流程。"""
-    inst = db.get(models.WorkflowInstance, inst_id)
+    inst = tenant_get(db, models.WorkflowInstance, inst_id)
     if inst is None:
         raise HTTPException(status_code=404, detail="审批单不存在")
     _revert_biz(db, inst)

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from .. import models, schemas
 from ..schemas_read import CustomerVouchersOut
+from ..tenant import tenant_get
 
 router = APIRouter(prefix="/api/customers", tags=["customers"])
 
@@ -46,7 +47,7 @@ def create_customer(payload: schemas.CustomerCreate, db: Session = Depends(get_d
 
 @router.get("/{customer_id}", response_model=schemas.CustomerOut)
 def get_customer(customer_id: int, db: Session = Depends(get_db)):
-    customer = db.get(models.Customer, customer_id)
+    customer = tenant_get(db, models.Customer, customer_id)
     if customer is None:
         raise HTTPException(status_code=404, detail="客户不存在")
     return customer
@@ -56,7 +57,7 @@ def get_customer(customer_id: int, db: Session = Depends(get_db)):
 def update_customer(
     customer_id: int, payload: schemas.CustomerUpdate, db: Session = Depends(get_db)
 ):
-    customer = db.get(models.Customer, customer_id)
+    customer = tenant_get(db, models.Customer, customer_id)
     if customer is None:
         raise HTTPException(status_code=404, detail="客户不存在")
     for field, value in payload.model_dump(exclude_unset=True).items():
@@ -69,7 +70,7 @@ def update_customer(
 @router.delete("/{customer_id}", status_code=204)
 def delete_customer(customer_id: int, db: Session = Depends(get_db)):
     """删除客户;若已被凭证关联则改为停用(软删除)。"""
-    customer = db.get(models.Customer, customer_id)
+    customer = tenant_get(db, models.Customer, customer_id)
     if customer is None:
         raise HTTPException(status_code=404, detail="客户不存在")
     used = db.scalar(
@@ -95,7 +96,7 @@ def customer_vouchers(
     db: Session = Depends(get_db),
 ):
     """客户往来业务历史:关联到该客户的凭证列表 + 借贷合计。"""
-    if db.get(models.Customer, customer_id) is None:
+    if tenant_get(db, models.Customer, customer_id) is None:
         raise HTTPException(status_code=404, detail="客户不存在")
     base = select(models.Voucher).where(models.Voucher.customer_id == customer_id)
     total = db.scalar(select(func.count()).select_from(base.subquery())) or 0

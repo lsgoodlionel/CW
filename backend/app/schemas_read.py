@@ -77,11 +77,27 @@ class AuthUserOut(BaseModel):
     roles: list[str]
     #: 超管为 ["*"]
     permissions: list[str]
+    #: 当前会话所属租户(私有化恒为默认租户)
+    tenant_id: int | None = None
+    tenant_name: str | None = None
+    #: 该会话是否为所属租户的管理员
+    is_tenant_admin: bool = False
+
+
+class TenantBriefOut(BaseModel):
+    """登录选租户时供选择的租户条目。"""
+    id: int
+    name: str
+    code: str
+    is_tenant_admin: bool = False
 
 
 class LoginOut(BaseModel):
-    token: str
-    user: AuthUserOut
+    #: 已解析租户时返回令牌与用户;需选择租户时 token/user 为空、need_tenant=True
+    token: str | None = None
+    user: AuthUserOut | None = None
+    need_tenant: bool = False
+    tenants: list[TenantBriefOut] = []
 
 
 # ---------- 用户 / 角色 / 授权预设 ----------

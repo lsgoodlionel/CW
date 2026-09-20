@@ -36,14 +36,17 @@ def _unb64(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 
-def make_token(user_id: int) -> str:
+def make_token(user_id: int, tenant_id: int | None = None) -> str:
     payload = {"uid": user_id, "exp": int(time.time()) + settings.token_ttl_hours * 3600}
+    if tenant_id is not None:
+        payload["tid"] = tenant_id           # 多租户:会话选定的租户
     body = _b64(json.dumps(payload).encode())
     sig = _b64(hmac.new(settings.auth_secret.encode(), body.encode(), hashlib.sha256).digest())
     return f"{body}.{sig}"
 
 
-def parse_token(token: str) -> int | None:
+def parse_token_payload(token: str) -> dict | None:
+    """校验签名与有效期,返回完整 payload(含 uid、可选 tid);无效返回 None。"""
     try:
         body, sig = token.split(".")
         expect = _b64(hmac.new(settings.auth_secret.encode(), body.encode(), hashlib.sha256).digest())
@@ -52,9 +55,17 @@ def parse_token(token: str) -> int | None:
         payload = json.loads(_unb64(body))
         if payload.get("exp", 0) < time.time():
             return None
-        return int(payload["uid"])
+        if "uid" not in payload:
+            return None
+        return payload
     except (ValueError, KeyError, TypeError):
         return None
+
+
+def parse_token(token: str) -> int | None:
+    """向后兼容:仅返回用户 id。需要租户请用 parse_token_payload。"""
+    payload = parse_token_payload(token)
+    return int(payload["uid"]) if payload else None
 
 
 # ---------- 权限目录 ----------

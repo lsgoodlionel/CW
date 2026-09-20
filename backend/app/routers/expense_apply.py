@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..database import get_db
 from ..schemas_read import ActiveWorkflowOut, ExpenseApplyMetaOut
 from .. import models, schemas, workflow_svc, attach_svc
+from ..tenant import tenant_get
 from .attachments import read_upload
 
 router = APIRouter(prefix="/api/expense-apply", tags=["expense-apply"])
@@ -36,7 +37,7 @@ def _sync_status(db: Session, app: models.ExpenseApplication) -> None:
     if app.status == "closed":
         return
     if app.workflow_instance_id:
-        inst = db.get(models.WorkflowInstance, app.workflow_instance_id)
+        inst = tenant_get(db, models.WorkflowInstance, app.workflow_instance_id)
         if inst:
             app.status = inst.status  # pending/approved/rejected
     elif app.status != "draft":
@@ -46,15 +47,15 @@ def _sync_status(db: Session, app: models.ExpenseApplication) -> None:
 def _out(db: Session, app: models.ExpenseApplication) -> schemas.ExpenseApplicationOut:
     _sync_status(db, app)
     item = schemas.ExpenseApplicationOut.model_validate(app)
-    emp = db.get(models.Employee, app.applicant_employee_id) if app.applicant_employee_id else None
-    unit = db.get(models.OrgUnit, app.org_unit_id) if app.org_unit_id else None
+    emp = tenant_get(db, models.Employee, app.applicant_employee_id) if app.applicant_employee_id else None
+    unit = tenant_get(db, models.OrgUnit, app.org_unit_id) if app.org_unit_id else None
     item.applicant_name = emp.name if emp else ""
     item.org_unit_name = unit.name if unit else ""
     if app.contract_id:
-        ct = db.get(models.Contract, app.contract_id)
+        ct = tenant_get(db, models.Contract, app.contract_id)
         item.contract_no = ct.contract_no if ct else ""
     for it, io in zip(app.items, item.items):
-        acc = db.get(models.Account, it.account_id) if it.account_id else None
+        acc = tenant_get(db, models.Account, it.account_id) if it.account_id else None
         io.account_name = acc.name if acc else ""
     item.claim_ids = list(db.scalars(select(models.ExpenseClaim.id).where(
         models.ExpenseClaim.application_id == app.id)).all())
@@ -220,7 +221,7 @@ def submit_application(app_id: int, db: Session = Depends(get_db)):
 async def upload_attachment(app_id: int, kind: str = Form("other"),
                             file: UploadFile = File(...), db: Session = Depends(get_db)):
     """上传费用申请附件(合同/发票等);报销生成凭证时会同步到凭证附件。"""
-    app = db.get(models.ExpenseApplication, app_id)
+    app = tenant_get(db, models.ExpenseApplication, app_id)
     if app is None:
         raise HTTPException(status_code=404, detail="费用申请不存在")
     content = await read_upload(file, kind)

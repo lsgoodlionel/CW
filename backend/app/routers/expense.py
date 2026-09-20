@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..database import get_db
 from ..schemas_read import ActiveWorkflowOut, ExpenseMetaOut
 from .. import models, schemas, workflow_svc, subaccounts_svc, attach_svc, approval_doc
+from ..tenant import tenant_get
 from .attachments import read_upload
 
 router = APIRouter(prefix="/api/expense", tags=["expense"])
@@ -30,7 +31,7 @@ def _sync_status(db: Session, claim: models.ExpenseClaim) -> None:
         claim.status = "paid"
         return
     if claim.workflow_instance_id:
-        inst = db.get(models.WorkflowInstance, claim.workflow_instance_id)
+        inst = tenant_get(db, models.WorkflowInstance, claim.workflow_instance_id)
         if inst:
             claim.status = inst.status  # pending/approved/rejected
     elif claim.status not in ("draft",):
@@ -40,21 +41,21 @@ def _sync_status(db: Session, claim: models.ExpenseClaim) -> None:
 def _out(db: Session, claim: models.ExpenseClaim) -> schemas.ExpenseClaimOut:
     _sync_status(db, claim)
     item = schemas.ExpenseClaimOut.model_validate(claim)
-    emp = db.get(models.Employee, claim.applicant_employee_id) if claim.applicant_employee_id else None
-    unit = db.get(models.OrgUnit, claim.org_unit_id) if claim.org_unit_id else None
+    emp = tenant_get(db, models.Employee, claim.applicant_employee_id) if claim.applicant_employee_id else None
+    unit = tenant_get(db, models.OrgUnit, claim.org_unit_id) if claim.org_unit_id else None
     item.applicant_name = emp.name if emp else ""
     item.org_unit_name = unit.name if unit else ""
     if claim.voucher_id:
-        v = db.get(models.Voucher, claim.voucher_id)
+        v = tenant_get(db, models.Voucher, claim.voucher_id)
         item.voucher_no = v.voucher_no if v else ""
     if claim.application_id:
-        app = db.get(models.ExpenseApplication, claim.application_id)
+        app = tenant_get(db, models.ExpenseApplication, claim.application_id)
         item.application_no = app.apply_no if app else ""
     if claim.contract_id:
-        ct = db.get(models.Contract, claim.contract_id)
+        ct = tenant_get(db, models.Contract, claim.contract_id)
         item.contract_no = ct.contract_no if ct else ""
     for it, io in zip(claim.items, item.items):
-        acc = db.get(models.Account, it.account_id) if it.account_id else None
+        acc = tenant_get(db, models.Account, it.account_id) if it.account_id else None
         io.account_name = acc.name if acc else ""
     if claim.workflow_instance_id:
         from .workflow import _instance_out
@@ -233,7 +234,7 @@ def make_voucher(claim_id: int, credit_account_code: str = Query("1002"),
     for att in related:
         att.voucher_id = voucher.id
     # 关联合同:自动建立凭证↔合同关联(便于合同履行台账追溯)
-    if claim.contract_id and db.get(models.Contract, claim.contract_id):
+    if claim.contract_id and tenant_get(db, models.Contract, claim.contract_id):
         exists = db.scalar(select(models.ContractVoucherLink).where(
             models.ContractVoucherLink.contract_id == claim.contract_id,
             models.ContractVoucherLink.voucher_id == voucher.id))
@@ -243,7 +244,7 @@ def make_voucher(claim_id: int, credit_account_code: str = Query("1002"),
                 note=f"报销 {claim.claim_no} 自动关联"))
     # 关联的费用申请标记为已关联报销(闭环)
     if claim.application_id:
-        app = db.get(models.ExpenseApplication, claim.application_id)
+        app = tenant_get(db, models.ExpenseApplication, claim.application_id)
         if app and app.status == "approved":
             app.status = "closed"
 
@@ -266,7 +267,7 @@ def make_voucher(claim_id: int, credit_account_code: str = Query("1002"),
 async def upload_claim_attachment(claim_id: int, kind: str = Form("other"),
                                   file: UploadFile = File(...), db: Session = Depends(get_db)):
     """上传报销单附件(发票/回单等);生成凭证时会同步到凭证附件。"""
-    claim = db.get(models.ExpenseClaim, claim_id)
+    claim = tenant_get(db, models.ExpenseClaim, claim_id)
     if claim is None:
         raise HTTPException(status_code=404, detail="报销单不存在")
     content = await read_upload(file, kind)

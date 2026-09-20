@@ -1,4 +1,5 @@
 """鉴权中间件:全站强制登录 + 按路径的权限校验。超管放行一切。"""
+from sqlalchemy import select
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -11,19 +12,17 @@ from .database import SessionLocal
 _OPEN = {"/api/health", "/api/auth/login"}
 
 
-def _resolve_user(request: Request):
+def _token_from_request(request: Request) -> str:
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
-        raw = auth[7:].strip()
-    else:
-        # 附件预览/下载等由浏览器直接发起(img/iframe/a),无法带 Authorization 头,
-        # 允许通过 ?token= 传令牌;令牌仍经同一校验。
-        raw = request.query_params.get("token", "")
-    if not raw:
-        return None
-    uid = auth_svc.parse_token(raw)
-    if uid is None:
-        return None
+        return auth[7:].strip()
+    # 附件预览/下载等由浏览器直接发起(img/iframe/a),无法带 Authorization 头,
+    # 允许通过 ?token= 传令牌;令牌仍经同一校验。
+    return request.query_params.get("token", "")
+
+
+def _load_user(uid: int):
+    """在当前租户上下文内加载用户及其角色/权限(角色按租户过滤)。"""
     db = SessionLocal()
     try:
         user = db.get(models.User, uid)
@@ -37,6 +36,16 @@ def _resolve_user(request: Request):
         db.close()
 
 
+def _has_membership(uid: int, tid: int) -> bool:
+    db = SessionLocal()
+    try:
+        return db.scalar(select(models.TenantMembership.id).where(
+            models.TenantMembership.user_id == uid,
+            models.TenantMembership.tenant_id == tid)) is not None
+    finally:
+        db.close()
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -44,21 +53,32 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if method == "OPTIONS" or not path.startswith("/api") or path in _OPEN:
             return await call_next(request)
 
-        user = _resolve_user(request)
+        from .config import is_saas, DEFAULT_TENANT_ID
+        from . import tenant as tenant_ctx
+
+        # 1) 先解析令牌得到 uid 与令牌内选定租户 tid
+        raw = _token_from_request(request)
+        payload = auth_svc.parse_token_payload(raw) if raw else None
+        uid = int(payload["uid"]) if payload else None
+        token_tid = payload.get("tid") if payload else None
+
+        # 2) 确定并设置当前租户上下文(须在加载角色之前,使角色/权限按租户过滤)
+        if not is_saas():
+            tid = DEFAULT_TENANT_ID
+        else:
+            tid = token_tid                # SaaS 恒以令牌携带的租户为准(缺失→None→未授权)
+        request.state.tenant_id = tid
+        tenant_ctx.set_current_tenant(tid)
+
+        # 3) 加载用户(角色已按租户过滤),并在 SaaS 下校验成员关系
+        user = _load_user(uid) if uid is not None else None
+        if user is not None and is_saas():
+            if not user.is_super_admin and (tid is None or not _has_membership(uid, tid)):
+                user = None                # 令牌未选租户或非该租户成员 → 视为未授权
         request.state.user = user
 
         if settings.require_auth and user is None:
             return JSONResponse({"detail": "未登录或登录已过期"}, status_code=401)
-
-        # 设置租户上下文:私有化恒为默认租户;SaaS 取会话选定租户(token 携带,阶段二完善)。
-        from .config import is_saas, DEFAULT_TENANT_ID
-        from . import tenant as tenant_ctx
-        if not is_saas():
-            tenant_ctx.set_current_tenant(DEFAULT_TENANT_ID)
-        else:
-            # 阶段二:从签名令牌解析选定租户并校验成员关系;当前占位为默认租户
-            tid = getattr(request.state, "tenant_id", None) or DEFAULT_TENANT_ID
-            tenant_ctx.set_current_tenant(tid)
 
         if user is not None and not user.is_super_admin:
             need = auth_svc.classify_perm(method, path)
