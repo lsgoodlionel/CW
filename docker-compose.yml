@@ -24,6 +24,9 @@ services:
       REQUIRE_AUTH: ${REQUIRE_AUTH:-true}
       AUTH_SECRET: ${AUTH_SECRET:-change-me-please-set-AUTH_SECRET}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      DEPLOY_MODE: ${DEPLOY_MODE:-private}
+      ALLOW_SELF_REGISTRATION: ${ALLOW_SELF_REGISTRATION:-false}
+      TRIAL_DAYS: ${TRIAL_DAYS:-30}
     volumes:
       - uploads:/data/uploads
     depends_on:

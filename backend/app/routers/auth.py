@@ -5,8 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from .. import models, auth_svc
-from ..config import is_saas, DEFAULT_TENANT_ID
+from .. import models, auth_svc, subscription
+from ..config import is_saas, DEFAULT_TENANT_ID, settings
 from ..tenant import set_current_tenant
 from ..schemas_read import (
     AuthUserOut, LoginOut, PermissionModuleOut, SuccessOut,
@@ -59,6 +59,11 @@ def _user_info(db: Session, user: models.User, tenant_id: int | None,
 
 def _issue(db: Session, user: models.User, tenant_id: int, is_tenant_admin: bool) -> dict:
     """在指定租户上下文内签发令牌并返回用户信息。"""
+    # SaaS 订阅管控:非超管登录到期/停用租户直接拒绝(超管豁免,可进后台处理)
+    if is_saas() and not user.is_super_admin:
+        reason = subscription.usable_reason(db.get(models.Tenant, tenant_id))
+        if reason is not None:
+            raise HTTPException(status_code=403, detail=reason)
     set_current_tenant(tenant_id)        # 使 user.roles/权限按该租户过滤
     db.refresh(user)                     # 重新加载 roles(应用租户过滤)
     token = auth_svc.make_token(user.id, tenant_id)
@@ -105,6 +110,57 @@ def login(payload: LoginIn, db: Session = Depends(get_db)):
         "tenants": [{"id": t.id, "name": t.name, "code": t.code,
                      "is_tenant_admin": adm} for t, adm in members],
     }
+
+
+class RegisterIn(BaseModel):
+    tenant_name: str
+    username: str
+    password: str
+    display_name: str = ""
+
+
+@router.get("/register-open", response_model=SuccessOut)
+def register_open():
+    """前端探测:当前是否开放自助注册(saas 且开关开启)。"""
+    return {"success": is_saas() and settings.allow_self_registration}
+
+
+@router.post("/register", response_model=LoginOut)
+def register(payload: RegisterIn, db: Session = Depends(get_db)):
+    """自助注册:开通新租户 + 管理员账号,进入试用期并自动登录。仅 saas 且开关开启。"""
+    from datetime import date, timedelta
+    from ..tenant_provision import provision_tenant
+    if not (is_saas() and settings.allow_self_registration):
+        raise HTTPException(status_code=403, detail="当前未开放自助注册")
+    tenant_name = payload.tenant_name.strip()
+    uname = payload.username.strip()
+    if not tenant_name:
+        raise HTTPException(status_code=400, detail="企业/租户名称不能为空")
+    if len(uname) < 2:
+        raise HTTPException(status_code=400, detail="用户名至少 2 位")
+    if len(payload.password) < 6:
+        raise HTTPException(status_code=400, detail="密码至少 6 位")
+    if db.scalar(select(models.User).where(models.User.username == uname)):
+        raise HTTPException(status_code=409, detail="用户名已存在")
+
+    set_current_tenant(None)
+    expires = (date.today() + timedelta(days=settings.trial_days)).isoformat()
+    tenant = models.Tenant(name=tenant_name, code="", is_active=True,
+                           plan="trial", status="trial", expires_at=expires, max_users=0)
+    db.add(tenant)
+    db.flush()
+    admin = models.User(
+        username=uname, display_name=(payload.display_name or uname).strip(),
+        password_hash=auth_svc.hash_password(payload.password),
+        is_super_admin=False, is_active=True)
+    db.add(admin)
+    db.flush()
+    db.add(models.TenantMembership(user_id=admin.id, tenant_id=tenant.id, is_tenant_admin=True))
+    db.commit()
+    provision_tenant(db, tenant.id)      # 预置科目/明细/角色/流程/企业信息
+    set_current_tenant(None)
+    db.refresh(admin)
+    return _issue(db, admin, tenant.id, True)
 
 
 @router.get("/me", response_model=AuthUserOut)

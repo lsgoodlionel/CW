@@ -28,6 +28,7 @@ import Contracts from './pages/Contracts'
 import Tax from './pages/Tax'
 import About from './pages/About'
 import Login from './pages/Login'
+import Register from './pages/Register'
 import { http, getToken, clearToken, AuthUser, hasPerm } from './api'
 
 const { Sider, Header, Content } = Layout
@@ -97,10 +98,12 @@ export default function App() {
 
   if (loading) return <Spin style={{ display: 'block', marginTop: '20vh' }} size="large" />
 
-  if (location.pathname === '/login' || !user) {
+  if (location.pathname === '/login' || location.pathname === '/register' || !user) {
+    const enterSystem = (u: AuthUser) => { setUser(u); navigate('/') }
     return (
       <Routes>
-        <Route path="*" element={<Login onSuccess={(u) => { setUser(u); navigate('/') }} />} />
+        <Route path="/register" element={<Register onSuccess={enterSystem} onBackToLogin={() => navigate('/login')} />} />
+        <Route path="*" element={<Login onSuccess={enterSystem} />} />
       </Routes>
     )
   }

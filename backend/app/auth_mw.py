@@ -9,7 +9,7 @@ from .config import settings
 from .database import SessionLocal
 
 # 无需登录即可访问
-_OPEN = {"/api/health", "/api/auth/login"}
+_OPEN = {"/api/health", "/api/auth/login", "/api/auth/register", "/api/auth/register-open"}
 
 
 def _token_from_request(request: Request) -> str:
@@ -42,6 +42,16 @@ def _has_membership(uid: int, tid: int) -> bool:
         return db.scalar(select(models.TenantMembership.id).where(
             models.TenantMembership.user_id == uid,
             models.TenantMembership.tenant_id == tid)) is not None
+    finally:
+        db.close()
+
+
+def _tenant_block_reason(tid: int) -> str | None:
+    """租户到期/停用时返回拦截原因(可用返回 None)。"""
+    from . import subscription
+    db = SessionLocal()
+    try:
+        return subscription.usable_reason(db.get(models.Tenant, tid))
     finally:
         db.close()
 
@@ -79,6 +89,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         if settings.require_auth and user is None:
             return JSONResponse({"detail": "未登录或登录已过期"}, status_code=401)
+
+        # 3b) SaaS 订阅管控:租户到期/停用则拦截(超管豁免)
+        if user is not None and is_saas() and not user.is_super_admin and tid is not None:
+            reason = _tenant_block_reason(tid)
+            if reason is not None:
+                return JSONResponse({"detail": reason}, status_code=403)
 
         if user is not None and not user.is_super_admin:
             need = auth_svc.classify_perm(method, path)

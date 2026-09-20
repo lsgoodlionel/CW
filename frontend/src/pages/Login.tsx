@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card, Form, Input, Button, Typography, Radio, Space, message } from 'antd'
 import { UserOutlined, LockOutlined, BankOutlined, ArrowLeftOutlined } from '@ant-design/icons'
 import { http, setToken, AuthUser } from '../api'
@@ -37,12 +38,27 @@ interface LoginProps {
   onSuccess: (user: AuthUser) => void
 }
 
+/** 自助注册开关响应契约 */
+interface RegisterOpenResponse {
+  success: boolean
+}
+
 export default function Login({ onSuccess }: LoginProps) {
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
   const [step, setStep] = useState<LoginStep>('credentials')
   const [tenants, setTenants] = useState<TenantOption[]>([])
   const [credentials, setCredentials] = useState<Credentials | null>(null)
   const [selectedTenantId, setSelectedTenantId] = useState<number | null>(null)
+  // 是否开放自助注册(saas 且开关开启;私有化恒 false)
+  const [registerOpen, setRegisterOpen] = useState(false)
+
+  // 挂载时查询是否开放自助注册,以决定是否显示注册入口
+  useEffect(() => {
+    http.get<RegisterOpenResponse>('/auth/register-open')
+      .then((r) => setRegisterOpen(r.data.success))
+      .catch(() => setRegisterOpen(false))
+  }, [])
 
   /** 完成登录:存令牌并回调 */
   const finishLogin = (token: string, user: AuthUser) => {
@@ -136,6 +152,14 @@ export default function Login({ onSuccess }: LoginProps) {
             <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 12 }}>
               初始超级管理员:admin / admin123(请登录后立即修改密码)
             </Text>
+            {registerOpen && (
+              <div style={{ textAlign: 'center', marginTop: 12 }}>
+                <Text type="secondary">没有账号?</Text>
+                <Button type="link" style={{ padding: '0 4px' }} onClick={() => navigate('/register')}>
+                  注册企业
+                </Button>
+              </div>
+            )}
           </>
         ) : (
           <>

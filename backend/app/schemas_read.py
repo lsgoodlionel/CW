@@ -93,7 +93,7 @@ class TenantBriefOut(BaseModel):
 
 
 class TenantOut(BaseModel):
-    """平台管理:租户条目。"""
+    """平台管理:租户条目(含订阅)。"""
     id: int
     name: str
     code: str
@@ -101,6 +101,10 @@ class TenantOut(BaseModel):
     note: str
     created_at: str | None
     member_count: int = 0
+    plan: str = "trial"
+    status: str = "trial"
+    expires_at: str = ""
+    max_users: int = 0
 
 
 class TenantMemberOut(BaseModel):

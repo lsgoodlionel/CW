@@ -25,6 +25,12 @@ class Tenant(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # 订阅/计费:plan 套餐,status 状态(trial/active/expired/suspended),
+    # expires_at 到期日(ISO 字符串,""=不限),max_users 用户数上限(0=不限)
+    plan: Mapped[str] = mapped_column(String(20), default="trial", server_default="trial")
+    status: Mapped[str] = mapped_column(String(20), default="trial", server_default="trial")
+    expires_at: Mapped[str] = mapped_column(String(20), default="", server_default="")
+    max_users: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class TenantMembership(Base):

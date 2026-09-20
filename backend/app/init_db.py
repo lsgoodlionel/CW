@@ -37,11 +37,21 @@ def init_db() -> None:
 
 
 def _seed_tenant(db) -> None:
-    """确保默认租户(id=1)存在;私有化模式与存量数据均归属该租户。"""
-    if db.get(models.Tenant, 1) is None:
+    """确保默认租户(id=1)存在且为长期有效;私有化模式与存量数据均归属该租户。"""
+    default = db.get(models.Tenant, 1)
+    if default is None:
         company = db.get(models.CompanyInfo, 1)
         name = (company.name if company else None) or "默认企业"
-        db.add(models.Tenant(id=1, name=name, code="default", is_active=True))
+        db.add(models.Tenant(
+            id=1, name=name, code="default", is_active=True,
+            plan="enterprise", status="active", expires_at="", max_users=0))
+        db.commit()
+    elif default.status != "active":
+        # 存量默认租户经迁移得到 trial 默认值,回填为长期有效企业版(不受到期/配额限制)
+        default.plan = "enterprise"
+        default.status = "active"
+        default.expires_at = ""
+        default.max_users = 0
         db.commit()
 
 
@@ -97,6 +107,12 @@ _ADDED_COLUMNS = {
     ],
     "tax_filings": [
         ("workflow_instance_id", "INTEGER"),
+    ],
+    "tenants": [
+        ("plan", "VARCHAR(20) DEFAULT 'trial'"),
+        ("status", "VARCHAR(20) DEFAULT 'trial'"),
+        ("expires_at", "VARCHAR(20) DEFAULT ''"),
+        ("max_users", "INTEGER DEFAULT 0"),
     ],
     "operation_logs": [
         ("detail", "TEXT DEFAULT ''"),

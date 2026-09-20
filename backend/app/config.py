@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     #           saas=多租户(登录选租户、平台管理后台、按租户隔离)
     deploy_mode: str = "private"
 
+    # 自助注册(仅 saas 生效):开放后访客可自助开通租户并进入试用
+    allow_self_registration: bool = False
+    # 新注册租户试用天数
+    trial_days: int = 30
+
 
 settings = Settings()
 

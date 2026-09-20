@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   Card, Tabs, Table, Tag, Button, Space, Modal, Form, Input, Select, Popconfirm,
-  message, Switch, Empty,
+  message, Switch, Empty, DatePicker, InputNumber,
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
+import dayjs from 'dayjs'
 import { http } from '../api'
 
 // 平台管理返回结构(本地 interface,后端契约见页面头部说明,不改生成文件)
@@ -15,7 +16,28 @@ interface PlatformTenant {
   note: string
   created_at: string | null
   member_count: number
+  // 订阅字段
+  plan: string
+  status: string
+  expires_at: string // ISO 日期 "YYYY-MM-DD",""=不限
+  max_users: number // 0=不限
 }
+
+// 订阅状态 → Tag 颜色映射(表现层)
+const STATUS_COLOR: Record<string, string> = {
+  active: 'green',
+  trial: 'blue',
+  expired: 'red',
+  suspended: 'default',
+}
+
+// 订阅状态可选项
+const STATUS_OPTIONS = [
+  { value: 'trial', label: '试用' },
+  { value: 'active', label: '正式' },
+  { value: 'expired', label: '已过期' },
+  { value: 'suspended', label: '已暂停' },
+]
 
 interface PlatformMember {
   id: number
@@ -38,6 +60,10 @@ interface TenantFormValues {
 interface TenantEditFormValues {
   name: string
   note?: string
+  plan?: string
+  status?: string
+  expires_at?: dayjs.Dayjs | null
+  max_users?: number
 }
 
 interface MemberFormValues {
@@ -98,17 +124,34 @@ function TenantTab({ onManageMembers }: TenantTabProps) {
   const openEdit = (tenant: PlatformTenant) => {
     setEditing(tenant)
     editForm.resetFields()
-    editForm.setFieldsValue({ name: tenant.name, note: tenant.note })
+    editForm.setFieldsValue({
+      name: tenant.name,
+      note: tenant.note,
+      plan: tenant.plan,
+      status: tenant.status,
+      expires_at: tenant.expires_at ? dayjs(tenant.expires_at) : null,
+      max_users: tenant.max_users,
+    })
   }
   const saveEdit = async () => {
     const values = await editForm.validateFields()
-    await http.put<PlatformTenant>(`/platform/tenants/${editing!.id}`, values)
+    const payload = {
+      ...values,
+      // DatePicker 清空表示不限,提交空字符串;否则转 ISO 日期字符串
+      expires_at: values.expires_at ? values.expires_at.format('YYYY-MM-DD') : '',
+    }
+    await http.put<PlatformTenant>(`/platform/tenants/${editing!.id}`, payload)
     message.success('已保存'); setEditing(null); load()
   }
 
   const toggleActive = async (tenant: PlatformTenant) => {
     await http.put<PlatformTenant>(`/platform/tenants/${tenant.id}`, { is_active: !tenant.is_active })
     message.success(tenant.is_active ? '已停用' : '已启用'); load()
+  }
+
+  const reprovision = async (tenant: PlatformTenant) => {
+    await http.post(`/platform/tenants/${tenant.id}/reprovision`)
+    message.success('已重新初始化'); load()
   }
 
   const columns = [
@@ -119,15 +162,31 @@ function TenantTab({ onManageMembers }: TenantTabProps) {
       render: (active: boolean) => active ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>,
     },
     {
-      title: '成员数', dataIndex: 'member_count', width: 90,
+      title: '成员数', dataIndex: 'member_count', width: 80,
       render: (count: number) => <Tag color="blue">{count}</Tag>,
     },
+    { title: '套餐', dataIndex: 'plan', width: 110, render: (v: string) => v || '-' },
     {
-      title: '创建时间', dataIndex: 'created_at', width: 180,
+      title: '订阅状态', dataIndex: 'status', width: 100,
+      render: (status: string) => {
+        const opt = STATUS_OPTIONS.find((o) => o.value === status)
+        return <Tag color={STATUS_COLOR[status] ?? 'default'}>{opt?.label ?? status ?? '-'}</Tag>
+      },
+    },
+    {
+      title: '到期', dataIndex: 'expires_at', width: 110,
+      render: (v: string) => v || '不限',
+    },
+    {
+      title: '用户上限', dataIndex: 'max_users', width: 90,
+      render: (v: number) => (v > 0 ? v : '不限'),
+    },
+    {
+      title: '创建时间', dataIndex: 'created_at', width: 170,
       render: (v: string | null) => v || '-',
     },
     {
-      title: '操作', width: 240, render: (_: unknown, tenant: PlatformTenant) => (
+      title: '操作', width: 300, render: (_: unknown, tenant: PlatformTenant) => (
         <Space>
           <a onClick={() => openEdit(tenant)}>编辑</a>
           <a onClick={() => onManageMembers(tenant.id)}>管理成员</a>
@@ -138,6 +197,12 @@ function TenantTab({ onManageMembers }: TenantTabProps) {
             <a style={{ color: tenant.is_active ? '#cf1322' : '#389e0d' }}>
               {tenant.is_active ? '停用' : '启用'}
             </a>
+          </Popconfirm>
+          <Popconfirm
+            title="重新初始化该租户基础数据?(幂等补齐)"
+            onConfirm={() => reprovision(tenant)}
+          >
+            <a>重新初始化</a>
           </Popconfirm>
         </Space>
       ),
@@ -164,6 +229,14 @@ function TenantTab({ onManageMembers }: TenantTabProps) {
       <Modal title="编辑租户" open={Boolean(editing)} onOk={saveEdit} onCancel={() => setEditing(null)} okText="保存">
         <Form form={editForm} layout="vertical">
           <Form.Item name="name" label="租户名称" rules={[{ required: true, message: '请输入租户名称' }]}><Input /></Form.Item>
+          <Form.Item name="plan" label="套餐"><Input placeholder="如 trial/standard/pro/enterprise" /></Form.Item>
+          <Form.Item name="status" label="订阅状态"><Select options={STATUS_OPTIONS} /></Form.Item>
+          <Form.Item name="expires_at" label="到期日期" extra="清空表示不限">
+            <DatePicker style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="max_users" label="用户上限" extra="0 表示不限">
+            <InputNumber min={0} style={{ width: '100%' }} />
+          </Form.Item>
           <Form.Item name="note" label="备注"><Input.TextArea rows={2} /></Form.Item>
         </Form>
       </Modal>

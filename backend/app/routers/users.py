@@ -97,11 +97,18 @@ def create_user(payload: UserCreate, request: Request, db: Session = Depends(get
         password_hash=auth_svc.hash_password(payload.password),
         employee_id=payload.employee_id, is_super_admin=payload.is_super_admin,
         is_active=True)
+    # SaaS:受租户用户数配额限制
+    tid = get_current_tenant()
+    if is_saas() and tid is not None:
+        from .. import subscription
+        tenant = db.get(models.Tenant, tid)
+        if tenant is not None and subscription.quota_exceeded(db, tenant):
+            raise HTTPException(status_code=409,
+                                detail=f"已达租户用户数上限({tenant.max_users}),请升级套餐")
     db.add(user)
     db.flush()
     _set_roles(db, user, payload.role_ids)
     # SaaS:新建用户自动加入当前租户,否则无成员关系将无法登录且不在租户用户列表中
-    tid = get_current_tenant()
     if is_saas() and tid is not None:
         db.add(models.TenantMembership(user_id=user.id, tenant_id=tid, is_tenant_admin=False))
     db.commit()

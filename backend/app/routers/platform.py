@@ -15,6 +15,7 @@ from .. import models, auth_svc
 from ..schemas_read import TenantOut, TenantMemberOut, SuccessOut
 from ..tenant import set_current_tenant
 from ..tenant_provision import provision_tenant
+from .. import subscription
 
 router = APIRouter(prefix="/api/platform", tags=["platform"])
 
@@ -41,6 +42,10 @@ class TenantUpdateIn(BaseModel):
     name: str | None = None
     note: str | None = None
     is_active: bool | None = None
+    plan: str | None = None
+    status: str | None = None          # trial/active/expired/suspended
+    expires_at: str | None = None      # ISO 日期字符串,""=不限
+    max_users: int | None = None       # 0=不限
 
 
 class MemberAddIn(BaseModel):
@@ -64,6 +69,8 @@ def _tenant_out(db: Session, t: models.Tenant) -> dict:
         "id": t.id, "name": t.name, "code": t.code, "is_active": t.is_active,
         "note": t.note or "", "created_at": t.created_at.isoformat() if t.created_at else None,
         "member_count": _member_count(db, t.id),
+        "plan": t.plan or "trial", "status": t.status or "trial",
+        "expires_at": t.expires_at or "", "max_users": t.max_users or 0,
     }
 
 
@@ -92,7 +99,8 @@ def create_tenant(payload: TenantCreateIn, db: Session = Depends(get_db),
     code = payload.code.strip()
     if code and db.scalar(select(models.Tenant).where(models.Tenant.code == code)):
         raise HTTPException(status_code=409, detail=f"租户编码 {code} 已存在")
-    tenant = models.Tenant(name=name, code=code, note=payload.note or "", is_active=True)
+    tenant = models.Tenant(name=name, code=code, note=payload.note or "", is_active=True,
+                           plan="standard", status="active", expires_at="", max_users=0)
     db.add(tenant)
     db.flush()                           # 取得 tenant.id
 
@@ -148,6 +156,9 @@ def update_tenant(tenant_id: int, payload: TenantUpdateIn, db: Session = Depends
         tenant.note = data["note"]
     if "is_active" in data and data["is_active"] is not None:
         tenant.is_active = data["is_active"]
+    for f in ("plan", "status", "expires_at", "max_users"):
+        if f in data and data[f] is not None:
+            setattr(tenant, f, data[f])
     db.commit()
     db.refresh(tenant)
     return _tenant_out(db, tenant)
@@ -173,8 +184,12 @@ def list_members(tenant_id: int, db: Session = Depends(get_db),
 def add_member(tenant_id: int, payload: MemberAddIn, db: Session = Depends(get_db),
                _: models.User = Depends(require_super_admin)):
     set_current_tenant(None)
-    if db.get(models.Tenant, tenant_id) is None:
+    tenant = db.get(models.Tenant, tenant_id)
+    if tenant is None:
         raise HTTPException(status_code=404, detail="租户不存在")
+    if subscription.quota_exceeded(db, tenant):
+        raise HTTPException(status_code=409,
+                            detail=f"已达该租户用户数上限({tenant.max_users}),请升级套餐")
     uname = payload.username.strip()
     if not uname:
         raise HTTPException(status_code=400, detail="用户名不能为空")
