@@ -278,6 +278,30 @@ curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | H
 >
 > 脚本内部拉取源码也已内置**超时 + 归档下载兜底**,git 不通时会自动改用 HTTPS 归档,不会卡死。
 
+### 多租户 SaaS 一键部署
+
+以多租户 SaaS 模式部署(登录选租户、平台管理后台、按租户隔离、可选自助注册):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | DEPLOY_MODE=saas ALLOW_SELF_REGISTRATION=true bash
+```
+
+- **无默认管理员**:SaaS 部署不预置任何账号。首次访问 `http://<服务器IP>:<端口>`,登录页会自动进入 **「首次设置超级管理员」**,填写用户名/密码即创建平台超管并自动登录;该入口设置后即失效(防接管)。
+- **可选参数**(前置于 `bash`):`HTTP_PORT=80`、`ALLOW_SELF_REGISTRATION=false`(关闭访客自助注册)、`ADMIN_PASSWORD=xxx`(显式预置超管、跳过首登设置)。
+- 平台超管登录后可在**平台管理**开通/停用租户、设租户管理员、管理套餐与到期;**运行诊断**页可查看日志并手动打包上传排查仓库。
+
+#### 后端镜像走 GitHub Releases/GHCR(稳定升级,免服务器 pip 构建)
+
+升级时 `deploy.sh` 会**优先拉取云端预构建镜像**(`ghcr.io/lsgoodlionel/cw-backend|cw-frontend`,由 `.github/workflows/docker-images.yml` 在推送 main / 打标签时自动构建发布),拉取成功即直接启动,不在服务器上跑 `pip`;拉取失败(镜像未公开/网络受限)才回退本地构建。
+
+> **一次性设置(启用免鉴权拉取)**:首次 CI 发布后,打开 <https://github.com/lsgoodlionel?tab=packages> → 分别进入 `cw-backend`、`cw-frontend` → **Package settings → Change visibility → Public**。设为公开后,服务器即可免登录拉取预构建镜像。
+>
+> 若暂不公开镜像:升级会自动回退本地构建;此时可在服务器 `.env` 设置 PyPI 镜像源再重试,规避慢速网络导致的 pip 超时:
+>
+> ```bash
+> cd ~/CW && echo 'PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple' >> .env && FORCE_BUILD=1 ./deploy.sh
+> ```
+
 ### 本地桌面(Windows / macOS)一键安装客户端
 
 个人电脑上把系统当"本地客户端"用。前置:先安装 **Docker Desktop**(<https://www.docker.com/products/docker-desktop/>)。脚本会自动下载代码 → 构建 → 启动 → 打开浏览器;再次运行即"更新并启动"(数据保留在 Docker 数据卷,不丢)。
