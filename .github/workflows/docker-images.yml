@@ -6,6 +6,10 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+    paths-ignore:            # 纯文档/许可证改动不触发镜像重建
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
   workflow_dispatch:
 
 permissions:
