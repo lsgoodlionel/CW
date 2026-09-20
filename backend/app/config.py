@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     # 新注册租户试用天数
     trial_days: int = 30
 
+    # 运行诊断:出错自动打包日志并上传到共享 GitHub 仓库(供开发拉取排查)
+    error_report_enabled: bool = True            # 总开关(仍需提供 token 才会真正上传)
+    paper_repo: str = "lsgoodlionel/paper"       # owner/repo(多应用共用)
+    paper_repo_token: str = ""                   # GitHub PAT(contents 写权限);空则功能禁用
+    paper_repo_branch: str = "main"
+    log_app_slug: str = "CW"                     # 仓库内本应用顶层目录:<slug>/logs/<时间戳>.zip
+    error_report_cooldown: int = 600             # 同类错误上传冷却秒数(节流去重)
+
 
 settings = Settings()
 

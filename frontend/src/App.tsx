@@ -5,7 +5,7 @@ import {
   SettingOutlined, BookOutlined, HistoryOutlined, TeamOutlined, IdcardOutlined,
   PartitionOutlined, SolutionOutlined, SafetyCertificateOutlined, UserOutlined,
   LogoutOutlined, KeyOutlined, FileDoneOutlined, AuditOutlined, InfoCircleOutlined,
-  FileProtectOutlined, CalculatorOutlined, ClusterOutlined,
+  FileProtectOutlined, CalculatorOutlined, ClusterOutlined, BugOutlined,
 } from '@ant-design/icons'
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
@@ -24,6 +24,7 @@ import Logs from './pages/Logs'
 import UsersAdmin from './pages/Users'
 import Settings from './pages/Settings'
 import PlatformAdmin from './pages/PlatformAdmin'
+import Diagnostics from './pages/Diagnostics'
 import Contracts from './pages/Contracts'
 import Tax from './pages/Tax'
 import About from './pages/About'
@@ -61,6 +62,7 @@ const MENU: MenuItemDef[] = [
   { key: '/users', icon: <SafetyCertificateOutlined />, label: '用户与权限', module: 'user' },
   { key: '/settings', icon: <SettingOutlined />, label: '企业信息', module: 'company' },
   { key: '/platform', icon: <ClusterOutlined />, label: '平台管理', module: '', superOnly: true },
+  { key: '/diagnostics', icon: <BugOutlined />, label: '运行诊断', module: '', superOnly: true },
   { key: '/about', icon: <InfoCircleOutlined />, label: '关于系统', module: '' },
 ]
 
@@ -170,6 +172,7 @@ export default function App() {
             <Route path="/users" element={<UsersAdmin />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/platform" element={<PlatformAdmin />} />
+            <Route path="/diagnostics" element={<Diagnostics />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Content>

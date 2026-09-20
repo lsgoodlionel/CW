@@ -13,13 +13,15 @@ from .auth_mw import AuthMiddleware
 from .routers import (
     company, accounts, vouchers, attachments, reports, data_io, ledgers, logs,
     customers, personnel, workflow, expense, expense_apply, auth, users, presets,
-    about, contracts, tax, platform,
+    about, contracts, tax, platform, diag,
 )
+from . import diag as diag_svc
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from .tenant import install_tenant_isolation
+    diag_svc.install_log_capture()   # 运行日志采集(供出错时上传上下文)
     install_tenant_isolation()   # 注册租户隔离事件(启动一次)
     init_db()
     yield
@@ -41,6 +43,16 @@ app.add_middleware(
 app.add_middleware(OperationLogMiddleware)
 # 鉴权中间件(全站强制登录 + 权限校验)——最后添加使其最外层,先于日志运行
 app.add_middleware(AuthMiddleware)
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exc(request: Request, exc: Exception):
+    """未处理异常/500:触发诊断日志打包上传(后台、节流),返回统一 500。"""
+    diag_svc.report_exception(exc, {
+        "path": request.url.path, "method": request.method,
+        "trigger": "unhandled",
+    })
+    return JSONResponse({"detail": "服务器内部错误"}, status_code=500)
 
 
 @app.get("/api/health", tags=["system"], response_model=HealthOut)
@@ -68,3 +80,4 @@ app.include_router(about.router)
 app.include_router(contracts.router)
 app.include_router(tax.router)
 app.include_router(platform.router)
+app.include_router(diag.router)

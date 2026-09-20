@@ -27,6 +27,13 @@ services:
       DEPLOY_MODE: ${DEPLOY_MODE:-private}
       ALLOW_SELF_REGISTRATION: ${ALLOW_SELF_REGISTRATION:-false}
       TRIAL_DAYS: ${TRIAL_DAYS:-30}
+      # 运行诊断:出错自动打包日志并上传到共享 GitHub 仓库(供开发拉取排查)
+      ERROR_REPORT_ENABLED: ${ERROR_REPORT_ENABLED:-true}
+      PAPER_REPO: ${PAPER_REPO:-lsgoodlionel/paper}
+      PAPER_REPO_TOKEN: ${PAPER_REPO_TOKEN:-}
+      PAPER_REPO_BRANCH: ${PAPER_REPO_BRANCH:-main}
+      LOG_APP_SLUG: ${LOG_APP_SLUG:-CW}
+      ERROR_REPORT_COOLDOWN: ${ERROR_REPORT_COOLDOWN:-600}
     volumes:
       - uploads:/data/uploads
     depends_on:
