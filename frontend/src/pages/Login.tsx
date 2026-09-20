@@ -1,10 +1,18 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Form, Input, Button, Typography, Radio, Space, message } from 'antd'
-import { UserOutlined, LockOutlined, BankOutlined, ArrowLeftOutlined } from '@ant-design/icons'
+import { Card, Form, Input, Button, Typography, Radio, Space, Spin, message } from 'antd'
+import {
+  UserOutlined, LockOutlined, BankOutlined, ArrowLeftOutlined,
+  IdcardOutlined, SafetyCertificateOutlined,
+} from '@ant-design/icons'
 import { http, setToken, AuthUser } from '../api'
 
 const { Title, Text } = Typography
+
+/** 用户名最小长度 */
+const MIN_USERNAME_LEN = 2
+/** 密码最小长度 */
+const MIN_PASSWORD_LEN = 6
 
 /** 可登录租户(SaaS 多租户模式下,后端在 need_tenant 时返回) */
 interface TenantOption {
@@ -43,6 +51,30 @@ interface RegisterOpenResponse {
   success: boolean
 }
 
+/** 首次部署初始化状态契约(success=true 表示系统尚无任何用户,需首次设置) */
+interface SetupState {
+  success: boolean
+}
+
+/** 首次设置超级管理员表单值 */
+interface SetupFormValues {
+  username: string
+  password: string
+  confirmPassword: string
+  display_name?: string
+}
+
+/**
+ * 首次设置响应契约。设置即自动登录:后端复用登录响应结构,
+ * 此场景下 token/user 必定存在,need_tenant 恒为 false。
+ */
+interface SetupResponse {
+  token: string
+  user: AuthUser
+  need_tenant: false
+  tenants: []
+}
+
 export default function Login({ onSuccess }: LoginProps) {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
@@ -52,18 +84,30 @@ export default function Login({ onSuccess }: LoginProps) {
   const [selectedTenantId, setSelectedTenantId] = useState<number | null>(null)
   // 是否开放自助注册(saas 且开关开启;私有化恒 false)
   const [registerOpen, setRegisterOpen] = useState(false)
+  // 首次部署初始化探测:checking 期间不渲染任何表单,避免闪烁
+  const [checkingSetup, setCheckingSetup] = useState(true)
+  const [needSetup, setNeedSetup] = useState(false)
 
-  // 挂载时查询是否开放自助注册,以决定是否显示注册入口
+  // 挂载时先探测是否需要首次设置超级管理员;失败则回退为正常登录(不阻断)
   useEffect(() => {
+    http.get<SetupState>('/auth/setup-state')
+      .then((r) => setNeedSetup(r.data.success === true))
+      .catch(() => setNeedSetup(false))
+      .finally(() => setCheckingSetup(false))
+  }, [])
+
+  // 无需首次设置时,再探测是否开放自助注册,以决定是否显示注册入口
+  useEffect(() => {
+    if (checkingSetup || needSetup) return
     http.get<RegisterOpenResponse>('/auth/register-open')
       .then((r) => setRegisterOpen(r.data.success))
       .catch(() => setRegisterOpen(false))
-  }, [])
+  }, [checkingSetup, needSetup])
 
-  /** 完成登录:存令牌并回调 */
-  const finishLogin = (token: string, user: AuthUser) => {
+  /** 完成进入系统:存令牌并回调(登录 / 首次设置共用) */
+  const finishAuth = (token: string, user: AuthUser, successText: string) => {
     setToken(token)
-    message.success('登录成功')
+    message.success(successText)
     onSuccess(user)
   }
 
@@ -78,7 +122,7 @@ export default function Login({ onSuccess }: LoginProps) {
 
     // 私有化 / 单租户 / 已带 tenant_id:直接拿到令牌
     if (token && user) {
-      finishLogin(token, user)
+      finishAuth(token, user, '登录成功')
       return true
     }
 
@@ -109,6 +153,23 @@ export default function Login({ onSuccess }: LoginProps) {
     }
   }
 
+  /** 提交首次设置:创建超级管理员并自动登录进入系统 */
+  const submitSetup = async (v: SetupFormValues) => {
+    setLoading(true)
+    try {
+      const body = {
+        username: v.username,
+        password: v.password,
+        display_name: v.display_name,
+      }
+      const r = await http.post<SetupResponse>('/auth/setup', body)
+      const { token, user } = r.data
+      finishAuth(token, user, '初始化成功,已自动登录')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const confirmTenant = async () => {
     if (!credentials || selectedTenantId == null) return
     setLoading(true)
@@ -127,6 +188,13 @@ export default function Login({ onSuccess }: LoginProps) {
     setSelectedTenantId(null)
   }
 
+  /** 卡片副标题文案随当前视图变化 */
+  const subtitle = needSetup
+    ? '首次部署初始化,请创建超级管理员'
+    : step === 'credentials' ? '请登录后使用' : '请选择要进入的租户'
+
+  const title = needSetup ? '🚀 系统初始化' : '💰 财务记账系统'
+
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -134,11 +202,62 @@ export default function Login({ onSuccess }: LoginProps) {
     }}>
       <Card style={{ width: 380, boxShadow: '0 12px 40px rgba(0,0,0,.2)' }}>
         <div style={{ textAlign: 'center', marginBottom: 20 }}>
-          <Title level={3} style={{ marginBottom: 0 }}>💰 财务记账系统</Title>
-          <Text type="secondary">{step === 'credentials' ? '请登录后使用' : '请选择要进入的租户'}</Text>
+          <Title level={3} style={{ marginBottom: 0 }}>{title}</Title>
+          <Text type="secondary">{subtitle}</Text>
         </div>
 
-        {step === 'credentials' ? (
+        {checkingSetup ? (
+          <div style={{ textAlign: 'center', padding: '24px 0' }}>
+            <Spin />
+          </div>
+        ) : needSetup ? (
+          <>
+            <Form onFinish={submitSetup} size="large" layout="vertical">
+              <Form.Item
+                name="username"
+                rules={[
+                  { required: true, message: '请输入用户名' },
+                  { min: MIN_USERNAME_LEN, message: `用户名至少 ${MIN_USERNAME_LEN} 个字符` },
+                ]}
+              >
+                <Input prefix={<UserOutlined />} placeholder="超级管理员用户名" autoFocus />
+              </Form.Item>
+              <Form.Item
+                name="password"
+                rules={[
+                  { required: true, message: '请输入密码' },
+                  { min: MIN_PASSWORD_LEN, message: `密码至少 ${MIN_PASSWORD_LEN} 位` },
+                ]}
+              >
+                <Input.Password prefix={<LockOutlined />} placeholder="密码" />
+              </Form.Item>
+              <Form.Item
+                name="confirmPassword"
+                dependencies={['password']}
+                rules={[
+                  { required: true, message: '请再次输入密码' },
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      if (!value || getFieldValue('password') === value) {
+                        return Promise.resolve()
+                      }
+                      return Promise.reject(new Error('两次输入的密码不一致'))
+                    },
+                  }),
+                ]}
+              >
+                <Input.Password prefix={<SafetyCertificateOutlined />} placeholder="确认密码" />
+              </Form.Item>
+              <Form.Item name="display_name">
+                <Input prefix={<IdcardOutlined />} placeholder="显示名(可选)" />
+              </Form.Item>
+              <Button type="primary" htmlType="submit" block loading={loading}>初始化并进入</Button>
+            </Form>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 12 }}>
+              该账号将成为系统首个超级管理员,请妥善保管凭据。
+            </Text>
+          </>
+        ) : step === 'credentials' ? (
           <>
             <Form onFinish={submitCredentials} size="large">
               <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
@@ -149,9 +268,6 @@ export default function Login({ onSuccess }: LoginProps) {
               </Form.Item>
               <Button type="primary" htmlType="submit" block loading={loading}>登录</Button>
             </Form>
-            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 12 }}>
-              初始超级管理员:admin / admin123(请登录后立即修改密码)
-            </Text>
             {registerOpen && (
               <div style={{ textAlign: 'center', marginTop: 12 }}>
                 <Text type="secondary">没有账号?</Text>

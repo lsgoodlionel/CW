@@ -8,7 +8,14 @@
 #   APP_DIR=/opt/cw      安装目录(默认 $HOME/CW)
 #   BRANCH=main          分支(默认 main)
 #   HTTP_PORT=8080       对外端口(默认 8080)
-#   例: curl -fsSL .../install.sh | HTTP_PORT=80 APP_DIR=/opt/cw bash
+#   DEPLOY_MODE=saas     部署模式(private 私有化单租户 / saas 多租户;默认 private)
+#   ALLOW_SELF_REGISTRATION=true  仅 saas:开放访客自助注册开通租户
+#   ADMIN_PASSWORD=...   预置超管密码;saas 默认留空 → 首登页面自行设置管理员
+#   PIP_INDEX_URL=...    回退本地构建时的 PyPI 镜像源(慢速网络)
+#
+# 私有化一键:  curl -fsSL .../install.sh | bash
+# SaaS 一键:   curl -fsSL .../install.sh | DEPLOY_MODE=saas ALLOW_SELF_REGISTRATION=true bash
+#   (SaaS 默认无预置管理员,首次访问在页面设置超级管理员;后端优先拉取 GHCR 预构建镜像,稳定升级)
 set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/lsgoodlionel/CW.git}"
@@ -102,21 +109,33 @@ fi
 cd "$APP_DIR"
 chmod +x deploy.sh
 
-# 6. 透传 HTTP_PORT 到 .env(若用户指定)
-# 若需新建 .env,同时随机化数据库密码,避免沿用示例占位密码
-if [ -n "${HTTP_PORT:-}" ]; then
-  if [ ! -f .env ]; then
-    cp .env.example .env
-    RAND_PWD=$(openssl rand -hex 16 2>/dev/null || date +%s%N | sha256sum | head -c 32)
-    awk -v pwd="$RAND_PWD" \
-      '/^POSTGRES_PASSWORD=/{print "POSTGRES_PASSWORD=" pwd; next} {print}' \
-      .env > .env.tmp && mv .env.tmp .env
-  fi
-  awk -v port="$HTTP_PORT" \
-    '/^HTTP_PORT=/{print "HTTP_PORT=" port; next} {print}' \
-    .env > .env.tmp && mv .env.tmp .env
-  info "已设置对外端口:$HTTP_PORT"
+# 6. 生成/更新 .env,并透传部署参数(HTTP_PORT / DEPLOY_MODE / ALLOW_SELF_REGISTRATION /
+#    ADMIN_PASSWORD / PIP_INDEX_URL)。仅新建 .env 时随机化数据库密码。
+# 在 .env 中设置/覆盖某键(值可含 = 号,先删旧行再追加)
+set_env() {
+  local key="$1" val="$2"
+  grep -v "^${key}=" .env > .env.tmp 2>/dev/null || true
+  printf '%s=%s\n' "$key" "$val" >> .env.tmp
+  mv .env.tmp .env
+}
+if [ ! -f .env ]; then
+  cp .env.example .env
+  RAND_PWD=$(openssl rand -hex 16 2>/dev/null || date +%s%N | sha256sum | head -c 32)
+  set_env POSTGRES_PASSWORD "$RAND_PWD"
 fi
+if [ -n "${HTTP_PORT:-}" ]; then set_env HTTP_PORT "$HTTP_PORT"; info "对外端口:$HTTP_PORT"; fi
+if [ -n "${DEPLOY_MODE:-}" ]; then
+  set_env DEPLOY_MODE "$DEPLOY_MODE"; info "部署模式:$DEPLOY_MODE"
+  # SaaS 默认不预置管理员(首登页面自行设置),除非显式提供 ADMIN_PASSWORD
+  if [ "$DEPLOY_MODE" = "saas" ] && [ -z "${ADMIN_PASSWORD+x}" ]; then
+    set_env ADMIN_PASSWORD ""
+    info "SaaS:未预置管理员,请在首次访问时于页面设置超级管理员。"
+  fi
+fi
+if [ -n "${ALLOW_SELF_REGISTRATION:-}" ]; then set_env ALLOW_SELF_REGISTRATION "$ALLOW_SELF_REGISTRATION"; fi
+# 显式提供 ADMIN_PASSWORD(含空串)时写入
+if [ "${ADMIN_PASSWORD+x}" = "x" ]; then set_env ADMIN_PASSWORD "${ADMIN_PASSWORD}"; fi
+if [ -n "${PIP_INDEX_URL:-}" ]; then set_env PIP_INDEX_URL "$PIP_INDEX_URL"; fi
 
 # 7. 部署(新装 Docker 时当前会话尚未加入 docker 组,统一用 sudo 跑)
 info "开始部署 ..."

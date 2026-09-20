@@ -9,7 +9,8 @@ from .config import settings
 from .database import SessionLocal
 
 # 无需登录即可访问
-_OPEN = {"/api/health", "/api/auth/login", "/api/auth/register", "/api/auth/register-open"}
+_OPEN = {"/api/health", "/api/auth/login", "/api/auth/register", "/api/auth/register-open",
+         "/api/auth/setup", "/api/auth/setup-state"}
 
 
 def _token_from_request(request: Request) -> str:

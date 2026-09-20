@@ -163,6 +163,50 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
     return _issue(db, admin, tenant.id, True)
 
 
+class SetupIn(BaseModel):
+    username: str
+    password: str
+    display_name: str = ""
+
+
+def _needs_setup(db: Session) -> bool:
+    """系统尚无任何用户 → 需首次设置超级管理员。"""
+    return db.scalar(select(models.User.id).limit(1)) is None
+
+
+@router.get("/setup-state", response_model=SuccessOut)
+def setup_state(db: Session = Depends(get_db)):
+    """前端探测:是否需要首次设置(尚无任何用户)。"""
+    return {"success": _needs_setup(db)}
+
+
+@router.post("/setup", response_model=LoginOut)
+def setup(payload: SetupIn, db: Session = Depends(get_db)):
+    """首次设置平台超级管理员(仅当系统尚无任何用户时可用),完成后自动登录。"""
+    if not _needs_setup(db):
+        raise HTTPException(status_code=409, detail="系统已初始化,无法重复设置")
+    uname = payload.username.strip()
+    if len(uname) < 2:
+        raise HTTPException(status_code=400, detail="用户名至少 2 位")
+    if len(payload.password) < 6:
+        raise HTTPException(status_code=400, detail="密码至少 6 位")
+    set_current_tenant(None)
+    admin = models.User(
+        username=uname, display_name=(payload.display_name or uname).strip(),
+        password_hash=auth_svc.hash_password(payload.password),
+        is_super_admin=True, is_active=True)
+    db.add(admin)
+    db.flush()
+    # 关联默认租户(便于超管直接进入使用;平台管理不依赖成员关系)
+    default = db.get(models.Tenant, DEFAULT_TENANT_ID)
+    if default is not None:
+        db.add(models.TenantMembership(
+            user_id=admin.id, tenant_id=DEFAULT_TENANT_ID, is_tenant_admin=True))
+    db.commit()
+    db.refresh(admin)
+    return _issue(db, admin, DEFAULT_TENANT_ID, True)
+
+
 @router.get("/me", response_model=AuthUserOut)
 def me(request: Request, db: Session = Depends(get_db)):
     user = current_user(request)

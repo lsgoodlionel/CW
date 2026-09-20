@@ -245,18 +245,27 @@ def _seed_company(db, name: str = "我的小微企业") -> None:
 
 
 def _seed_super_admin(db) -> None:
-    """首次创建平台超级管理员(全局用户,不隶属任何租户)。幂等。"""
+    """首次创建平台超级管理员(全局用户,不隶属任何租户)。幂等。
+
+    当 ADMIN_PASSWORD 为空时,不预置任何管理员——系统进入「首次设置」状态,
+    由运维在首登页面自行设置超管账号(SaaS 一键部署默认走此流程)。
+    """
     from . import auth_svc
     from .config import settings
-    if db.scalar(select(models.User.id).limit(1)) is None:
-        admin = models.User(
-            username="admin", display_name="超级管理员",
-            password_hash=auth_svc.hash_password(settings.admin_password),
-            is_super_admin=True, is_active=True)
-        db.add(admin)
-        print(f"[init] 已创建超级管理员 admin(初始密码来自 ADMIN_PASSWORD,"
-              f"默认 admin123),请登录后立即修改。", flush=True)
-        db.commit()
+    if db.scalar(select(models.User.id).limit(1)) is not None:
+        return
+    if not (settings.admin_password or "").strip():
+        print("[init] 未预置管理员(ADMIN_PASSWORD 为空):请在首登页面设置超级管理员。",
+              flush=True)
+        return
+    admin = models.User(
+        username="admin", display_name="超级管理员",
+        password_hash=auth_svc.hash_password(settings.admin_password),
+        is_super_admin=True, is_active=True)
+    db.add(admin)
+    print("[init] 已创建超级管理员 admin(初始密码来自 ADMIN_PASSWORD),"
+          "请登录后立即修改。", flush=True)
+    db.commit()
 
 
 def _seed_roles(db) -> None:
