@@ -1,6 +1,13 @@
 # 小企业财务记账系统
 
-一套面向小微企业、基于《小企业会计准则》的完整财务记账 Web 系统。前后端分离,复式记账,自动生成官方格式财务报表与全套会计账簿,支持一键 Excel/PDF 导出、数据备份恢复、操作日志留痕,以及 Ubuntu 云服务器一行命令部署与升级。
+一套面向小微企业、基于《小企业会计准则》的完整财务记账 Web 系统。前后端分离,复式记账,自动生成官方格式财务报表与全套会计账簿,内置审批流程、费用申请/报销、合同与税务管理、RBAC 权限、数据备份恢复与操作日志留痕,支持一键 Excel/PDF 导出,以及 Ubuntu 云服务器一行命令部署与升级。
+
+**两种部署形态,同一套代码**(由 `DEPLOY_MODE` 切换):
+
+- **私有化(`private`,默认)**:单企业单机版,行为与传统单租户一致,隐藏租户/平台管理。
+- **多租户 SaaS(`saas`)**:登录选租户、按租户行级隔离、平台管理后台(开通/停用租户、成员、套餐与到期)、访客自助注册与试用、首登页面设置超级管理员。
+
+另内置**运行诊断**:采集运行日志,出错自动打包上传到共享 GitHub 仓库,便于远程排查。
 
 > 数据模型源自《小企业会计财务原始记录.xlsx》;报表/账簿格式对齐税务报送与手工账官方模板。
 > 设计蓝图见 [docs/BLUEPRINT.md](docs/BLUEPRINT.md),报表口径见 [docs/REPORTS.md](docs/REPORTS.md)。
@@ -14,10 +21,14 @@
 
 - [核心特性](#核心特性)
 - [功能详解](#功能详解)
+- [多租户 SaaS 与平台管理](#多租户-saas-与平台管理)
+- [运行诊断(日志采集与上传)](#运行诊断日志采集与上传)
+- [登录与部署模式](#登录与部署模式)
 - [技术栈与架构](#技术栈与架构)
 - [数据模型](#数据模型)
 - [页面与路由](#页面与路由)
 - [API 一览](#api-一览)
+- [环境变量](#环境变量)
 - [部署](#部署)
 - [升级](#升级)
 - [数据备份与持久化](#数据备份与持久化)
@@ -47,8 +58,12 @@
 | 税务管理 | 记录各税种申报结果(**国税/自然人**,印花税·增值税及附加·企业所得税·个人所得税等);**企业所得税月(季)度预缴申报表(A类 A200000)** 按账套自动计算并导出 Excel |
 | 用户与权限 | **全站强制登录** + RBAC(角色×权限矩阵、查看/新建/编辑/删除/审批)、**按部门+职位授权预设**(一键填充/批量应用)、超级管理员与子管理员、修改密码 |
 | 操作日志 | 全系统行为留痕(含**修改前后差异详情**),按类型+年月季查询、展开看详情、一键导出 PDF |
-| 数据备份 | 整站数据(含附件)一键导出 zip / 导入恢复 |
-| 部署运维 | Docker 一键部署、云端一行命令安装、一行命令自动升级(升级前自动备份) |
+| 数据备份 | 整站数据(含附件、租户与成员)一键导出 zip / 导入恢复;SaaS 下按当前租户作用域导出 |
+| 多租户 SaaS | `DEPLOY_MODE` 切换私有化/多租户;共享库 + `tenant_id` 行级隔离(SQLAlchemy 全局自动过滤,含 SELECT/UPDATE/DELETE);登录选租户、令牌携带并校验租户、科目/角色按租户唯一 |
+| 平台管理 | 平台超管跨租户开通/停用/改名租户、管理成员与租户管理员、按租户初始化科目/角色/流程;首登页面设置超管(无默认账号) |
+| 订阅 / 计费 | 租户套餐、状态(试用/正式/到期/停用)、到期日与用户数上限;到期/超额登录与写操作拦截;访客自助注册进入试用(真实支付网关留作对接点) |
+| 运行诊断 | 采集运行日志;未捕获异常/500 自动打包(traceback+近期日志+元信息)上传共享 GitHub 仓库,节流去重;超管可查看/手动上传 |
+| 部署运维 | Docker 一键部署、云端一行命令安装、一行命令自动升级(升级前自动备份);后端优先拉取 GHCR 预构建镜像(免服务器 pip 构建) |
 
 ---
 
@@ -100,8 +115,9 @@
 - 按 **类型 + 年/季/月** 查询,**一键导出 PDF**(内置中文字体,无需外挂字库)
 
 ### 7. 数据备份 / 恢复
-- 一键导出整站数据(企业信息、科目、凭证分录、附件文件)为单个 zip
+- 一键导出整站数据(企业信息、科目、凭证分录、附件文件,以及租户与成员关系)为单个 zip
 - 一键导入 zip 快照整体恢复;兼容被系统自动解压后再压缩的嵌套目录结构
+- SaaS 下在租户上下文中按当前租户作用域导出;恢复兼容旧版本备份(自动补齐默认租户/成员)
 
 ### 8. 客户管理与凭证关联
 - 客户:名称、简称、税号、开票地址/电话、开户行/账号、联系人;往来业务历史(关联凭证 + 借方合计)
@@ -116,13 +132,37 @@
 
 ---
 
-## 登录
+## 多租户 SaaS 与平台管理
 
-系统**全站强制登录**。首次启动自动创建超级管理员:
+由 `DEPLOY_MODE` 决定形态,**同一套代码**:
 
-- 用户名:`admin`,初始密码:`admin123`(或 `.env` 的 `ADMIN_PASSWORD`)——**请登录后立即在「修改密码」更改**。
+- **私有化(`private`,默认)**:只有默认租户(`id=1`),租户过滤对结果无影响,行为与单机版一致;不显示租户/平台管理入口。
+- **多租户(`saas`)**:
+  - **行级隔离**:业务模型统一挂载 `tenant_id`,SQLAlchemy 全局事件对 **SELECT/UPDATE/DELETE** 自动注入租户过滤;`db.get()` 主键取对象经 `tenant_get` 二次校验归属,防跨租户越权。科目编码、角色名按 `(tenant_id, …)` 复合唯一。
+  - **登录选租户**:令牌携带并校验选定租户;用户属多个租户时登录返回可选列表供选择;非本租户成员/到期租户被拒。
+  - **平台管理**(仅平台超管,`/platform`):开通/停用/改名租户、管理成员与租户管理员、编辑套餐/状态/到期/用户上限、对租户「重新初始化」补齐基础数据。新建租户自动按租户预置科目/二级科目/系统角色/审批流程/企业信息。
+  - **订阅/计费**:租户 `status`(试用/正式/到期/停用)、`expires_at`、`max_users`;到期或超额时登录与写操作被拦截并提示;支付网关未集成,续费由平台超管在后台管理。
+  - **自助注册**(`ALLOW_SELF_REGISTRATION=true`):访客可自助开通租户进入试用(`TRIAL_DAYS` 天)。
+  - **首登设置**:无预置管理员时,首次访问页面引导创建平台超级管理员(设置后入口失效,防接管)。
+
+## 运行诊断(日志采集与上传)
+
+- 内存环形缓冲采集运行日志(含 uvicorn),供出错时附带上下文。
+- **未捕获异常 / 500** 自动打包 `traceback + 近期日志 + 元信息` 为 zip,经 GitHub Contents API 上传到共享仓库 `<PAPER_REPO>/<LOG_APP_SLUG>/logs/<UTC时间戳>_<签名>.zip`;按错误签名**节流去重**(冷却期内同类只传一次),后台线程执行,绝不阻塞或抛出。
+- 凭据仅来自环境变量 `PAPER_REPO_TOKEN`(GitHub PAT),缺失则功能自动禁用(私有化默认不外传)。
+- 超管在 `/diagnostics` 页查看状态/最近日志、手动打包上传。开发排查:`git clone` 该仓库看 `<slug>/logs/` 下的 zip。
+- **注意**:日志可能含敏感信息,该仓库应设为 private。
+
+---
+
+## 登录与部署模式
+
+系统**全站强制登录**。初始管理员因部署模式而异:
+
+- **私有化**:首次启动按 `.env` 的 `ADMIN_PASSWORD` 自动创建超管 `admin`(**请登录后立即改密**);`ADMIN_PASSWORD` 留空则同样进入首登设置。
+- **SaaS**:默认**不预置任何账号**,首次访问页面创建平台超级管理员;之后超管在「用户与权限」建用户/角色,在「平台管理」开通租户与成员。
 - 生产环境务必在 `.env` 设置随机 `AUTH_SECRET`。
-- 超管在「用户与权限」页创建用户/角色,按模块×动作(查看/新建/编辑/删除/审批)授权,并可设子管理员。
+- RBAC:按模块×动作(查看/新建/编辑/删除/审批,及合同/税务/凭证的**直录 direct** 免审批)授权;合同/税务/大额凭证接入审批引擎,授权岗位可直录、未授权需审批。
 
 ## 技术栈与架构
 
@@ -159,6 +199,16 @@
 | `voucher_links` | 凭证关联(预收/挂账/核销/应收/冲销) |
 | `attachments` | 附件(类型、原名、存储路径、MIME、大小) |
 | `operation_logs` | 操作日志(类型、行为、摘要、状态码、耗时、IP、时间) |
+| `tenants` | 租户(名称/编码/启用/套餐/状态/到期/用户上限);私有化仅默认租户 id=1 |
+| `tenant_memberships` | 用户↔租户成员关系(是否租户管理员),唯一约束 `(user_id, tenant_id)` |
+| `users` / `roles` / `role_permissions` / `user_roles` | 全局用户 + 按租户隔离的角色与权限点(RBAC) |
+| `auth_presets` | 按部门+职位的授权预设 |
+| `workflow_definitions` / `_steps` / `_instances` / `_tasks` | 审批流程定义/步骤与运行实例/任务 |
+| `expense_applications`(+items) / `expense_claims`(+items) | 费用申请(事前)/ 费用报销(事后) |
+| `contracts` / `contract_voucher_links` | 合同与其关联凭证 |
+| `tax_filings` + 税务附表(`tax_adjustments` 等) | 税务申报记录与企业所得税附表数据 |
+
+> **多租户隔离**:除 `tenants`/`tenant_memberships`/`users` 为全局表外,业务表均继承 `TenantMixin`(带 `tenant_id`),由全局事件自动过滤与回填;`CompanyInfo` 亦按租户各自一行。
 
 **核心不变量**:每张凭证 `Σ借方 = Σ贷方`;报表/账簿均由凭证分录实时聚合,不做月末结转。
 
@@ -177,7 +227,15 @@
 | `/ledgers` | 会计账簿 | 六类账簿查看与导出 |
 | `/reports` | 财务报表 | 官方三表 + 科目汇总,导出 Excel |
 | `/logs` | 操作日志 | 筛选查询,导出 PDF |
+| `/contracts` | 合同管理 | 合同录入、附件、关联凭证、提交审批 |
+| `/tax` | 税务管理 | 税种申报记录、附件、企业所得税报表 |
+| `/expense-apply` · `/expense` | 费用申请 / 报销 | 事前申请与事后报销,走审批流程 |
+| `/workflow` · `/approvals` | 流程设计 / 审批中心 | 设计审批流程、我的待办与审批轨迹 |
+| `/users` | 用户与权限 | 用户/角色/权限矩阵、授权预设 |
+| `/platform` | 平台管理(超管) | 租户与成员、套餐/到期(仅 SaaS 超管可见) |
+| `/diagnostics` | 运行诊断(超管) | 诊断状态、最近日志、手动打包上传 |
 | `/settings` | 企业信息 | 企业资料 + 数据备份/恢复 |
+| `/login` · `/register` | 登录 / 注册 | 登录(选租户)、访客自助注册(SaaS)、首登设置超管 |
 
 ---
 
@@ -246,9 +304,60 @@ GET    /api/logs/export-pdf?action_type=&year=&month=&quarter=
 # 数据备份
 GET    /api/data/export
 POST   /api/data/import
+
+# 鉴权与首登/注册
+POST   /api/auth/login                     # 登录(可带 tenant_id 选租户)
+GET    /api/auth/me      POST /api/auth/change-password
+GET    /api/auth/setup-state   POST /api/auth/setup        # 首登设置超管(零用户时)
+GET    /api/auth/register-open POST /api/auth/register      # 自助注册(saas 且开放时)
+
+# 用户与权限(RBAC)
+GET/POST/PUT/DELETE /api/users              POST /api/users/{id}/reset-password
+GET/POST/PUT/DELETE /api/roles              GET /api/auth/permission-catalog
+GET/POST/PUT/DELETE /api/auth-presets
+
+# 合同 / 税务 / 费用 / 审批
+GET/POST/PUT/DELETE /api/contracts          POST /api/contracts/{id}/submit
+GET/POST/PUT/DELETE /api/tax/filings        POST /api/tax/filings/{id}/submit
+GET/POST/PUT/DELETE /api/expense-apply | /api/expense
+GET    /api/workflow/definitions | /instances | /my-tasks   POST .../approve | .../reject
+
+# 平台管理(仅平台超管)
+GET/POST/PUT /api/platform/tenants          POST /api/platform/tenants/{id}/reprovision
+GET/POST     /api/platform/tenants/{id}/members
+PUT/DELETE   /api/platform/members/{id}
+
+# 运行诊断(仅超管)
+GET    /api/diag/status | /recent           POST /api/diag/report
 ```
 
 后端启动后可访问 `http://<host>:8000/docs` 查看交互式 OpenAPI 文档。
+
+---
+
+## 环境变量
+
+在 `.env`(参见 `.env.example`)配置;Docker 通过 `docker-compose.yml` 透传。
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `HTTP_PORT` | `8080` | 对外访问端口 |
+| `POSTGRES_USER/PASSWORD/DB` | finance | 数据库凭据(生产务必改密码;安装脚本会随机化) |
+| `CORS_ORIGINS` | `*` | 允许跨域来源(同源部署可保持 `*`) |
+| `REQUIRE_AUTH` | `true` | 全站强制登录 |
+| `AUTH_SECRET` | 占位 | 令牌签名密钥,**生产务必改成随机串** |
+| `ADMIN_PASSWORD` | `admin123` | 私有化初始超管密码;**留空则进入首登设置**(SaaS 一键默认留空) |
+| `DEPLOY_MODE` | `private` | `private` 私有化 / `saas` 多租户 |
+| `ALLOW_SELF_REGISTRATION` | `false` | 仅 saas:开放访客自助注册 |
+| `TRIAL_DAYS` | `30` | 自助注册租户试用天数 |
+| `ERROR_REPORT_ENABLED` | `true` | 诊断总开关(仍需 token 才真正上传) |
+| `PAPER_REPO` | `lsgoodlionel/paper` | 诊断日志仓库(多应用共用,建议 private) |
+| `PAPER_REPO_TOKEN` | 空 | GitHub PAT(该仓库 contents 写权限);**空则不上传** |
+| `PAPER_REPO_BRANCH` / `LOG_APP_SLUG` | `main` / `CW` | 诊断上传分支 / 仓库内应用目录 |
+| `ERROR_REPORT_COOLDOWN` | `600` | 同类错误上传冷却秒数 |
+| `BACKEND_IMAGE` / `FRONTEND_IMAGE` | GHCR latest | 部署使用的镜像(默认拉 GHCR 预构建) |
+| `FORCE_BUILD` | `0` | 设 `1` 强制本地构建(自定义代码/离线) |
+| `PIP_INDEX_URL` | 空 | 本地构建后端时的 PyPI 镜像源(慢速网络) |
 
 ---
 
@@ -451,7 +560,8 @@ docker compose down -v           # 停止并清空数据(慎用!)
 
 - **复式平衡**:每张凭证 `Σ借方 = Σ贷方`,前后端强校验
 - **实时聚合**:报表/账簿基于凭证分录实时计算,无需月末结转
-- **单租户、无登录鉴权**:定位简洁自用,可后续扩展多用户与权限
+- **鉴权**:全站强制登录 + RBAC;私有化单租户 / 多租户 SaaS 由 `DEPLOY_MODE` 切换
+- **多租户隔离**:私有化(单租户)下过滤对结果无影响;SaaS 已覆盖 SELECT/UPDATE/DELETE 与 `db.get` 二次校验。支付网关未集成(续费由平台超管管理);`CompanyInfo` 已按租户各自一行
 - **现金流量表**:采用对方科目归类法近似分类,期初/期末/净增加额与账面现金一致(详见 [docs/REPORTS.md](docs/REPORTS.md))
 - **数量金额式明细账**:当前分录无「数量/单价」字段,该账簿仅列示金额、数量列留空
 - **操作日志范围**:记录数据变更与导入导出/下载等有效行为,不记录纯浏览类 GET
@@ -464,35 +574,41 @@ docker compose down -v           # 停止并清空数据(慎用!)
 CW/
 ├── backend/                     FastAPI 后端
 │   ├── app/
-│   │   ├── main.py                  应用入口 + 中间件 + 路由注册
+│   │   ├── main.py                  应用入口 + 中间件 + 异常处理 + 路由注册
 │   │   ├── config.py / database.py  配置与数据库会话
-│   │   ├── models.py                ORM 模型
-│   │   ├── schemas.py               Pydantic 校验(含借贷平衡)
+│   │   ├── models.py                ORM 模型(业务表挂 TenantMixin)
+│   │   ├── tenant.py                多租户隔离(上下文 + 全局过滤/回填 + tenant_get)
+│   │   ├── tenant_provision.py      新建租户按租户初始化科目/角色/流程
+│   │   ├── subscription.py          订阅到期/配额判定
+│   │   ├── auth_svc.py / auth_mw.py 令牌/权限目录 与 鉴权中间件(设租户上下文)
+│   │   ├── diag.py                  运行日志采集 + 出错打包上传 GHCR/GitHub
 │   │   ├── seed_accounts.py         81 个科目种子
-│   │   ├── reports_cn.py            官方报表计算(会小企01/02/03)
-│   │   ├── report_excel.py          报表 Excel 导出
-│   │   ├── ledgers.py               六类会计账簿生成
-│   │   ├── ledger_excel.py          账簿 Excel 导出
-│   │   ├── oplog.py                 操作日志中间件与查询
-│   │   ├── oplog_pdf.py             日志 PDF 导出
-│   │   └── routers/                 company/accounts/vouchers/attachments/
-│   │                                reports/ledgers/logs/data_io
+│   │   ├── reports_cn.py / report_excel.py    官方报表计算与 Excel 导出
+│   │   ├── ledgers.py / ledger_excel.py       六类账簿生成与导出
+│   │   ├── tax_report.py            企业所得税季报/年报及附表
+│   │   ├── oplog.py / oplog_pdf.py  操作日志中间件/查询与 PDF 导出
+│   │   ├── init_db.py               建表 + 迁移 + 种子(含唯一约束/tenant_id 迁移)
+│   │   └── routers/                 company/accounts/vouchers/attachments/reports/
+│   │                                ledgers/logs/data_io/customers/personnel/workflow/
+│   │                                expense/expense_apply/auth/users/presets/about/
+│   │                                contracts/tax/platform/diag
 │   ├── requirements.txt
-│   └── Dockerfile
+│   └── Dockerfile                   pip 超时/重试 + 可选 PIP_INDEX_URL 镜像
 ├── frontend/                    React 前端
-│   ├── src/pages/                  Dashboard/VoucherList/VoucherEdit/Accounts/
-│   │                               Ledgers/Reports/Logs/Settings
-│   ├── src/components/             AttachmentPreview 等
+│   ├── src/pages/                  Dashboard/VoucherList/VoucherEdit/Accounts/Ledgers/
+│   │                               Reports/Logs/Settings/Contracts/Tax/Personnel/
+│   │                               Users/ApprovalCenter/PlatformAdmin/Diagnostics/
+│   │                               Login/Register
 │   ├── src/shared/                 共享契约(自动生成,勿手改)
 │   ├── nginx.conf                  静态托管 + /api 反代
 │   └── Dockerfile
 ├── shared/contract/             Web 与小程序的共享契约(models.generated.ts 由后端 OpenAPI 生成)
-├── scripts/sync-shared.mjs      契约同步 / 校验
 ├── docs/                        蓝图、报表说明、多端同步、官方模板
-├── docker-compose.yml
-├── install.sh                   云端一键安装
-├── deploy.sh                    构建启动
-├── upgrade.sh                   一键升级(自动定位+备份)
+├── .github/workflows/           docker-images.yml(构建推送 GHCR)· native-build.yml(原生包)
+├── docker-compose.yml           三容器 + 镜像/构建参数透传
+├── install.sh                   云端一键安装(透传 DEPLOY_MODE 等)
+├── deploy.sh                    优先拉 GHCR 预构建镜像,失败回退本地构建
+├── upgrade.sh / uninstall.sh    一键升级(自动定位+备份)/ 卸载
 └── .env.example
 ```
 
