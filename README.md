@@ -510,6 +510,12 @@ APP_DIR=/opt/cw bash -c "$(curl -fsSL https://raw.githubusercontent.com/lsgoodli
 也可在仓库目录内运行 `./install.sh`(或兼容的 `./upgrade.sh`)。数据库表结构变更在启动时自动迁移。
 `HTTP_PORT` 支持写成 `host:port`(如 `127.0.0.1:18080`),健康检查会自动取其中的端口。
 
+> **多租户(SaaS)升级注意**:
+> - 升级用**不带参数**的 `curl … | bash` 即可——它只升级,不改 `.env`(`DEPLOY_MODE=saas` 等配置原样保留)。**升级时不要再带 `DEPLOY_MODE`/`ADMIN_PASSWORD` 等参数**,以免覆盖已有配置。
+> - 升级前会自动生成**全量备份**(含所有租户与成员)到 `backups/`。
+> - `git reset --hard` 会覆盖服务器上对**代码**的本地改动(`.env`、`backups/` 不受影响)。
+> - 部署在非常见目录(非 `$HOME/CW`、`/opt/cw` 等)时,升级请带 `APP_DIR=/你的目录` 以确保正确定位、避免误装成新实例。
+
 ### 一键卸载(停用服务 + 删除数据)
 
 在服务器上一行命令卸载(**危险操作,不可恢复**;管道运行需显式确认 `ASSUME_YES=1`):
