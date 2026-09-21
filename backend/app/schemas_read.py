@@ -82,6 +82,8 @@ class AuthUserOut(BaseModel):
     tenant_name: str | None = None
     #: 该会话是否为所属租户的管理员
     is_tenant_admin: bool = False
+    #: 是否多租户 SaaS 部署(前端据此显隐平台管理界面;私有化为 false)
+    is_saas: bool = False
 
 
 class TenantBriefOut(BaseModel):
@@ -141,6 +143,7 @@ class UserOut(BaseModel):
     display_name: str
     employee_id: int | None
     is_super_admin: bool
+    is_tenant_admin: bool = False        # 当前租户内是否为租户管理员(用户与权限页据此呈现)
     is_active: bool
     role_ids: list[int]
     role_names: list[str]

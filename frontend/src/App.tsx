@@ -35,13 +35,15 @@ import { http, getToken, clearToken, AuthUser, hasPerm } from './api'
 const { Sider, Header, Content } = Layout
 
 // 每个菜单项对应权限模块(用于按 <module>:view 过滤显示)
-// superOnly 为 true 的项仅超级管理员可见(如平台管理)
+// superOnly 为 true 的项仅超级管理员可见(如运行诊断)
+// saasOnly 为 true 的项仅在多租户 SaaS 部署显示(私有化隐藏,如平台管理)
 interface MenuItemDef {
   key: string
   icon: JSX.Element
   label: string
   module: string
   superOnly?: boolean
+  saasOnly?: boolean
 }
 
 const MENU: MenuItemDef[] = [
@@ -61,7 +63,7 @@ const MENU: MenuItemDef[] = [
   { key: '/logs', icon: <HistoryOutlined />, label: '操作日志', module: 'logs' },
   { key: '/users', icon: <SafetyCertificateOutlined />, label: '用户与权限', module: 'user' },
   { key: '/settings', icon: <SettingOutlined />, label: '企业信息', module: 'company' },
-  { key: '/platform', icon: <ClusterOutlined />, label: '平台管理', module: '', superOnly: true },
+  { key: '/platform', icon: <ClusterOutlined />, label: '平台管理', module: '', superOnly: true, saasOnly: true },
   { key: '/diagnostics', icon: <BugOutlined />, label: '运行诊断', module: '', superOnly: true },
   { key: '/about', icon: <InfoCircleOutlined />, label: '关于系统', module: '' },
 ]
@@ -110,8 +112,14 @@ export default function App() {
     )
   }
 
-  const visibleMenu = MENU.filter((m) =>
-    m.superOnly ? user.is_super_admin : (!m.module || hasPerm(user, m.module, 'view')))
+  const visibleMenu = MENU.filter((m) => {
+    // 仅 SaaS 项:私有化部署隐藏(如平台管理)
+    if (m.saasOnly && !user.is_saas) return false
+    // 仅超管项:非超管隐藏(如平台管理、运行诊断)
+    if (m.superOnly) return user.is_super_admin
+    // 普通项:无模块要求或具备 <module>:view 权限
+    return !m.module || hasPerm(user, m.module, 'view')
+  })
   const selectedKey =
     visibleMenu.map((m) => m.key)
       .filter((k) => k !== '/' && location.pathname.startsWith(k))

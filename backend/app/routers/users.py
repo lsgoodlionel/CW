@@ -1,5 +1,5 @@
 """用户与角色权限管理 API(用户模块 + RBAC + 超管授权)。"""
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
@@ -9,7 +9,6 @@ from .. import models, auth_svc
 from ..tenant import tenant_get, get_current_tenant
 from ..config import is_saas
 from ..schemas_read import CreatedOut, RoleOut, SuccessOut, UserOut
-from ..auth_mw import current_user
 
 router = APIRouter(tags=["users"])
 
@@ -20,7 +19,6 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=6)
     display_name: str = ""
     employee_id: int | None = None
-    is_super_admin: bool = False
     role_ids: list[int] = []
 
 
@@ -28,7 +26,6 @@ class UserUpdate(BaseModel):
     display_name: str | None = None
     employee_id: int | None = None
     is_active: bool | None = None
-    is_super_admin: bool | None = None
     role_ids: list[int] | None = None
 
 
@@ -36,16 +33,11 @@ class ResetPwIn(BaseModel):
     new_password: str = Field(min_length=6)
 
 
-def _require_super(request: Request):
-    u = current_user(request)
-    if u is None or not u.is_super_admin:
-        raise HTTPException(status_code=403, detail="仅超级管理员可执行此操作")
-
-
-def _user_out(u: models.User) -> dict:
+def _user_out(u: models.User, is_tenant_admin: bool = False) -> dict:
     return {
         "id": u.id, "username": u.username, "display_name": u.display_name,
         "employee_id": u.employee_id, "is_super_admin": u.is_super_admin,
+        "is_tenant_admin": is_tenant_admin,
         "is_active": u.is_active, "role_ids": [r.id for r in u.roles],
         "role_names": [r.name for r in u.roles],
         "created_at": u.created_at.isoformat() if u.created_at else None,
@@ -83,19 +75,24 @@ def list_users(db: Session = Depends(get_db)):
         stmt = (stmt.join(models.TenantMembership,
                           models.TenantMembership.user_id == models.User.id)
                 .where(models.TenantMembership.tenant_id == tid))
-    return [_user_out(u) for u in db.scalars(stmt).all()]
+    # 当前租户内的租户管理员集合(用户与权限页最高呈现「租户管理员」)
+    admin_ids: set[int] = set()
+    if tid is not None:
+        admin_ids = set(db.scalars(select(models.TenantMembership.user_id).where(
+            models.TenantMembership.tenant_id == tid,
+            models.TenantMembership.is_tenant_admin.is_(True))).all())
+    return [_user_out(u, u.id in admin_ids) for u in db.scalars(stmt).all()]
 
 
 @router.post("/api/users", status_code=201, response_model=UserOut)
-def create_user(payload: UserCreate, request: Request, db: Session = Depends(get_db)):
+def create_user(payload: UserCreate, db: Session = Depends(get_db)):
     if db.scalar(select(models.User).where(models.User.username == payload.username)):
         raise HTTPException(status_code=409, detail="用户名已存在")
-    if payload.is_super_admin:
-        _require_super(request)
+    # 用户与权限页只创建本租户普通用户;平台超管由「平台管理」维护,此处一律非超管
     user = models.User(
         username=payload.username, display_name=payload.display_name,
         password_hash=auth_svc.hash_password(payload.password),
-        employee_id=payload.employee_id, is_super_admin=payload.is_super_admin,
+        employee_id=payload.employee_id, is_super_admin=False,
         is_active=True)
     # SaaS:受租户用户数配额限制
     tid = get_current_tenant()
@@ -117,20 +114,12 @@ def create_user(payload: UserCreate, request: Request, db: Session = Depends(get
 
 
 @router.put("/api/users/{user_id}", response_model=UserOut)
-def update_user(user_id: int, payload: UserUpdate, request: Request, db: Session = Depends(get_db)):
+def update_user(user_id: int, payload: UserUpdate, db: Session = Depends(get_db)):
     user = _tenant_user_get(db, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="用户不存在")
     data = payload.model_dump(exclude_unset=True)
-    if "is_super_admin" in data and data["is_super_admin"] is not None:
-        _require_super(request)
-        # 不允许取消最后一个超管
-        if not data["is_super_admin"] and user.is_super_admin:
-            cnt = db.scalar(select(models.User).where(models.User.is_super_admin.is_(True)))
-            supers = db.scalars(select(models.User.id).where(models.User.is_super_admin.is_(True))).all()
-            if len(supers) <= 1:
-                raise HTTPException(status_code=400, detail="至少保留一个超级管理员")
-        user.is_super_admin = data["is_super_admin"]
+    # 超管身份不在此页管理(仅「平台管理」可设),此处仅改本租户用户资料/角色
     for f in ("display_name", "employee_id", "is_active"):
         if f in data and data[f] is not None:
             setattr(user, f, data[f])
@@ -152,7 +141,7 @@ def reset_password(user_id: int, payload: ResetPwIn, db: Session = Depends(get_d
 
 
 @router.delete("/api/users/{user_id}", status_code=204)
-def delete_user(user_id: int, request: Request, db: Session = Depends(get_db)):
+def delete_user(user_id: int, db: Session = Depends(get_db)):
     user = _tenant_user_get(db, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="用户不存在")

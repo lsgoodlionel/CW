@@ -10,7 +10,26 @@ import { message } from 'antd'
  */
 export * from './shared'
 
-import type { AuthUser } from './shared'
+import type { AuthUser as AuthUserBase, UserRow as UserRowBase } from './shared'
+
+/**
+ * 登录用户类型。在生成契约(AuthUserOut)之外补充部署形态字段:
+ * is_saas 为 true 表示多租户 SaaS 部署,false 表示私有化部署。
+ * 生成文件不改(models.generated.ts),这里用本地类型叠加。
+ */
+export type AuthUser = AuthUserBase & {
+  is_saas: boolean
+  is_tenant_admin: boolean
+}
+
+/**
+ * 用户列表项类型。在生成契约(UserOut)之外补充 is_tenant_admin:
+ * 表示该用户在「当前租户」是否为租户管理员(只读展示用)。
+ * is_super_admin 仅保留只读展示,新建/编辑用户不再提交该字段。
+ */
+export type UserRow = UserRowBase & {
+  is_tenant_admin: boolean
+}
 
 export const http = axios.create({ baseURL: '/api', timeout: 30000 })
 
@@ -69,6 +88,3 @@ export function fileUrl(attachmentId: number, mode: 'preview' | 'download'): str
 export const STEP_STATE_COLOR: Record<string, string> = {
   approved: 'green', rejected: 'red', current: 'blue', upcoming: 'gray', skipped: 'gray',
 }
-
-/** 便于按需窄化的登录用户类型转出 */
-export type { AuthUser }

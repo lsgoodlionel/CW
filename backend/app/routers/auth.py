@@ -55,6 +55,7 @@ def _user_info(db: Session, user: models.User, tenant_id: int | None,
         "tenant_id": tenant_id,
         "tenant_name": tenant.name if tenant else None,
         "is_tenant_admin": is_tenant_admin,
+        "is_saas": is_saas(),
     }
 
 

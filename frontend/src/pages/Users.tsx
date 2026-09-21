@@ -42,7 +42,7 @@ function UserTab() {
     http.get<Role[]>('/roles').then((r) => setRoles(r.data))  // 同步最新角色
     setEditing(u); form.resetFields()
     if (u) form.setFieldsValue(u)
-    else form.setFieldsValue({ is_super_admin: false, role_ids: [] })
+    else form.setFieldsValue({ role_ids: [] })
     setOpen(true)
   }
   const save = async () => {
@@ -62,7 +62,7 @@ function UserTab() {
   const columns = [
     { title: '用户名', dataIndex: 'username', width: 130 },
     { title: '姓名', dataIndex: 'display_name', width: 120, render: (v: string) => v || '-' },
-    { title: '角色', dataIndex: 'role_names', render: (v: string[], r: UserRow) => r.is_super_admin ? <Tag color="red">超级管理员</Tag> : v.map((n) => <Tag key={n}>{n}</Tag>) },
+    { title: '角色', dataIndex: 'role_names', render: (v: string[], r: UserRow) => (r.is_tenant_admin || r.is_super_admin) ? <Tag color="gold">租户管理员</Tag> : v.map((n) => <Tag key={n}>{n}</Tag>) },
     { title: '状态', dataIndex: 'is_active', width: 80, render: (a: boolean) => a ? <Tag color="green">启用</Tag> : <Tag>停用</Tag> },
     {
       title: '操作', width: 180, render: (_: unknown, r: UserRow) => (
@@ -110,9 +110,6 @@ function UserTab() {
             <Select mode="multiple" options={roles.map((r) => ({ value: r.id, label: r.name }))} />
           </Form.Item>
           {editing && <Form.Item name="is_active" label="启用" valuePropName="checked"><Switch /></Form.Item>}
-          <Form.Item name="is_super_admin" label="超级管理员(拥有全部权限)" valuePropName="checked">
-            <Switch />
-          </Form.Item>
         </Form>
       </Modal>
 
