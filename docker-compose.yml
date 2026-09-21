@@ -28,7 +28,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
       REQUIRE_AUTH: ${REQUIRE_AUTH:-true}
       AUTH_SECRET: ${AUTH_SECRET:-change-me-please-set-AUTH_SECRET}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      # 用 ${VAR-default}(无冒号):仅「未设置」时兜底 admin123;显式空值(SaaS 首登设置)保留为空
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD-admin123}
       DEPLOY_MODE: ${DEPLOY_MODE:-private}
       ALLOW_SELF_REGISTRATION: ${ALLOW_SELF_REGISTRATION:-false}
       TRIAL_DAYS: ${TRIAL_DAYS:-30}
