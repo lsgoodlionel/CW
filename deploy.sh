@@ -55,12 +55,13 @@ fi
 git rev-parse HEAD > .deployed_sha 2>/dev/null || true
 
 # 4. 健康检查
-HTTP_PORT=$(grep -E '^HTTP_PORT=' .env | cut -d= -f2 || echo 8080)
-HTTP_PORT=${HTTP_PORT:-8080}
+RAW_PORT=$(grep -E '^HTTP_PORT=' .env | cut -d= -f2 || echo 8080)
+RAW_PORT=${RAW_PORT:-8080}
+PORT="${RAW_PORT##*:}"          # 兼容 HTTP_PORT 写成 host:port / ip:port(如 127.0.0.1:18080)
 info "等待服务就绪..."
 for i in $(seq 1 30); do
-  if curl -fsS "http://localhost:${HTTP_PORT}/api/health" >/dev/null 2>&1; then
-    info "✅ 部署成功!访问:http://<服务器IP>:${HTTP_PORT}"
+  if curl -fsS "http://localhost:${PORT}/api/health" >/dev/null 2>&1; then
+    info "✅ 部署成功!访问:http://<服务器IP>:${PORT}"
     exit 0
   fi
   sleep 2

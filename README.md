@@ -480,27 +480,29 @@ docker compose up -d --build
 
 ## 升级
 
-在已部署的服务器上,**任意目录**执行一行命令即可升级(自动定位部署目录):
+**安装与升级是同一条命令**——脚本自动识别:已部署则升级(自动定位目录、升级前备份、保留数据卷),未部署则首次安装。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/upgrade.sh | bash
+curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | bash
 ```
 
-升级流程:**自动备份当前数据** → 拉取最新代码(已最新则退出)→ 重建重启(**保留数据卷,数据不丢**)→ 健康检查。
+升级流程:**自动定位部署目录 → 升级前自动备份 → 拉取最新代码(git,失败回退 HTTPS 归档)→ 重建重启(保留数据卷,数据不丢)→ 健康检查**。后端优先拉取 GHCR 预构建镜像,不在服务器跑 pip。
 
-> **升级停在「已自动备份…」不动了?** 多为服务器连不上 github.com、`git fetch` 卡住。已加**超时兜底**:git 拉取超时会自动改用 HTTPS 归档下载,再不行就用当前代码重建,不会无限卡死。若你的服务器 raw 也报 502,用镜像执行升级:
+> 兼容:旧的 `upgrade.sh` 仍可用,它会转调最新的 `install.sh`。
 >
+> **务必用管道或先下载执行,不要让脚本读丢自身**:`curl ... | bash` 已修复(备份步骤切断 stdin)。若服务器 raw 报 502/取到错误页,用镜像先下载再执行:
 > ```bash
-> curl -fsSL https://cdn.jsdelivr.net/gh/lsgoodlionel/CW@main/upgrade.sh -o /tmp/cw-up.sh && bash /tmp/cw-up.sh
+> curl -fsSL https://cdn.jsdelivr.net/gh/lsgoodlionel/CW@main/install.sh -o /tmp/cw.sh && bash /tmp/cw.sh
 > ```
 
-自动定位失败时显式指定目录:
+自动定位失败时显式指定目录;`FORCE=1` 可在代码已最新时强制重建:
 
 ```bash
-APP_DIR=/opt/cw bash -c "$(curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/upgrade.sh)"
+APP_DIR=/opt/cw bash -c "$(curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh)"
 ```
 
-也可在仓库目录内运行 `./upgrade.sh`。数据库表结构变更在启动时自动建表。
+也可在仓库目录内运行 `./install.sh`(或兼容的 `./upgrade.sh`)。数据库表结构变更在启动时自动迁移。
+`HTTP_PORT` 支持写成 `host:port`(如 `127.0.0.1:18080`),健康检查会自动取其中的端口。
 
 ### 一键卸载(停用服务 + 删除数据)
 
@@ -528,7 +530,7 @@ ASSUME_YES=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/lsgoodlione
 
 ```bash
 # 1) 强制重建容器(即使代码已是最新)
-curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/upgrade.sh | FORCE=1 bash
+curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | FORCE=1 bash
 # 2) 浏览器强制刷新:Ctrl+Shift+R(Mac 为 Cmd+Shift+R),或用无痕窗口
 ```
 
