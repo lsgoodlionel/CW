@@ -183,4 +183,8 @@ def user_perms(user) -> set[str]:
 def user_has(user, module: str, action: str) -> bool:
     if getattr(user, "is_super_admin", False):
         return True
+    # 账套(租户)管理员:在其登录的本租户内对所有模块全权(边界由令牌 tid + 成员校验保证)。
+    # 该属性仅由 auth_mw 在 SaaS 请求中按当前租户设置,私有化不设置故不受影响。
+    if getattr(user, "_is_tenant_admin", False):
+        return True
     return f"{module}:{action}" in user_perms(user)

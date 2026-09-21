@@ -7,12 +7,12 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import models, auth_svc
-from ..schemas_read import TenantOut, TenantMemberOut, SuccessOut
+from ..schemas_read import TenantOut, TenantMemberOut, PlatformUserOut, SuccessOut
 from ..tenant import set_current_tenant
 from ..tenant_provision import provision_tenant
 from .. import subscription
@@ -59,6 +59,10 @@ class MemberUpdateIn(BaseModel):
     is_tenant_admin: bool
 
 
+class SuperAdminIn(BaseModel):
+    is_super_admin: bool
+
+
 def _member_count(db: Session, tenant_id: int) -> int:
     return db.scalar(select(func.count()).select_from(models.TenantMembership)
                      .where(models.TenantMembership.tenant_id == tenant_id)) or 0
@@ -78,6 +82,20 @@ def _member_out(m: models.TenantMembership, u: models.User) -> dict:
     return {
         "id": m.id, "user_id": u.id, "username": u.username,
         "display_name": u.display_name, "is_tenant_admin": m.is_tenant_admin,
+    }
+
+
+def _platform_user_out(db: Session, u: models.User) -> dict:
+    names = db.scalars(
+        select(models.Tenant.name)
+        .join(models.TenantMembership, models.TenantMembership.tenant_id == models.Tenant.id)
+        .where(models.TenantMembership.user_id == u.id)
+        .order_by(models.Tenant.id)
+    ).all()
+    return {
+        "id": u.id, "username": u.username, "display_name": u.display_name,
+        "is_super_admin": u.is_super_admin, "is_active": u.is_active,
+        "tenants": list(names),
     }
 
 
@@ -239,3 +257,37 @@ def remove_member(membership_id: int, db: Session = Depends(get_db),
         raise HTTPException(status_code=404, detail="成员关系不存在")
     db.delete(m)
     db.commit()
+
+
+# ---------- 平台超级管理员(跨租户全局用户)----------
+@router.get("/users", response_model=list[PlatformUserOut])
+def list_all_users(keyword: str = "", db: Session = Depends(get_db),
+                   _: models.User = Depends(require_super_admin)):
+    """跨租户列出全局用户(含平台超管标记与所属租户)。"""
+    set_current_tenant(None)
+    stmt = select(models.User).order_by(models.User.id)
+    kw = keyword.strip()
+    if kw:
+        like = f"%{kw}%"
+        stmt = stmt.where(or_(models.User.username.ilike(like),
+                              models.User.display_name.ilike(like)))
+    return [_platform_user_out(db, u) for u in db.scalars(stmt).all()]
+
+
+@router.put("/users/{user_id}/super-admin", response_model=PlatformUserOut)
+def set_super_admin(user_id: int, payload: SuperAdminIn, db: Session = Depends(get_db),
+                    _: models.User = Depends(require_super_admin)):
+    """设置/取消某用户的平台超级管理员身份。取消时须保留至少一个超管。"""
+    set_current_tenant(None)
+    user = db.get(models.User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if not payload.is_super_admin and user.is_super_admin:
+        remaining = db.scalar(select(func.count()).select_from(models.User)
+                              .where(models.User.is_super_admin.is_(True)))
+        if (remaining or 0) <= 1:
+            raise HTTPException(status_code=400, detail="至少保留一个平台超级管理员")
+    user.is_super_admin = payload.is_super_admin
+    db.commit()
+    db.refresh(user)
+    return _platform_user_out(db, user)

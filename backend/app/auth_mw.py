@@ -37,12 +37,13 @@ def _load_user(uid: int):
         db.close()
 
 
-def _has_membership(uid: int, tid: int) -> bool:
+def _membership_role(uid: int, tid: int) -> bool | None:
+    """返回该用户在租户的成员身份:None=非成员;True/False=成员且是否租户管理员。"""
     db = SessionLocal()
     try:
-        return db.scalar(select(models.TenantMembership.id).where(
+        return db.scalar(select(models.TenantMembership.is_tenant_admin).where(
             models.TenantMembership.user_id == uid,
-            models.TenantMembership.tenant_id == tid)) is not None
+            models.TenantMembership.tenant_id == tid))
     finally:
         db.close()
 
@@ -81,11 +82,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
         request.state.tenant_id = tid
         tenant_ctx.set_current_tenant(tid)
 
-        # 3) 加载用户(角色已按租户过滤),并在 SaaS 下校验成员关系
+        # 3) 加载用户(角色已按租户过滤),并在 SaaS 下校验成员关系与租户管理员身份
         user = _load_user(uid) if uid is not None else None
-        if user is not None and is_saas():
-            if not user.is_super_admin and (tid is None or not _has_membership(uid, tid)):
+        if user is not None and is_saas() and not user.is_super_admin:
+            role = _membership_role(uid, tid) if tid is not None else None
+            if role is None:
                 user = None                # 令牌未选租户或非该租户成员 → 视为未授权
+            else:
+                # 账套管理员:本租户内全权(user_has 据此豁免);请求级实例属性,不入库
+                user._is_tenant_admin = bool(role)
         request.state.user = user
 
         if settings.require_auth and user is None:

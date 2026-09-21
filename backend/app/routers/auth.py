@@ -43,7 +43,8 @@ def _memberships(db: Session, user: models.User) -> list[tuple[models.Tenant, bo
 def _user_info(db: Session, user: models.User, tenant_id: int | None,
                is_tenant_admin: bool = False) -> dict:
     # 权限依赖 user.roles,后者按当前租户过滤——调用前须已 set_current_tenant(tenant_id)
-    perms = ["*"] if user.is_super_admin else sorted(auth_svc.user_perms(user))
+    # 超管与账套(租户)管理员均为全权 ["*"],与后端 user_has 豁免保持一致
+    perms = ["*"] if (user.is_super_admin or is_tenant_admin) else sorted(auth_svc.user_perms(user))
     tenant = db.get(models.Tenant, tenant_id) if tenant_id else None
     return {
         "id": user.id, "username": user.username, "display_name": user.display_name,

@@ -47,6 +47,16 @@ interface PlatformMember {
   is_tenant_admin: boolean
 }
 
+// 平台管理员列表项(后端 /platform/users 契约,本地 interface)
+interface PlatformUser {
+  id: number
+  username: string
+  display_name: string
+  is_super_admin: boolean
+  is_active: boolean
+  tenants: string[]
+}
+
 // 新建租户表单(可选同时创建租户管理员)
 interface TenantFormValues {
   name: string
@@ -91,6 +101,7 @@ export default function PlatformAdmin() {
         items={[
           { key: 'tenants', label: '租户管理', children: <TenantTab onManageMembers={manageMembers} /> },
           { key: 'members', label: '成员管理', children: <MemberTab focusTenantId={focusTenantId} /> },
+          { key: 'super-admins', label: '平台管理员', children: <SuperAdminTab /> },
         ]}
       />
     </Card>
@@ -344,6 +355,72 @@ function MemberTab({ focusTenantId }: MemberTabProps) {
           <Form.Item name="is_tenant_admin" label="设为租户管理员" valuePropName="checked"><Switch /></Form.Item>
         </Form>
       </Modal>
+    </>
+  )
+}
+
+function SuperAdminTab() {
+  const [users, setUsers] = useState<PlatformUser[]>([])
+  const [keyword, setKeyword] = useState('')
+
+  const load = useCallback((search: string) => {
+    http
+      .get<PlatformUser[]>('/platform/users', { params: { keyword: search || undefined } })
+      .then((r) => setUsers(r.data))
+  }, [])
+  useEffect(() => { load('') }, [load])
+
+  const toggleSuperAdmin = async (user: PlatformUser) => {
+    await http.put<PlatformUser>(`/platform/users/${user.id}/super-admin`, {
+      is_super_admin: !user.is_super_admin,
+    })
+    message.success(user.is_super_admin ? '已取消平台超管' : '已设为平台超管')
+    load(keyword)
+  }
+
+  const columns = [
+    { title: '用户名', dataIndex: 'username', width: 160 },
+    { title: '显示名', dataIndex: 'display_name', width: 160, render: (v: string) => v || '-' },
+    {
+      title: '平台超管', dataIndex: 'is_super_admin', width: 100,
+      render: (isSuper: boolean) => isSuper ? <Tag color="red">是</Tag> : <Tag>否</Tag>,
+    },
+    {
+      title: '所属租户', dataIndex: 'tenants',
+      render: (tenants: string[]) =>
+        tenants.length > 0
+          ? <Space size={[4, 4]} wrap>{tenants.map((name) => <Tag key={name} color="blue">{name}</Tag>)}</Space>
+          : '-',
+    },
+    {
+      title: '启用状态', dataIndex: 'is_active', width: 100,
+      render: (active: boolean) => active ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>,
+    },
+    {
+      title: '操作', width: 140, render: (_: unknown, user: PlatformUser) => (
+        <Popconfirm
+          title={user.is_super_admin ? '取消该用户的平台超管?' : '将该用户设为平台超管?'}
+          onConfirm={() => toggleSuperAdmin(user)}
+        >
+          <Switch checked={user.is_super_admin} checkedChildren="超管" unCheckedChildren="普通" />
+        </Popconfirm>
+      ),
+    },
+  ]
+
+  return (
+    <>
+      <Space style={{ marginBottom: 12 }}>
+        <Input.Search
+          style={{ width: 280 }}
+          placeholder="按用户名/显示名搜索"
+          allowClear
+          value={keyword}
+          onChange={(e) => setKeyword(e.target.value)}
+          onSearch={(value) => load(value)}
+        />
+      </Space>
+      <Table rowKey="id" size="small" columns={columns} dataSource={users} pagination={false} />
     </>
   )
 }

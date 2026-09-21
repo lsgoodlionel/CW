@@ -116,6 +116,16 @@ class TenantMemberOut(BaseModel):
     is_tenant_admin: bool
 
 
+class PlatformUserOut(BaseModel):
+    """平台管理:全局用户条目(跨租户)。"""
+    id: int
+    username: str
+    display_name: str
+    is_super_admin: bool
+    is_active: bool
+    tenants: list[str] = []              # 所属租户名称列表
+
+
 class LoginOut(BaseModel):
     #: 已解析租户时返回令牌与用户;需选择租户时 token/user 为空、need_tenant=True
     token: str | None = None
