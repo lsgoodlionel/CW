@@ -143,6 +143,7 @@ apply_env_overrides() {
   [ -n "${ALLOW_SELF_REGISTRATION:-}" ] && set_env ALLOW_SELF_REGISTRATION "$ALLOW_SELF_REGISTRATION"
   [ "${ADMIN_PASSWORD+x}" = "x" ] && set_env ADMIN_PASSWORD "${ADMIN_PASSWORD}"
   [ -n "${PIP_INDEX_URL:-}" ] && set_env PIP_INDEX_URL "$PIP_INDEX_URL"
+  return 0            # 避免末行条件为假使函数返回非零,叠加 set -e 导致脚本提前退出
 }
 
 run_deploy() {
