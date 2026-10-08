@@ -137,7 +137,9 @@ def list_vouchers(
                  selectinload(models.Voucher.customer))
     )
     vouchers = db.scalars(stmt).all()
-    link_counts = _link_counts(db, [v.id for v in vouchers])
+    ids = [v.id for v in vouchers]
+    link_counts = _link_counts(db, ids)
+    contract_link_counts = _contract_link_counts(db, ids)
     items = []
     for v in vouchers:
         item = schemas.VoucherListItem.model_validate(v)
@@ -145,6 +147,7 @@ def list_vouchers(
         item.attachment_count = len(v.attachments)
         item.customer_name = (v.customer.short_name or v.customer.name) if v.customer else ""
         item.link_count = link_counts.get(v.id, 0)
+        item.contract_link_count = contract_link_counts.get(v.id, 0)
         items.append(item)
     return schemas.VoucherPage(items=items, total=total, page=page, page_size=page_size)
 
@@ -165,6 +168,17 @@ def _link_counts(db: Session, ids: list[int]) -> dict[int, int]:
         if tgt in idset:
             counts[tgt] = counts.get(tgt, 0) + 1
     return counts
+
+
+def _contract_link_counts(db: Session, ids: list[int]) -> dict[int, int]:
+    if not ids:
+        return {}
+    rows = db.execute(
+        select(models.ContractVoucherLink.voucher_id, func.count(models.ContractVoucherLink.id))
+        .where(models.ContractVoucherLink.voucher_id.in_(ids))
+        .group_by(models.ContractVoucherLink.voucher_id)
+    ).all()
+    return {voucher_id: count for voucher_id, count in rows}
 
 
 @router.get("/{voucher_id}", response_model=schemas.VoucherDetail)

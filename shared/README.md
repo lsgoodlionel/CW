@@ -3,7 +3,7 @@
 `contract/` 是两端共用的数据契约。**其中数据类型由后端 OpenAPI 自动生成,不要手写。**
 
 ```
-models.generated.ts   ← 自动生成(102 个类型),勿手改
+models.generated.ts   ← 自动生成(137 个类型),勿手改
 models.ts             ← 名称别名 + 表单编辑态
 labels.ts             ← 枚举中文文案
 amount.ts             ← 金额归一化(后端 Decimal 序列化成字符串)

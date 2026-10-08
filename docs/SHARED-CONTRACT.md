@@ -38,7 +38,7 @@ frontend/src/shared  CW-WX/src/shared  两端各自的请求层与 UI(不共用)
 
 ### 2. 自动生成:数据类型
 
-`shared/contract/models.generated.ts` —— **102 个类型,全部由后端 OpenAPI 反射得到**,
+`shared/contract/models.generated.ts` —— **137 个类型,全部由后端 OpenAPI 反射得到**,
 覆盖凭证、科目、往来单位、人员、审批、费用、报表、账簿、日志、用户权限。
 
 ### 3. 手写但共用:枚举文案与权限判定

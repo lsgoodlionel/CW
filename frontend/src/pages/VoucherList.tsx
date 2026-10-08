@@ -75,8 +75,16 @@ export default function VoucherList() {
         ? <Tag color="blue"><PaperClipOutlined /> {n}</Tag> : '-',
     },
     {
-      title: '关联', dataIndex: 'link_count', width: 70,
-      render: (n: number) => n > 0 ? <Tag color="purple">{n}</Tag> : '-',
+      title: '关联', dataIndex: 'link_count', width: 130,
+      render: (n: number, r: VoucherListItem) => {
+        const contractCount = r.contract_link_count || 0
+        return n > 0 || contractCount > 0 ? (
+          <Space size={4} wrap>
+            {n > 0 ? <Tag color="purple">凭证 {n}</Tag> : null}
+            {contractCount > 0 ? <Tag color="geekblue">合同 {contractCount}</Tag> : null}
+          </Space>
+        ) : '-'
+      },
     },
     {
       title: '操作', width: 180,

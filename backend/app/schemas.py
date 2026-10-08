@@ -538,6 +538,7 @@ class VoucherListItem(BaseModel):
     entry_count: int = 0
     attachment_count: int = 0
     link_count: int = 0
+    contract_link_count: int = 0
 
 
 class VoucherDetail(BaseModel):

@@ -10,7 +10,7 @@
  * 重新生成:node scripts/gen-contract.mjs
  *
  * 这里的名字沿用后端 schema 名;前端习惯用的短名见同目录 models.ts 的别名映射。
- * 共 125 个类型。
+ * 共 137 个类型。
  */
 /* eslint-disable */
 
@@ -132,6 +132,10 @@ export interface AuthUserOut {
   employee_id: number | null
   roles: string[]
   permissions: string[]
+  tenant_id: number | null
+  tenant_name: string | null
+  is_tenant_admin: boolean
+  is_saas: boolean
 }
 
 export interface BalanceSheetOut {
@@ -373,6 +377,7 @@ export interface EmployeeCreate {
   id_number?: string
   email?: string
   hire_date?: string
+  leave_date?: string
   equity_ratio?: number
   status?: string
   note?: string
@@ -387,6 +392,7 @@ export interface EmployeeOut {
   id_number: string
   email: string
   hire_date: string
+  leave_date: string
   equity_ratio: number
   status: string
   note: string
@@ -403,6 +409,7 @@ export interface EmployeeUpdate {
   id_number?: string
   email?: string
   hire_date?: string
+  leave_date?: string
   equity_ratio?: number
   status?: string
   note?: string
@@ -674,11 +681,29 @@ export interface LogPageOut {
 export interface LoginIn {
   username: string
   password: string
+  tenant_id?: number | null
 }
 
 export interface LoginOut {
-  token: string
-  user: AuthUserOut
+  token: string | null
+  user: AuthUserOut | null
+  need_tenant: boolean
+  tenants: TenantBriefOut[]
+}
+
+export interface ManualReportIn {
+  note?: string
+}
+
+export interface MemberAddIn {
+  username: string
+  is_tenant_admin?: boolean
+  password?: string | null
+  display_name?: string | null
+}
+
+export interface MemberUpdateIn {
+  is_tenant_admin: boolean
 }
 
 export interface MissingStepOut {
@@ -755,6 +780,16 @@ export interface PersonnelMetaOut {
   party_types: Record<string, string>
 }
 
+/** 平台管理:全局用户条目(跨租户)。 */
+export interface PlatformUserOut {
+  id: number
+  username: string
+  display_name: string
+  is_super_admin: boolean
+  is_active: boolean
+  tenants: string[]
+}
+
 export interface PositionIn {
   org_unit_id?: number | null
   role_type?: string
@@ -785,6 +820,13 @@ export interface PresetResolveOut {
   role_ids: number[]
 }
 
+export interface RegisterIn {
+  tenant_name: string
+  username: string
+  password: string
+  display_name?: string
+}
+
 export interface ReportPeriodOut {
   label: string
   report_type: string
@@ -808,6 +850,12 @@ export interface RoleOut {
   note: string
   is_system: boolean
   perms: string[]
+}
+
+export interface SetupIn {
+  username: string
+  password: string
+  display_name?: string
 }
 
 export interface StatementOut {
@@ -875,6 +923,10 @@ export interface SubAccountUpdate {
 
 export interface SuccessOut {
   success: boolean
+}
+
+export interface SuperAdminIn {
+  is_super_admin: boolean
 }
 
 export interface TaskAction {
@@ -1031,6 +1083,57 @@ export interface TaxSalarySave {
   items?: TaxSalaryItem[]
 }
 
+/** 登录选租户时供选择的租户条目。 */
+export interface TenantBriefOut {
+  id: number
+  name: string
+  code: string
+  is_tenant_admin: boolean
+}
+
+export interface TenantCreateIn {
+  name: string
+  code?: string
+  note?: string
+  admin_username?: string | null
+  admin_password?: string | null
+  admin_display_name?: string | null
+}
+
+/** 平台管理:租户成员条目。 */
+export interface TenantMemberOut {
+  id: number
+  user_id: number
+  username: string
+  display_name: string
+  is_tenant_admin: boolean
+}
+
+/** 平台管理:租户条目(含订阅)。 */
+export interface TenantOut {
+  id: number
+  name: string
+  code: string
+  is_active: boolean
+  note: string
+  created_at: string | null
+  member_count: number
+  plan: string
+  status: string
+  expires_at: string
+  max_users: number
+}
+
+export interface TenantUpdateIn {
+  name?: string | null
+  note?: string | null
+  is_active?: boolean | null
+  plan?: string | null
+  status?: string | null
+  expires_at?: string | null
+  max_users?: number | null
+}
+
 export interface TrendPointOut {
   month: string
   revenue: number
@@ -1059,7 +1162,6 @@ export interface UserCreate {
   password: string
   display_name?: string
   employee_id?: number | null
-  is_super_admin?: boolean
   role_ids?: number[]
 }
 
@@ -1069,6 +1171,7 @@ export interface UserOut {
   display_name: string
   employee_id: number | null
   is_super_admin: boolean
+  is_tenant_admin: boolean
   is_active: boolean
   role_ids: number[]
   role_names: string[]
@@ -1079,7 +1182,6 @@ export interface UserUpdate {
   display_name?: string | null
   employee_id?: number | null
   is_active?: boolean | null
-  is_super_admin?: boolean | null
   role_ids?: number[] | null
 }
 
@@ -1139,6 +1241,7 @@ export interface VoucherListItem {
   entry_count: number
   attachment_count: number
   link_count: number
+  contract_link_count: number
 }
 
 export interface VoucherPage {
