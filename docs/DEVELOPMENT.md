@@ -230,7 +230,11 @@ curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | b
 curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/upgrade.sh | bash
 # 强制重建
 curl -fsSL .../upgrade.sh | FORCE=1 bash
+# 前置 Nginx 的服务器建议 .env 写回环绑定,避免 Docker 直接暴露公网端口
+HTTP_PORT=127.0.0.1:18080
 # 本地
 docker compose up -d --build     # http://localhost:8080
 ```
 数据卷:`db_data`(库)、`uploads`(附件)。应用级备份:企业信息页导出/导入 zip,或 `GET /api/data/export`。
+
+升级已有部署时,`install.sh`/`upgrade.sh` 保留部署目录现有 `.env` 中的 `HTTP_PORT`、`POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB` 等关键值;要改端口、数据库凭据或 SaaS 参数,先编辑 `.env`,再运行升级。远程管道执行且 `sudo` 需要密码时使用 `ssh -t` 或先登录交互终端。若本地构建拉 Docker Hub 基础镜像遇到 IPv6 reset,优先改用 GHCR 预构建镜像;必须本地构建时在服务器网络层配置临时 IPv4 优先策略,不要把单台服务器的 `/etc/hosts` workaround 写入通用脚本。

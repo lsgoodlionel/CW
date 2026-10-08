@@ -371,8 +371,8 @@ GET    /api/diag/status | /recent           POST /api/diag/report
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `HTTP_PORT` | `8080` | 对外访问端口 |
-| `POSTGRES_USER/PASSWORD/DB` | finance | 数据库凭据(生产务必改密码;安装脚本会随机化) |
+| `HTTP_PORT` | `8080` | 对外访问端口;生产前置 Nginx 时建议写成回环绑定,如 `127.0.0.1:18080` |
+| `POSTGRES_USER/PASSWORD/DB` | finance | 数据库凭据(生产务必改密码;安装脚本首次安装会随机化;升级已有部署时保留 `.env` 原值) |
 | `CORS_ORIGINS` | `*` | 允许跨域来源(同源部署可保持 `*`) |
 | `REQUIRE_AUTH` | `true` | 全站强制登录 |
 | `AUTH_SECRET` | 占位 | 令牌签名密钥,**生产务必改成随机串** |
@@ -407,7 +407,9 @@ curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | b
 curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | HTTP_PORT=80 APP_DIR=/opt/cw bash
 ```
 
-部署完成后访问 `http://<服务器IP>:<端口>`(默认 8080)。非 root 用户需具备 `sudo`。
+部署完成后访问 `http://<服务器IP>:<端口>`(默认 8080)。非 root 用户需具备 `sudo`。如果通过 SSH 远程执行且 `sudo` 需要输入密码,请使用交互终端,例如 `ssh -t <host> 'curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | bash'`,或先登录服务器后执行脚本;非 TTY 管道里无法安全读取 sudo 密码。
+
+> **已有 Nginx 前置的服务器**:不要让 Docker 直接绑定公网端口。先在部署目录 `.env` 设置 `HTTP_PORT=127.0.0.1:18080`,再由 Nginx 监听公网端口(如 8080/443)并反代到 `127.0.0.1:18080`。升级脚本检测到已有 `.env` 后会保留该端口绑定,不会再把它改回裸 `8080`。
 
 > **连不上 GitHub / 报「502 Bad Gateway」或「语法错误 `<head>`」?** 说明 `curl` 取到的是错误页而非脚本(服务器到 raw.githubusercontent 的网络不稳)。改用 **jsDelivr 镜像**并「先下载再执行」:
 >
@@ -440,6 +442,8 @@ curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | D
 > ```bash
 > cd ~/CW && echo 'PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple' >> .env && FORCE_BUILD=1 ./deploy.sh
 > ```
+>
+> 如果本地构建拉 Docker Hub 基础镜像时出现 IPv6 reset(例如 `node:20-alpine ... read tcp [IPv6]->[2600:...]:443: read: connection reset by peer`),脚本会提示 IPv6 诊断方向。处理原则是优先使用 GHCR 预构建镜像;必须本地构建时,在服务器网络层临时禁用 Docker 到 Docker Hub 的 IPv6 或配置可审计的 IPv4 优先策略后重试,不要把服务器专属 `/etc/hosts` 写入通用部署脚本。
 
 ### 本地桌面(Windows / macOS)一键安装客户端
 
@@ -492,7 +496,7 @@ docker compose up -d --build
 curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | bash
 ```
 
-升级流程:**自动定位部署目录 → 升级前自动备份 → 拉取最新代码(git,失败回退 HTTPS 归档)→ 重建重启(保留数据卷,数据不丢)→ 健康检查**。后端优先拉取 GHCR 预构建镜像,不在服务器跑 pip。
+升级流程:**自动定位部署目录 → 保留已有 `.env` 端口与数据库凭据 → 升级前自动备份 → 拉取最新代码(git,失败回退 HTTPS 归档)→ 重建重启(保留数据卷,数据不丢)→ 健康检查**。后端优先拉取 GHCR 预构建镜像,不在服务器跑 pip。
 
 > 兼容:旧的 `upgrade.sh` 仍可用,它会转调最新的 `install.sh`。
 >
@@ -508,7 +512,7 @@ APP_DIR=/opt/cw bash -c "$(curl -fsSL https://raw.githubusercontent.com/lsgoodli
 ```
 
 也可在仓库目录内运行 `./install.sh`(或兼容的 `./upgrade.sh`)。数据库表结构变更在启动时自动迁移。
-`HTTP_PORT` 支持写成 `host:port`(如 `127.0.0.1:18080`),健康检查会自动取其中的端口。
+`HTTP_PORT` 支持写成 `host:port`(如 `127.0.0.1:18080`),健康检查会自动取其中的端口。已有部署升级时,脚本默认忽略外部传入的 `HTTP_PORT`、`POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB`、`DEPLOY_MODE`、`ALLOW_SELF_REGISTRATION`、`ADMIN_PASSWORD`、`PIP_INDEX_URL`,以部署目录 `.env` 为准;如需修改,先编辑 `.env` 再运行升级。
 
 > **多租户(SaaS)升级注意**:
 > - 升级用**不带参数**的 `curl … | bash` 即可——它只升级,不改 `.env`(`DEPLOY_MODE=saas` 等配置原样保留)。**升级时不要再带 `DEPLOY_MODE`/`ADMIN_PASSWORD` 等参数**,以免覆盖已有配置。

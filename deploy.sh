@@ -9,6 +9,22 @@ info() { echo -e "${GREEN}[部署]${NC} $1"; }
 warn() { echo -e "${YELLOW}[警告]${NC} $1"; }
 err()  { echo -e "${RED}[错误]${NC} $1"; }
 
+diagnose_docker_hub_ipv6() {
+  command -v curl >/dev/null 2>&1 || return 0
+  if curl -4 -fsS --connect-timeout 8 --max-time 15 https://registry-1.docker.io/v2/ >/dev/null 2>&1; then
+    return 0
+  fi
+  local v4_rc=$?
+  if curl -6 -fsS --connect-timeout 8 --max-time 15 https://registry-1.docker.io/v2/ >/dev/null 2>&1; then
+    return 0
+  fi
+  local v6_rc=$?
+  if [ "$v4_rc" = "22" ] && [ "$v6_rc" != "22" ]; then
+    warn "检测到 Docker Hub IPv4 可达但 IPv6 访问异常,本地构建拉取 node/python 基础镜像可能失败。"
+    warn "建议优先使用 GHCR 预构建镜像;若必须本地构建,请在服务器网络层临时禁用 Docker 到 Docker Hub 的 IPv6 或配置可审计的 IPv4 优先策略后重试。"
+  fi
+}
+
 # 1. 检查 Docker
 if ! command -v docker >/dev/null 2>&1; then
   err "未检测到 Docker。请先安装:curl -fsSL https://get.docker.com | sh"
@@ -48,6 +64,7 @@ elif $DC pull backend frontend >/dev/null 2>&1; then
   $DC up -d
 else
   warn "未能拉取预构建镜像(镜像未发布/网络受限/包为私有),回退本地构建..."
+  diagnose_docker_hub_ipv6
   $DC up -d --build
 fi
 

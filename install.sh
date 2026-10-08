@@ -34,6 +34,10 @@ SUDO=""
 if [ "$(id -u)" -ne 0 ]; then
   if command -v sudo >/dev/null 2>&1; then SUDO="sudo"
   else err "当前非 root 且无 sudo,请用 root 运行或先安装 sudo。"; exit 1; fi
+  if ! sudo -n true >/dev/null 2>&1 && [ ! -t 0 ]; then
+    err "当前为非交互终端且 sudo 需要密码,无法安全继续。请使用交互终端运行,例如 ssh -t <host> 'curl -fsSL https://raw.githubusercontent.com/${REPO_SLUG}/main/install.sh | bash',或先在服务器交互登录后执行脚本。"
+    exit 1
+  fi
 fi
 
 GT=""; command -v timeout >/dev/null 2>&1 && GT="timeout 120"
@@ -124,6 +128,11 @@ set_env() {
   printf '%s=%s\n' "$key" "$val" >> .env.tmp
   mv .env.tmp .env
 }
+warn_existing_env_ignored() {
+  local key="$1"
+  [ "${!key+x}" = "x" ] || return 0
+  warn "检测到已有 .env,忽略外部 ${key}=${!key}；如需修改,请先编辑部署目录 .env 后重新运行升级。"
+}
 apply_env_overrides() {
   local fresh=0
   if [ ! -f .env ]; then
@@ -131,7 +140,21 @@ apply_env_overrides() {
     set_env POSTGRES_PASSWORD "$(openssl rand -hex 16 2>/dev/null || date +%s%N | sha256sum | head -c 32)"
     fresh=1
   fi
+  if [ "$fresh" = "0" ]; then
+    warn_existing_env_ignored HTTP_PORT
+    warn_existing_env_ignored POSTGRES_USER
+    warn_existing_env_ignored POSTGRES_PASSWORD
+    warn_existing_env_ignored POSTGRES_DB
+    warn_existing_env_ignored DEPLOY_MODE
+    warn_existing_env_ignored ALLOW_SELF_REGISTRATION
+    warn_existing_env_ignored ADMIN_PASSWORD
+    warn_existing_env_ignored PIP_INDEX_URL
+    return 0
+  fi
   [ -n "${HTTP_PORT:-}" ] && { set_env HTTP_PORT "$HTTP_PORT"; info "对外端口:$HTTP_PORT"; }
+  [ -n "${POSTGRES_USER:-}" ] && set_env POSTGRES_USER "$POSTGRES_USER"
+  [ -n "${POSTGRES_PASSWORD:-}" ] && set_env POSTGRES_PASSWORD "$POSTGRES_PASSWORD"
+  [ -n "${POSTGRES_DB:-}" ] && set_env POSTGRES_DB "$POSTGRES_DB"
   if [ -n "${DEPLOY_MODE:-}" ]; then
     set_env DEPLOY_MODE "$DEPLOY_MODE"; info "部署模式:$DEPLOY_MODE"
     # SaaS 首次安装默认不预置管理员(首登页面自设);升级不动已有 ADMIN_PASSWORD
