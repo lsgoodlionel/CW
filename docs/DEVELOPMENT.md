@@ -60,7 +60,7 @@ frontend/src/
 | `accounts` | 一级会计科目(编码/名称/类别/方向/启用) |
 | `sub_accounts` | 二级明细科目(隶属一级,编码=一级4位+顺序2位) |
 | `customers` | 往来单位(party_type:企业客户/个人客户/供应商/往来单位) |
-| `vouchers` | 记账凭证(凭证号/日期/摘要/借贷合计/状态/客户) |
+| `vouchers` | 记账凭证(凭证号/日期/摘要/借贷合计/状态/客户;`posted` 表示已入账并进入账簿/报表) |
 | `voucher_entries` | 凭证分录(摘要/科目/明细科目+二级id/借/贷,允许负数红字) |
 | `voucher_links` | 凭证关联(预收/挂账/核销/应收/冲销/其他) |
 | `attachments` | 附件(发票/银行回单/合同/完税证明/其他) |
@@ -191,6 +191,8 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 - 备份 **v9**:新增 `expense_applications`(含明细)+ 附件改为**扁平附件表**统一导出(记录 voucher/application/claim 三种归属 ref),导入按 ref 还原多归属;兼容 v1–v8 老备份(旧版凭证内嵌附件仍可读)。
 - 备份 **v22**:凭证新增 `required_attachment_kinds`(必需附件类型),导出/恢复保留附件补齐状态。
 - 凭证附件补齐状态按“本凭证附件 + 双向关联凭证附件 + 关联合同附件”合并计算,不复制关联对象附件到当前凭证。
+- 凭证状态:`posted` 保持为“已入账/进入账簿与报表”的系统状态;前端显示为“已入账”。草稿或审批中凭证不进入报表。
+- 仪表盘运营待办新增“缺附件凭证”,复用同一套合并附件口径统计仍缺必需附件的凭证数量。
 
 ### 7.3 用户模块 + RBAC 权限 ✅ 已实现(全站强制登录)
 - 模型:`users`(用户名/密码哈希/关联员工/超管标志/启用)、`roles`、`role_permissions`(perm='module:action')、`user_roles`。

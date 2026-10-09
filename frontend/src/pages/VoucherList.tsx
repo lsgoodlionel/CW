@@ -76,7 +76,7 @@ export default function VoucherList() {
       title: '状态', dataIndex: 'status', width: 150,
       render: (s: string, r: VoucherListItem) => (
         <Space size={4} wrap>
-          {s === 'posted' ? <Tag color="success">已过账</Tag>
+          {s === 'posted' ? <Tag color="success">已入账</Tag>
             : (r.workflow_instance_id ? <Tag color="processing">审批中</Tag> : <Tag>草稿</Tag>)}
           {renderAttachmentStatus(r)}
         </Space>

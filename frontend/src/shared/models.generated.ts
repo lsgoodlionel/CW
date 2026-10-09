@@ -737,6 +737,7 @@ export interface OpsSummaryOut {
   customers: number
   employees: number
   attachments: number
+  vouchers_missing_attachments: number
   contracts_active: number
   contracts_total: number
   tax_pending: number

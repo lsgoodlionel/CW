@@ -119,6 +119,7 @@ export default function Dashboard() {
         <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
           <Op title="凭证总数" value={ops.vouchers_total} icon={<FileTextOutlined />} to="/vouchers" />
           <Op title={`本期凭证(${lab})`} value={data.voucher_count} icon={<FileTextOutlined />} to="/vouchers" />
+          <Op title="缺附件凭证" value={ops.vouchers_missing_attachments} icon={<FileTextOutlined />} color="#d48806" to="/vouchers" />
           <Op title="合同总数" value={ops.contracts_total} icon={<FileProtectOutlined />} to="/contracts" />
           <Op title="附件总数" value={ops.attachments} icon={<FileTextOutlined />} to="/vouchers" />
         </Row>

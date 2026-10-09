@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app import models
-from app.routers import vouchers
+from app.routers import reports, vouchers
 from app.tenant import install_tenant_isolation, set_current_tenant
 
 
@@ -106,6 +106,30 @@ def run():
     check("详情附件类型数量含关联来源",
           detail.attachment_kind_counts == {"invoice": 1, "receipt": 1, "contract": 1})
     check("详情关联来源补齐必需附件", detail.missing_attachment_kinds == [])
+
+    incomplete = models.Voucher(
+        voucher_no="记-202610-003",
+        voucher_date=date(2026, 10, 8),
+        note="缺少银行回单",
+        total_debit=Decimal("100.00"),
+        total_credit=Decimal("100.00"),
+        required_attachment_kinds="invoice,receipt",
+    )
+    db.add(incomplete)
+    db.flush()
+    db.add(models.Attachment(
+        voucher_id=incomplete.id,
+        kind="invoice",
+        original_name="only-invoice.pdf",
+        stored_path="/tmp/only-invoice.pdf",
+        mime_type="application/pdf",
+        size_bytes=100,
+    ))
+    db.commit()
+
+    ops = reports._ops_summary(db)
+    check("仪表盘统计真正缺附件的凭证",
+          ops["vouchers_missing_attachments"] == 1)
 
     set_current_tenant(None)
     db.close()

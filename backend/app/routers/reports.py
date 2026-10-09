@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from .. import models, reports_cn, report_excel
 from ..schemas_read import DashboardOut, OfficialReportsOut, TrialBalanceOut
+from ..voucher_attachments import count_missing_attachment_vouchers
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -423,6 +424,7 @@ def _ops_summary(db: Session) -> dict:
         "customers": _count(models.Customer),
         "employees": _count(models.Employee),
         "attachments": _count(models.Attachment),
+        "vouchers_missing_attachments": count_missing_attachment_vouchers(db),
         "contracts_active": _count(models.Contract, models.Contract.status == "active"),
         "contracts_total": _count(models.Contract),
         "tax_pending": _count(models.TaxFiling, models.TaxFiling.status == "pending"),

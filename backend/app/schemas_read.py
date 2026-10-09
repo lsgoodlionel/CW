@@ -219,6 +219,7 @@ class OpsSummaryOut(BaseModel):
     customers: int
     employees: int
     attachments: int
+    vouchers_missing_attachments: int = 0
     contracts_active: int = 0
     contracts_total: int = 0
     tax_pending: int = 0
