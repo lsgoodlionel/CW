@@ -160,6 +160,7 @@ class Voucher(Base, TenantMixin):
     total_debit: Mapped[Decimal] = mapped_column(MONEY, default=0)
     total_credit: Mapped[Decimal] = mapped_column(MONEY, default=0)
     status: Mapped[str] = mapped_column(String(20), default="posted")  # draft / posted(审批中为 draft 不入账)
+    required_attachment_kinds: Mapped[str] = mapped_column(String(200), default="", server_default="")
     workflow_instance_id: Mapped[int | None] = mapped_column(
         ForeignKey("workflow_instances.id", ondelete="SET NULL"), nullable=True
     )

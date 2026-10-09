@@ -76,6 +76,7 @@ _ADDED_COLUMNS = {
     "vouchers": [
         ("customer_id", "INTEGER"),
         ("workflow_instance_id", "INTEGER"),
+        ("required_attachment_kinds", "VARCHAR(200) DEFAULT ''"),
     ],
     "voucher_entries": [
         ("sub_account_id", "INTEGER"),

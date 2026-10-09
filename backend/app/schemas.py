@@ -154,6 +154,9 @@ class AttachmentOut(BaseModel):
     uploaded_at: datetime
 
 
+ATTACHMENT_KINDS = {"invoice", "receipt", "contract", "tax_payment", "approval", "other"}
+
+
 # ---------- 往来单位 ----------
 PARTY_TYPES = {"enterprise", "individual", "supplier", "partner"}
 
@@ -501,7 +504,19 @@ class VoucherCreate(BaseModel):
     note: str = ""
     customer_id: int | None = None
     status: str = "posted"
+    required_attachment_kinds: list[str] = []
     entries: list[EntryIn] = Field(min_length=1)
+
+    @field_validator("required_attachment_kinds")
+    @classmethod
+    def _check_required_attachment_kinds(cls, kinds: list[str]) -> list[str]:
+        out: list[str] = []
+        for kind in kinds:
+            if kind not in ATTACHMENT_KINDS:
+                raise ValueError(f"required_attachment_kinds 必须是 {ATTACHMENT_KINDS} 之一")
+            if kind not in out:
+                out.append(kind)
+        return out
 
     @field_validator("entries")
     @classmethod
@@ -534,11 +549,21 @@ class VoucherListItem(BaseModel):
     total_debit: Decimal
     total_credit: Decimal
     status: str
+    required_attachment_kinds: list[str] = []
+    missing_attachment_kinds: list[str] = []
     workflow_instance_id: int | None = None
     entry_count: int = 0
     attachment_count: int = 0
+    attachment_kind_counts: dict[str, int] = {}
     link_count: int = 0
     contract_link_count: int = 0
+
+    @field_validator("required_attachment_kinds", mode="before")
+    @classmethod
+    def _parse_required_attachment_kinds(cls, v):
+        if isinstance(v, str):
+            return [k for k in v.split(",") if k]
+        return v or []
 
 
 class VoucherDetail(BaseModel):
@@ -552,11 +577,20 @@ class VoucherDetail(BaseModel):
     total_debit: Decimal
     total_credit: Decimal
     status: str
+    required_attachment_kinds: list[str] = []
+    missing_attachment_kinds: list[str] = []
     workflow_instance_id: int | None = None
     created_at: datetime
     entries: list[EntryOut]
     attachments: list[AttachmentOut]
     links: list[LinkedVoucher] = []
+
+    @field_validator("required_attachment_kinds", mode="before")
+    @classmethod
+    def _parse_required_attachment_kinds(cls, v):
+        if isinstance(v, str):
+            return [k for k in v.split(",") if k]
+        return v or []
 
 
 class VoucherPage(BaseModel):

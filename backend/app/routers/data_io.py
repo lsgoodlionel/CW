@@ -24,11 +24,12 @@ from ..schemas_read import DataImportOut
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-EXPORT_VERSION = 21
+EXPORT_VERSION = 22
 # 1-7 见历史;8:用户/角色/权限;9:费用申请 + 附件多归属(扁平附件表)
 # 10:企业信息导出全部字段;11:合同管理 + 税务申报记录(含其附件归属)
 # 21:多租户——导出租户与成员关系,并在租户上下文下按租户作用域导出
-SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21}
+# 22:凭证 required_attachment_kinds(必需附件类型)纳入备份
+SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22}
 
 
 def _json_safe(v):
@@ -320,6 +321,7 @@ def build_backup_zip(db: Session) -> bytes:
             "voucher_no": v.voucher_no,
             "voucher_date": v.voucher_date.isoformat(),
             "note": v.note, "status": v.status,
+            "required_attachment_kinds": v.required_attachment_kinds or "",
             "customer_ref": v.customer_id,
             "entries": [
                 {"line_no": e.line_no, "summary": e.summary,
@@ -676,6 +678,7 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
             voucher_no=v["voucher_no"],
             voucher_date=date.fromisoformat(v["voucher_date"]),
             note=v.get("note", ""), status=v.get("status", "posted"),
+            required_attachment_kinds=v.get("required_attachment_kinds", ""),
             customer_id=cust.id if cust else None,
             total_debit=Decimal("0"), total_credit=Decimal("0"),
         )

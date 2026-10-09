@@ -189,6 +189,7 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 - 权限模块 `expense_apply`(路径前缀 `/api/expense-apply` 需排在 `/api/expense` 之前);默认「财务操作」「审批人」角色已含。
 - API `/api/expense-apply` CRUD + `/submit` + `/{id}/attachments` + `/active-workflow` + `/approved` + `/meta`;前端「费用申请」页(建单/明细/附件上传/提交/详情+审批轨迹)。
 - 备份 **v9**:新增 `expense_applications`(含明细)+ 附件改为**扁平附件表**统一导出(记录 voucher/application/claim 三种归属 ref),导入按 ref 还原多归属;兼容 v1–v8 老备份(旧版凭证内嵌附件仍可读)。
+- 备份 **v22**:凭证新增 `required_attachment_kinds`(必需附件类型),导出/恢复保留附件补齐状态。
 
 ### 7.3 用户模块 + RBAC 权限 ✅ 已实现(全站强制登录)
 - 模型:`users`(用户名/密码哈希/关联员工/超管标志/启用)、`roles`、`role_permissions`(perm='module:action')、`user_roles`。

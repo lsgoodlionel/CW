@@ -94,7 +94,7 @@ def run():
     set_current_tenant(None); src.close()
 
     payload = _read_payload(zip_bytes)
-    check("导出版本21", payload["version"] == 21)
+    check("导出版本22", payload["version"] == 22)
     check("导出含租户1", [t["ref"] for t in payload["tenants"]] == [1])
     check("导出含成员2", len(payload["tenant_memberships"]) == 2)
 

@@ -14,6 +14,34 @@ from ..tenant import tenant_get
 router = APIRouter(prefix="/api/vouchers", tags=["vouchers"])
 
 
+def _parse_required_attachment_kinds(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    out: list[str] = []
+    for kind in raw.split(","):
+        kind = kind.strip()
+        if kind and kind in schemas.ATTACHMENT_KINDS and kind not in out:
+            out.append(kind)
+    return out
+
+
+def _dump_required_attachment_kinds(kinds: list[str]) -> str:
+    return ",".join(kinds)
+
+
+def _attachment_kind_counts(attachments: list[models.Attachment]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for att in attachments:
+        counts[att.kind] = counts.get(att.kind, 0) + 1
+    return counts
+
+
+def _missing_attachment_kinds(
+    required: list[str], counts: dict[str, int]
+) -> list[str]:
+    return [kind for kind in required if counts.get(kind, 0) <= 0]
+
+
 def _next_voucher_no(db: Session, voucher_date: date) -> str:
     """生成凭证号:记-YYYYMM-NNN。"""
     prefix = f"记-{voucher_date:%Y%m}-"
@@ -58,6 +86,8 @@ def _to_detail(voucher: models.Voucher, db: Session) -> schemas.VoucherDetail:
         item.account_code = e.account.code if e.account else ""
         item.account_name = e.account.name if e.account else ""
         entries.append(item)
+    required = _parse_required_attachment_kinds(voucher.required_attachment_kinds)
+    kind_counts = _attachment_kind_counts(voucher.attachments)
     return schemas.VoucherDetail(
         id=voucher.id,
         voucher_no=voucher.voucher_no,
@@ -69,6 +99,8 @@ def _to_detail(voucher: models.Voucher, db: Session) -> schemas.VoucherDetail:
         total_debit=voucher.total_debit,
         total_credit=voucher.total_credit,
         status=voucher.status,
+        required_attachment_kinds=required,
+        missing_attachment_kinds=_missing_attachment_kinds(required, kind_counts),
         created_at=voucher.created_at,
         entries=entries,
         attachments=[schemas.AttachmentOut.model_validate(a) for a in voucher.attachments],
@@ -145,6 +177,10 @@ def list_vouchers(
         item = schemas.VoucherListItem.model_validate(v)
         item.entry_count = len(v.entries)
         item.attachment_count = len(v.attachments)
+        item.attachment_kind_counts = _attachment_kind_counts(v.attachments)
+        item.required_attachment_kinds = _parse_required_attachment_kinds(v.required_attachment_kinds)
+        item.missing_attachment_kinds = _missing_attachment_kinds(
+            item.required_attachment_kinds, item.attachment_kind_counts)
         item.customer_name = (v.customer.short_name or v.customer.name) if v.customer else ""
         item.link_count = link_counts.get(v.id, 0)
         item.contract_link_count = contract_link_counts.get(v.id, 0)
@@ -226,6 +262,7 @@ def create_voucher(payload: schemas.VoucherCreate, db: Session = Depends(get_db)
         note=payload.note,
         customer_id=payload.customer_id,
         status=status,
+        required_attachment_kinds=_dump_required_attachment_kinds(payload.required_attachment_kinds),
         total_debit=total_debit,
         total_credit=total_credit,
     )
@@ -263,6 +300,7 @@ def update_voucher(
     voucher.note = payload.note
     voucher.customer_id = payload.customer_id
     voucher.status = payload.status
+    voucher.required_attachment_kinds = _dump_required_attachment_kinds(payload.required_attachment_kinds)
     voucher.total_debit = sum((e.debit for e in payload.entries), Decimal("0"))
     voucher.total_credit = sum((e.credit for e in payload.entries), Decimal("0"))
 

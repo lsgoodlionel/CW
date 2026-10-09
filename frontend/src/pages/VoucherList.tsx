@@ -5,7 +5,7 @@ import {
 import { PlusOutlined, PaperClipOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import type { Dayjs } from 'dayjs'
-import { http, VoucherListItem, Customer, AccountTreeNode, formatYuan } from '../api'
+import { http, VoucherListItem, Customer, AccountTreeNode, ATTACHMENT_KIND_LABEL, formatYuan } from '../api'
 
 const { RangePicker } = DatePicker
 
@@ -52,14 +52,36 @@ export default function VoucherList() {
   const submitApproval = (id: number) =>
     http.post(`/vouchers/${id}/submit`).then(() => { message.success('已提交审批'); load() })
       .catch((e) => message.error(e?.response?.data?.detail || '提交失败'))
+  const renderAttachmentStatus = (r: VoucherListItem) => {
+    const missing = r.missing_attachment_kinds || []
+    if (missing.length > 0) {
+      return (
+        <Space size={4} wrap>
+          {missing.map((k) => (
+            <Tag key={k} color="warning">缺{ATTACHMENT_KIND_LABEL[k] || k}</Tag>
+          ))}
+        </Space>
+      )
+    }
+    return (r.required_attachment_kinds || []).length > 0
+      ? <Tag color="success">附件齐</Tag>
+      : null
+  }
 
   const columns = [
     { title: '凭证号', dataIndex: 'voucher_no', width: 150 },
     { title: '日期', dataIndex: 'voucher_date', width: 120 },
     { title: '摘要', dataIndex: 'note', ellipsis: true },
-    { title: '状态', dataIndex: 'status', width: 84, render: (s: string, r: VoucherListItem) => (
-      s === 'posted' ? <Tag color="success">已过账</Tag>
-        : (r.workflow_instance_id ? <Tag color="processing">审批中</Tag> : <Tag>草稿</Tag>)) },
+    {
+      title: '状态', dataIndex: 'status', width: 150,
+      render: (s: string, r: VoucherListItem) => (
+        <Space size={4} wrap>
+          {s === 'posted' ? <Tag color="success">已过账</Tag>
+            : (r.workflow_instance_id ? <Tag color="processing">审批中</Tag> : <Tag>草稿</Tag>)}
+          {renderAttachmentStatus(r)}
+        </Space>
+      ),
+    },
     {
       title: '往来单位', dataIndex: 'customer_name', width: 140, ellipsis: true,
       render: (v: string) => v || '-',
@@ -70,9 +92,18 @@ export default function VoucherList() {
     },
     { title: '分录', dataIndex: 'entry_count', width: 60 },
     {
-      title: '附件', dataIndex: 'attachment_count', width: 70,
-      render: (n: number) => n > 0
-        ? <Tag color="blue"><PaperClipOutlined /> {n}</Tag> : '-',
+      title: '附件', dataIndex: 'attachment_count', width: 170,
+      render: (n: number, r: VoucherListItem) => {
+        const counts = r.attachment_kind_counts || {}
+        const entries = Object.entries(counts).filter(([, count]) => count > 0)
+        return n > 0 ? (
+          <Space size={4} wrap>
+            {entries.map(([kind, count]) => (
+              <Tag key={kind} color="blue"><PaperClipOutlined /> {ATTACHMENT_KIND_LABEL[kind] || kind} {count}</Tag>
+            ))}
+          </Space>
+        ) : '-'
+      },
     },
     {
       title: '关联', dataIndex: 'link_count', width: 130,

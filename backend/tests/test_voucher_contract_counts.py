@@ -38,6 +38,7 @@ def run():
         note="有关联的凭证",
         total_debit=Decimal("100.00"),
         total_credit=Decimal("100.00"),
+        required_attachment_kinds="invoice,receipt",
     )
     linked_voucher = models.Voucher(
         voucher_no="记-202610-002",
@@ -63,12 +64,22 @@ def run():
     db.add(contract)
     db.flush()
     db.add(models.ContractVoucherLink(contract_id=contract.id, voucher_id=voucher.id))
+    db.add(models.Attachment(
+        voucher_id=voucher.id,
+        kind="invoice",
+        original_name="invoice.pdf",
+        stored_path="/tmp/invoice.pdf",
+        mime_type="application/pdf",
+        size_bytes=100,
+    ))
     db.commit()
 
     page = vouchers.list_vouchers(page=1, page_size=20, db=db)
     item = next(i for i in page.items if i.id == voucher.id)
     check("凭证关联数量", item.link_count == 1)
     check("关联合同数量", item.contract_link_count == 1)
+    check("附件类型数量", item.attachment_kind_counts == {"invoice": 1})
+    check("缺失附件类型", item.missing_attachment_kinds == ["receipt"])
 
     set_current_tenant(None)
     db.close()

@@ -1201,6 +1201,7 @@ export interface VoucherCreate {
   note?: string
   customer_id?: number | null
   status?: string
+  required_attachment_kinds?: string[]
   entries: EntryIn[]
 }
 
@@ -1214,6 +1215,8 @@ export interface VoucherDetail {
   total_debit: string
   total_credit: string
   status: string
+  required_attachment_kinds: string[]
+  missing_attachment_kinds: string[]
   workflow_instance_id: number | null
   created_at: string
   entries: EntryOut[]
@@ -1237,9 +1240,12 @@ export interface VoucherListItem {
   total_debit: string
   total_credit: string
   status: string
+  required_attachment_kinds: string[]
+  missing_attachment_kinds: string[]
   workflow_instance_id: number | null
   entry_count: number
   attachment_count: number
+  attachment_kind_counts: Record<string, number>
   link_count: number
   contract_link_count: number
 }

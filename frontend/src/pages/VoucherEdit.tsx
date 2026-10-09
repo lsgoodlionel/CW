@@ -61,6 +61,7 @@ export default function VoucherEdit() {
       form.setFieldsValue({
         voucher_date: dayjs(v.voucher_date), note: v.note,
         voucher_no: v.voucher_no, customer_id: v.customer_id ?? undefined,
+        required_attachment_kinds: v.required_attachment_kinds || [],
       })
       setEntries(v.entries.length ? v.entries : [emptyEntry(), emptyEntry()])
       setAttachments(v.attachments)
@@ -76,6 +77,7 @@ export default function VoucherEdit() {
       form.setFieldsValue({
         voucher_date: dayjs(), note: v.note,
         voucher_no: '', customer_id: v.customer_id ?? undefined,
+        required_attachment_kinds: v.required_attachment_kinds || [],
       })
       const copied = v.entries.map((e) => ({
         summary: e.summary, account_id: e.account_id, sub_account: e.sub_account,
@@ -97,6 +99,13 @@ export default function VoucherEdit() {
 
   const totalDebit = entries.reduce((s, e) => s + toAmount(e.debit), 0)
   const totalCredit = entries.reduce((s, e) => s + toAmount(e.credit), 0)
+  const watchedRequiredKinds = Form.useWatch('required_attachment_kinds', form) as string[] | undefined
+  const attachmentKindCounts = useMemo(() => attachments.reduce<Record<string, number>>((acc, att) => {
+    acc[att.kind] = (acc[att.kind] || 0) + 1
+    return acc
+  }, {}), [attachments])
+  const missingAttachmentKinds = (watchedRequiredKinds || [])
+    .filter((kind) => !attachmentKindCounts[kind])
   // 允许红字(负数)冲销:借贷相等且不为零即可。
   // 按“分”取整比较,规避 310 + 401.91 = 711.9100000000001 这类浮点误差。
   const cents = (n: number) => Math.round(n * 100)
@@ -172,6 +181,7 @@ export default function VoucherEdit() {
       note: values.note || '',
       customer_id: values.customer_id ?? null,
       status: 'posted',
+      required_attachment_kinds: values.required_attachment_kinds || [],
       entries: valid.map((e) => ({
         summary: e.summary, account_id: e.account_id, sub_account: e.sub_account,
         // 编辑态可能仍是接口读回的字符串,提交前统一成数字
@@ -300,6 +310,23 @@ export default function VoucherEdit() {
 
       <Divider />
       <h3>附件凭证(发票 / 银行回单 / 合同 / 完税证明 / 其他)</h3>
+      <Form form={form} layout="inline" style={{ marginBottom: 12, rowGap: 8 }}>
+        <Form.Item name="required_attachment_kinds" label="需要附件">
+          <Select mode="multiple" allowClear placeholder="选择本凭证应补齐的原始单据"
+            style={{ minWidth: 360 }} options={KIND_OPTIONS} />
+        </Form.Item>
+        <Form.Item label="附件状态">
+          {watchedRequiredKinds?.length ? (
+            missingAttachmentKinds.length ? (
+              <Space size={4} wrap>
+                {missingAttachmentKinds.map((kind) => (
+                  <Tag key={kind} color="warning">缺{ATTACHMENT_KIND_LABEL[kind] || kind}</Tag>
+                ))}
+              </Space>
+            ) : <Tag color="success">附件齐</Tag>
+          ) : <Text type="secondary">未设置必需附件</Text>}
+        </Form.Item>
+      </Form>
       {!isEdit && <Text type="secondary">保存凭证后即可上传附件。</Text>}
       {isEdit && (
         <>
