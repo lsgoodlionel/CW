@@ -38,6 +38,8 @@ export default function VoucherEdit() {
   const [saving, setSaving] = useState(false)
   const [uploadKind, setUploadKind] = useState('invoice')
   const [previewing, setPreviewing] = useState<Attachment | null>(null)
+  const [mergedAttachmentKindCounts, setMergedAttachmentKindCounts] = useState<Record<string, number>>({})
+  const [attachmentSourceCounts, setAttachmentSourceCounts] = useState<Record<string, number>>({})
 
   useEffect(() => {
     http.get<AccountTreeNode[]>('/accounts/tree').then((r) => {
@@ -65,6 +67,8 @@ export default function VoucherEdit() {
       })
       setEntries(v.entries.length ? v.entries : [emptyEntry(), emptyEntry()])
       setAttachments(v.attachments)
+      setMergedAttachmentKindCounts(v.attachment_kind_counts || {})
+      setAttachmentSourceCounts(v.attachment_source_counts || {})
       setLinks(v.links)
     })
   }, [id, isEdit, form])
@@ -100,12 +104,18 @@ export default function VoucherEdit() {
   const totalDebit = entries.reduce((s, e) => s + toAmount(e.debit), 0)
   const totalCredit = entries.reduce((s, e) => s + toAmount(e.credit), 0)
   const watchedRequiredKinds = Form.useWatch('required_attachment_kinds', form) as string[] | undefined
-  const attachmentKindCounts = useMemo(() => attachments.reduce<Record<string, number>>((acc, att) => {
+  const selfAttachmentKindCounts = useMemo(() => attachments.reduce<Record<string, number>>((acc, att) => {
     acc[att.kind] = (acc[att.kind] || 0) + 1
     return acc
   }, {}), [attachments])
+  const effectiveAttachmentKindCounts = isEdit ? mergedAttachmentKindCounts : selfAttachmentKindCounts
   const missingAttachmentKinds = (watchedRequiredKinds || [])
-    .filter((kind) => !attachmentKindCounts[kind])
+    .filter((kind) => !effectiveAttachmentKindCounts[kind])
+  const sourceItems = [
+    ['self', '本凭证'],
+    ['linked_voucher', '关联凭证'],
+    ['linked_contract', '关联合同'],
+  ] as const
   // 允许红字(负数)冲销:借贷相等且不为零即可。
   // 按“分”取整比较,规避 310 + 401.91 = 711.9100000000001 这类浮点误差。
   const cents = (n: number) => Math.round(n * 100)
@@ -223,6 +233,8 @@ export default function VoucherEdit() {
       try {
         const r = await http.post<Attachment>(`/vouchers/${id}/attachments`, fd)
         setAttachments((prev) => [...prev, r.data])
+        setMergedAttachmentKindCounts((prev) => ({ ...prev, [r.data.kind]: (prev[r.data.kind] || 0) + 1 }))
+        setAttachmentSourceCounts((prev) => ({ ...prev, self: (prev.self || 0) + 1 }))
         message.success('附件已上传')
         opt.onSuccess?.({})
       } catch (e) {
@@ -233,7 +245,17 @@ export default function VoucherEdit() {
 
   const removeAttachment = (aid: number) =>
     http.delete(`/attachments/${aid}`).then(() => {
-      setAttachments((prev) => prev.filter((a) => a.id !== aid))
+      setAttachments((prev) => {
+        const removed = prev.find((a) => a.id === aid)
+        if (removed) {
+          setMergedAttachmentKindCounts((counts) => ({
+            ...counts,
+            [removed.kind]: Math.max((counts[removed.kind] || 0) - 1, 0),
+          }))
+          setAttachmentSourceCounts((counts) => ({ ...counts, self: Math.max((counts.self || 0) - 1, 0) }))
+        }
+        return prev.filter((a) => a.id !== aid)
+      })
       message.success('附件已删除')
     })
 
@@ -241,7 +263,17 @@ export default function VoucherEdit() {
     const fd = new FormData()
     fd.append('kind', kind)
     http.patch(`/attachments/${aid}`, fd).then(() => {
-      setAttachments((prev) => prev.map((a) => (a.id === aid ? { ...a, kind } : a)))
+      setAttachments((prev) => {
+        const old = prev.find((a) => a.id === aid)
+        if (old && old.kind !== kind) {
+          setMergedAttachmentKindCounts((counts) => ({
+            ...counts,
+            [old.kind]: Math.max((counts[old.kind] || 0) - 1, 0),
+            [kind]: (counts[kind] || 0) + 1,
+          }))
+        }
+        return prev.map((a) => (a.id === aid ? { ...a, kind } : a))
+      })
       message.success('附件类型已更新')
     })
   }
@@ -325,6 +357,13 @@ export default function VoucherEdit() {
               </Space>
             ) : <Tag color="success">附件齐</Tag>
           ) : <Text type="secondary">未设置必需附件</Text>}
+        </Form.Item>
+        <Form.Item label="统计来源">
+          <Space size={4} wrap>
+            {sourceItems.map(([key, label]) => (
+              <Tag key={key}>{label} {attachmentSourceCounts[key] || 0}</Tag>
+            ))}
+          </Space>
         </Form.Item>
       </Form>
       {!isEdit && <Text type="secondary">保存凭证后即可上传附件。</Text>}

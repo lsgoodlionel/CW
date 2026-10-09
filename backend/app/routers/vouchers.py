@@ -42,6 +42,94 @@ def _missing_attachment_kinds(
     return [kind for kind in required if counts.get(kind, 0) <= 0]
 
 
+def _merge_kind_counts(*parts: dict[str, int]) -> dict[str, int]:
+    merged: dict[str, int] = {}
+    for part in parts:
+        for kind, count in part.items():
+            merged[kind] = merged.get(kind, 0) + count
+    return merged
+
+
+def _attachment_context(db: Session, voucher_ids: list[int]) -> dict[int, tuple[dict[str, int], dict[str, int]]]:
+    if not voucher_ids:
+        return {}
+    idset = set(voucher_ids)
+    self_counts: dict[int, dict[str, int]] = {vid: {} for vid in voucher_ids}
+    source_counts: dict[int, dict[str, int]] = {
+        vid: {"self": 0, "linked_voucher": 0, "linked_contract": 0}
+        for vid in voucher_ids
+    }
+
+    self_rows = db.execute(
+        select(models.Attachment.voucher_id, models.Attachment.kind, func.count(models.Attachment.id))
+        .where(models.Attachment.voucher_id.in_(voucher_ids))
+        .group_by(models.Attachment.voucher_id, models.Attachment.kind)
+    ).all()
+    for voucher_id, kind, count in self_rows:
+        self_counts[voucher_id][kind] = self_counts[voucher_id].get(kind, 0) + count
+        source_counts[voucher_id]["self"] += count
+
+    linked_voucher_ids: dict[int, set[int]] = {vid: set() for vid in voucher_ids}
+    link_rows = db.execute(
+        select(models.VoucherLink.source_id, models.VoucherLink.target_id)
+        .where(or_(models.VoucherLink.source_id.in_(voucher_ids),
+                   models.VoucherLink.target_id.in_(voucher_ids)))
+    ).all()
+    for src, tgt in link_rows:
+        if src in idset:
+            linked_voucher_ids[src].add(tgt)
+        if tgt in idset:
+            linked_voucher_ids[tgt].add(src)
+
+    linked_counts: dict[int, dict[str, int]] = {vid: {} for vid in voucher_ids}
+    all_linked_ids = sorted({other for ids in linked_voucher_ids.values() for other in ids})
+    if all_linked_ids:
+        linked_rows = db.execute(
+            select(models.Attachment.voucher_id, models.Attachment.kind, func.count(models.Attachment.id))
+            .where(models.Attachment.voucher_id.in_(all_linked_ids))
+            .group_by(models.Attachment.voucher_id, models.Attachment.kind)
+        ).all()
+        counts_by_linked: dict[int, dict[str, int]] = {}
+        for voucher_id, kind, count in linked_rows:
+            counts_by_linked.setdefault(voucher_id, {})[kind] = count
+        for vid, others in linked_voucher_ids.items():
+            for other in others:
+                for kind, count in counts_by_linked.get(other, {}).items():
+                    linked_counts[vid][kind] = linked_counts[vid].get(kind, 0) + count
+                    source_counts[vid]["linked_voucher"] += count
+
+    contract_ids: dict[int, set[int]] = {vid: set() for vid in voucher_ids}
+    contract_rows = db.execute(
+        select(models.ContractVoucherLink.voucher_id, models.ContractVoucherLink.contract_id)
+        .where(models.ContractVoucherLink.voucher_id.in_(voucher_ids))
+    ).all()
+    for voucher_id, contract_id in contract_rows:
+        contract_ids[voucher_id].add(contract_id)
+
+    contract_counts: dict[int, dict[str, int]] = {vid: {} for vid in voucher_ids}
+    all_contract_ids = sorted({cid for ids in contract_ids.values() for cid in ids})
+    if all_contract_ids:
+        contract_att_rows = db.execute(
+            select(models.Attachment.contract_id, models.Attachment.kind, func.count(models.Attachment.id))
+            .where(models.Attachment.contract_id.in_(all_contract_ids))
+            .group_by(models.Attachment.contract_id, models.Attachment.kind)
+        ).all()
+        counts_by_contract: dict[int, dict[str, int]] = {}
+        for contract_id, kind, count in contract_att_rows:
+            counts_by_contract.setdefault(contract_id, {})[kind] = count
+        for vid, contracts in contract_ids.items():
+            for contract_id in contracts:
+                for kind, count in counts_by_contract.get(contract_id, {}).items():
+                    contract_counts[vid][kind] = contract_counts[vid].get(kind, 0) + count
+                    source_counts[vid]["linked_contract"] += count
+
+    return {
+        vid: (_merge_kind_counts(self_counts[vid], linked_counts[vid], contract_counts[vid]),
+              {k: v for k, v in source_counts[vid].items() if v > 0})
+        for vid in voucher_ids
+    }
+
+
 def _next_voucher_no(db: Session, voucher_date: date) -> str:
     """生成凭证号:记-YYYYMM-NNN。"""
     prefix = f"记-{voucher_date:%Y%m}-"
@@ -87,7 +175,7 @@ def _to_detail(voucher: models.Voucher, db: Session) -> schemas.VoucherDetail:
         item.account_name = e.account.name if e.account else ""
         entries.append(item)
     required = _parse_required_attachment_kinds(voucher.required_attachment_kinds)
-    kind_counts = _attachment_kind_counts(voucher.attachments)
+    kind_counts, source_counts = _attachment_context(db, [voucher.id]).get(voucher.id, ({}, {}))
     return schemas.VoucherDetail(
         id=voucher.id,
         voucher_no=voucher.voucher_no,
@@ -104,6 +192,8 @@ def _to_detail(voucher: models.Voucher, db: Session) -> schemas.VoucherDetail:
         created_at=voucher.created_at,
         entries=entries,
         attachments=[schemas.AttachmentOut.model_validate(a) for a in voucher.attachments],
+        attachment_kind_counts=kind_counts,
+        attachment_source_counts=source_counts,
         links=_linked_vouchers(db, voucher.id),
     )
 
@@ -172,12 +262,13 @@ def list_vouchers(
     ids = [v.id for v in vouchers]
     link_counts = _link_counts(db, ids)
     contract_link_counts = _contract_link_counts(db, ids)
+    attachment_context = _attachment_context(db, ids)
     items = []
     for v in vouchers:
         item = schemas.VoucherListItem.model_validate(v)
         item.entry_count = len(v.entries)
         item.attachment_count = len(v.attachments)
-        item.attachment_kind_counts = _attachment_kind_counts(v.attachments)
+        item.attachment_kind_counts, item.attachment_source_counts = attachment_context.get(v.id, ({}, {}))
         item.required_attachment_kinds = _parse_required_attachment_kinds(v.required_attachment_kinds)
         item.missing_attachment_kinds = _missing_attachment_kinds(
             item.required_attachment_kinds, item.attachment_kind_counts)

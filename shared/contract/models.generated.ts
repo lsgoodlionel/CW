@@ -1216,6 +1216,8 @@ export interface VoucherDetail {
   created_at: string
   entries: EntryOut[]
   attachments: AttachmentOut[]
+  attachment_kind_counts: Record<string, number>
+  attachment_source_counts: Record<string, number>
   links: LinkedVoucher[]
 }
 
@@ -1241,6 +1243,7 @@ export interface VoucherListItem {
   entry_count: number
   attachment_count: number
   attachment_kind_counts: Record<string, number>
+  attachment_source_counts: Record<string, number>
   link_count: number
   contract_link_count: number
 }

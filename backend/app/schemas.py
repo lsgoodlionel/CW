@@ -555,6 +555,7 @@ class VoucherListItem(BaseModel):
     entry_count: int = 0
     attachment_count: int = 0
     attachment_kind_counts: dict[str, int] = {}
+    attachment_source_counts: dict[str, int] = {}
     link_count: int = 0
     contract_link_count: int = 0
 
@@ -583,6 +584,8 @@ class VoucherDetail(BaseModel):
     created_at: datetime
     entries: list[EntryOut]
     attachments: list[AttachmentOut]
+    attachment_kind_counts: dict[str, int] = {}
+    attachment_source_counts: dict[str, int] = {}
     links: list[LinkedVoucher] = []
 
     @field_validator("required_attachment_kinds", mode="before")

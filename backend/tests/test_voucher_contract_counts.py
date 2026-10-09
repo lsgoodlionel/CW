@@ -38,7 +38,7 @@ def run():
         note="有关联的凭证",
         total_debit=Decimal("100.00"),
         total_credit=Decimal("100.00"),
-        required_attachment_kinds="invoice,receipt",
+        required_attachment_kinds="invoice,receipt,contract",
     )
     linked_voucher = models.Voucher(
         voucher_no="记-202610-002",
@@ -64,22 +64,48 @@ def run():
     db.add(contract)
     db.flush()
     db.add(models.ContractVoucherLink(contract_id=contract.id, voucher_id=voucher.id))
-    db.add(models.Attachment(
-        voucher_id=voucher.id,
-        kind="invoice",
-        original_name="invoice.pdf",
-        stored_path="/tmp/invoice.pdf",
-        mime_type="application/pdf",
-        size_bytes=100,
-    ))
+    db.add_all([
+        models.Attachment(
+            voucher_id=voucher.id,
+            kind="invoice",
+            original_name="invoice.pdf",
+            stored_path="/tmp/invoice.pdf",
+            mime_type="application/pdf",
+            size_bytes=100,
+        ),
+        models.Attachment(
+            voucher_id=linked_voucher.id,
+            kind="receipt",
+            original_name="receipt.pdf",
+            stored_path="/tmp/receipt.pdf",
+            mime_type="application/pdf",
+            size_bytes=100,
+        ),
+        models.Attachment(
+            contract_id=contract.id,
+            kind="contract",
+            original_name="contract.pdf",
+            stored_path="/tmp/contract.pdf",
+            mime_type="application/pdf",
+            size_bytes=100,
+        ),
+    ])
     db.commit()
 
     page = vouchers.list_vouchers(page=1, page_size=20, db=db)
     item = next(i for i in page.items if i.id == voucher.id)
     check("凭证关联数量", item.link_count == 1)
     check("关联合同数量", item.contract_link_count == 1)
-    check("附件类型数量", item.attachment_kind_counts == {"invoice": 1})
-    check("缺失附件类型", item.missing_attachment_kinds == ["receipt"])
+    check("附件类型数量含关联来源",
+          item.attachment_kind_counts == {"invoice": 1, "receipt": 1, "contract": 1})
+    check("附件来源数量", item.attachment_source_counts == {
+        "self": 1, "linked_voucher": 1, "linked_contract": 1})
+    check("关联来源补齐必需附件", item.missing_attachment_kinds == [])
+
+    detail = vouchers.get_voucher(voucher.id, db)
+    check("详情附件类型数量含关联来源",
+          detail.attachment_kind_counts == {"invoice": 1, "receipt": 1, "contract": 1})
+    check("详情关联来源补齐必需附件", detail.missing_attachment_kinds == [])
 
     set_current_tenant(None)
     db.close()
