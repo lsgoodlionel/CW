@@ -65,10 +65,10 @@ def export_excel(
     """按会小企模板一键导出年报/季报/月报 Excel。"""
     period = _resolve_period(report_type, year, month, quarter)
     content = report_excel.build_report_workbook(db, period)
-    fname = f"财务报表-{period.label}.xlsx"
+    fname = f"财务报表-{period.label}.xls"
     return StreamingResponse(
         iter([content]),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type="application/vnd.ms-excel",
         headers={"Content-Disposition":
                  f"attachment; filename*=UTF-8''{quote(fname)}"},
     )

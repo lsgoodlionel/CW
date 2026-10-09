@@ -1,11 +1,14 @@
-"""按会小企 01/02/03 模板生成 Excel(openpyxl),供一键导出下载。
+"""按会小企 01/02/03 模板生成 Excel,供一键导出下载。
 
-版式还原模板:标题合并、纳税人/所属期抬头、行次、列宽、边框。
+外部报送系统会校验 xls 模板结构,导出时复制官方模板后只填充数据。
 """
 import io
+from pathlib import Path
 
 from decimal import Decimal
 
+import xlrd
+from xlutils.copy import copy as copy_workbook
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Side, Font, PatternFill
 from openpyxl.utils import get_column_letter
@@ -24,6 +27,9 @@ RIGHT = Alignment(horizontal="right", vertical="center")
 TITLE_FONT = Font(bold=True, size=14)
 BOLD = Font(bold=True)
 HEAD_FILL = PatternFill("solid", fgColor="F2F2F2")
+TEMPLATE_DIR = Path(__file__).with_name("report_templates")
+MONTH_QUARTER_TEMPLATE = TEMPLATE_DIR / "month_quarter_report.xls"
+ANNUAL_TEMPLATE = TEMPLATE_DIR / "annual_report.xls"
 
 
 def _company(db: Session) -> models.CompanyInfo | None:
@@ -37,18 +43,112 @@ def _fmt(v) -> float | str:
 def build_report_workbook(db: Session, period: Period) -> bytes:
     company = _company(db)
     name = company.name if company else ""
+    tax_number = company.tax_number if company else ""
+    return _build_template_workbook(db, period, name, tax_number)
 
-    wb = Workbook()
-    wb.remove(wb.active)
-    _sheet_balance(wb, db, period, name)
-    _sheet_income(wb, db, period, name)
-    _sheet_cashflow(wb, db, period, name)
-    _sheet_trial_balance(wb, db, period, name)
+
+def _build_template_workbook(
+    db: Session, period: Period, company_name: str, tax_number: str
+) -> bytes:
+    template_path = ANNUAL_TEMPLATE if period.report_type == "year" else MONTH_QUARTER_TEMPLATE
+    rb = xlrd.open_workbook(str(template_path), formatting_info=True)
+    wb = copy_workbook(rb)
+
+    _fill_balance_sheet(
+        rb, wb, period, tax_number, company_name,
+        reports_cn.balance_sheet(db, period))
+    _fill_statement_sheet(
+        rb, wb, period, tax_number, company_name,
+        reports_cn.income_statement(db, period), "利润表")
+    _fill_statement_sheet(
+        rb, wb, period, tax_number, company_name,
+        reports_cn.cashflow_statement(db, period), "现金流量表")
 
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
     return buf.read()
+
+
+def _write_keep_style(rb_sheet, ws, row: int, col: int, value) -> None:
+    """写入值后恢复模板原单元格 xf 样式。row/col 均为 0-based。"""
+    xf_idx = _current_xf_idx(ws, row, col)
+    if xf_idx is None:
+        xf_idx = rb_sheet.cell_xf_index(row, col)
+    ws.write(row, col, value)
+    ws._Worksheet__rows[row]._Row__cells[col].xf_idx = xf_idx
+
+
+def _current_xf_idx(ws, row: int, col: int) -> int | None:
+    row_obj = ws._Worksheet__rows.get(row)
+    if row_obj is None:
+        return None
+    cell = row_obj._Row__cells.get(col)
+    return getattr(cell, "xf_idx", None)
+
+
+def _sheet_pair(rb, wb, prefix: str):
+    for idx, name in enumerate(rb.sheet_names()):
+        if name.startswith(prefix):
+            return rb.sheet_by_index(idx), wb.get_sheet(idx)
+    raise ValueError(f"模板缺少工作表:{prefix}")
+
+
+def _fill_common_header(rb_sheet, ws, period: Period, tax_number: str,
+                        company_name: str, is_balance: bool) -> None:
+    if is_balance:
+        _write_keep_style(rb_sheet, ws, 2, 3, tax_number)
+        _write_keep_style(rb_sheet, ws, 2, 7, company_name)
+        _write_keep_style(rb_sheet, ws, 3, 3, period.cur_start.isoformat())
+        _write_keep_style(rb_sheet, ws, 3, 7, period.cur_end.isoformat())
+    else:
+        _write_keep_style(rb_sheet, ws, 2, 3, tax_number)
+        _write_keep_style(rb_sheet, ws, 2, 5, company_name)
+        _write_keep_style(rb_sheet, ws, 3, 3, period.cur_start.isoformat())
+        _write_keep_style(rb_sheet, ws, 3, 5, period.cur_end.isoformat())
+
+
+def _fill_balance_sheet(rb, wb, period: Period, tax_number: str,
+                        company_name: str, data: dict) -> None:
+    rb_sheet, ws = _sheet_pair(rb, wb, "资产负债表")
+    _fill_common_header(rb_sheet, ws, period, tax_number, company_name, True)
+    assets = {row["line"]: row for row in data["assets"] if row["line"]}
+    rights = {row["line"]: row for row in data["rights"] if row["line"]}
+    for rowx in range(rb_sheet.nrows):
+        left_line = rb_sheet.cell_value(rowx, 2) if rb_sheet.ncols > 2 else ""
+        right_line = rb_sheet.cell_value(rowx, 6) if rb_sheet.ncols > 6 else ""
+        if isinstance(left_line, float):
+            item = assets.get(int(left_line))
+            if item:
+                _write_keep_style(rb_sheet, ws, rowx, 3, _num(item.get("end")))
+                _write_keep_style(rb_sheet, ws, rowx, 4, _num(item.get("begin")))
+        if isinstance(right_line, float):
+            item = rights.get(int(right_line))
+            if item:
+                _write_keep_style(rb_sheet, ws, rowx, 7, _num(item.get("end")))
+                _write_keep_style(rb_sheet, ws, rowx, 8, _num(item.get("begin")))
+
+
+def _fill_statement_sheet(rb, wb, period: Period, tax_number: str,
+                          company_name: str, data: dict, prefix: str) -> None:
+    rb_sheet, ws = _sheet_pair(rb, wb, prefix)
+    _fill_common_header(rb_sheet, ws, period, tax_number, company_name, False)
+    rows = {row["line"]: row for row in data["rows"] if row["line"]}
+    for rowx in range(rb_sheet.nrows):
+        line = rb_sheet.cell_value(rowx, 2) if rb_sheet.ncols > 2 else ""
+        if not isinstance(line, float):
+            continue
+        item = rows.get(int(line))
+        if not item:
+            continue
+        _write_keep_style(rb_sheet, ws, rowx, 3, _num(item.get("col1")))
+        _write_keep_style(rb_sheet, ws, rowx, 4, _num(item.get("col2")))
+
+
+def _num(value) -> float:
+    if value is None:
+        return 0.0
+    return float(value)
 
 
 def _header_block(ws, title: str, form_no: str, name: str, period: Period,
