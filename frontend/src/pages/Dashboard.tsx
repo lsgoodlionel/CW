@@ -1,10 +1,11 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Row, Col, Card, Statistic, Spin, Empty, Segmented, DatePicker, Space, Tag, Progress, Alert } from 'antd'
+import { Row, Col, Card, Statistic, Spin, Empty, Segmented, DatePicker, Space, Tag, Progress, Alert, Button } from 'antd'
 import {
   BankOutlined, WalletOutlined, RiseOutlined, FallOutlined,
   AccountBookOutlined, FileTextOutlined, ArrowUpOutlined, ArrowDownOutlined,
   AuditOutlined, SolutionOutlined, FileDoneOutlined, TeamOutlined, IdcardOutlined,
   FileProtectOutlined, CalculatorOutlined, GoldOutlined, PayCircleOutlined,
+  DownOutlined, UpOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -28,6 +29,7 @@ export default function Dashboard() {
   const [refDate, setRefDate] = useState<Dayjs>(dayjs())
   const [data, setData] = useState<DashboardWithTaxAudit | null>(null)
   const [loading, setLoading] = useState(true)
+  const [taxAuditExpanded, setTaxAuditExpanded] = useState(false)
 
   const params = useMemo(() => ({
     period_type: periodType, ref_date: refDate.format('YYYY-MM-DD'),
@@ -110,22 +112,42 @@ export default function Dashboard() {
       </Row>
 
       {data.tax_audit && (
-        <Card size="small" title="税务联动审查" style={{ marginTop: 12 }} styles={{ body: { padding: 12 } }}>
-          {taxIssueCount === 0 ? (
-            <Alert type="success" showIcon message="税务凭证、应交税费明细与申报记录暂未发现异常" />
-          ) : (
-            <Alert type={taxIssues.some((i) => i.level === 'error') ? 'error' : 'warning'} showIcon
-              message={`发现 ${taxIssueCount} 项税务联动提示`}
-              description={
-                <div>
-                  {taxIssues.slice(0, 3).map((i) => (
-                    <div key={`${i.code}-${i.title}`}>{i.title}: {i.message}</div>
-                  ))}
-                  <a onClick={() => navigate('/tax')}>前往税务管理查看明细</a>
-                </div>
-              } />
-          )}
-        </Card>
+        <Alert
+          style={{ marginTop: 12, paddingTop: 6, paddingBottom: 6, alignItems: 'center' }}
+          type={taxIssueCount === 0 ? 'success' : taxIssues.some((i) => i.level === 'error') ? 'error' : 'warning'}
+          showIcon
+          message={
+            <Space size={8} wrap>
+              <span>税务联动审查</span>
+              <Tag color={taxIssueCount === 0 ? 'success' : 'warning'} style={{ marginInlineEnd: 0 }}>
+                {taxIssueCount === 0 ? '暂未发现异常' : `发现 ${taxIssueCount} 项提示`}
+              </Tag>
+              {data.tax_audit.tax_payable_subaccounts.length > 0 && (
+                <span style={{ color: '#666' }}>
+                  应交税费余额 {yuan(data.tax_audit.tax_payable_subaccounts.reduce((s, i) => s + i.balance, 0))}
+                </span>
+              )}
+            </Space>
+          }
+          description={taxAuditExpanded ? (
+            taxIssueCount === 0 ? (
+              <div style={{ marginTop: 4 }}>税务凭证、应交税费明细与申报记录暂未发现异常。</div>
+            ) : (
+              <div style={{ marginTop: 4 }}>
+                {taxIssues.slice(0, 3).map((i) => (
+                  <div key={`${i.code}-${i.title}`}>{i.title}: {i.message}</div>
+                ))}
+                <a onClick={() => navigate('/tax')}>前往税务管理查看明细</a>
+              </div>
+            )
+          ) : undefined}
+          action={
+            <Button size="small" type="text" icon={taxAuditExpanded ? <UpOutlined /> : <DownOutlined />}
+              onClick={() => setTaxAuditExpanded((v) => !v)}>
+              {taxAuditExpanded ? '收起' : '展开'}
+            </Button>
+          }
+        />
       )}
 
       {/* 运营 / 待办(覆盖各模块) */}
