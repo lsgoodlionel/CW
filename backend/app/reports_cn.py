@@ -490,6 +490,7 @@ def _cashflow_values(db: Session, start: date, end: date,
         .join(models.VoucherEntry, models.VoucherEntry.voucher_id == models.Voucher.id)
         .join(models.Account, models.Account.id == models.VoucherEntry.account_id)
         .where(models.Account.code.in_(CASH_CODES),
+               models.Voucher.status == "posted",
                models.Voucher.voucher_date >= start,
                models.Voucher.voucher_date <= end)
     ).all())

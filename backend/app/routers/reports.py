@@ -251,7 +251,12 @@ def dashboard_summary(
     """首页概览:凭证数、收入、支出、净利润、近 6 月趋势。"""
     income = income_statement(start, end, db)
     revenue = income["lines"][0]["amount"]  # 营业收入
-    voucher_count = db.scalar(select(func.count(models.Voucher.id))) or 0
+    voucher_stmt = select(func.count(models.Voucher.id)).where(models.Voucher.status == "posted")
+    if start:
+        voucher_stmt = voucher_stmt.where(models.Voucher.voucher_date >= start)
+    if end:
+        voucher_stmt = voucher_stmt.where(models.Voucher.voucher_date <= end)
+    voucher_count = db.scalar(voucher_stmt) or 0
 
     # 总支出 = 营业收入 - 净利润(粗略,用于概览)
     expense = revenue - income["net_profit"]
@@ -282,7 +287,8 @@ def _monthly_trend(db: Session, months: int = 6):
         )
         .join(models.Voucher, models.Voucher.id == models.VoucherEntry.voucher_id)
         .join(models.Account, models.Account.id == models.VoucherEntry.account_id)
-        .where(models.Account.category == "profit")
+        .where(models.Account.category == "profit",
+               models.Voucher.status == "posted")
         .group_by(models.Voucher.voucher_date, models.Account.code)
     ).all()
 
@@ -356,6 +362,7 @@ def dashboard(
 
     voucher_count = db.scalar(
         select(func.count(models.Voucher.id)).where(
+            models.Voucher.status == "posted",
             models.Voucher.voucher_date >= start,
             models.Voucher.voucher_date <= end)) or 0
 
