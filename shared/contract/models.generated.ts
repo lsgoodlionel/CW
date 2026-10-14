@@ -5,7 +5,7 @@
  * 重新生成:node scripts/gen-contract.mjs
  *
  * 这里的名字沿用后端 schema 名;前端习惯用的短名见同目录 models.ts 的别名映射。
- * 共 137 个类型。
+ * 共 141 个类型。
  */
 /* eslint-disable */
 
@@ -345,6 +345,7 @@ export interface DashboardOut {
   trend: TrendPointOut[]
   ops: OpsSummaryOut
   finance: FinanceOut
+  tax_audit: TaxAuditOut | null
 }
 
 export interface DashboardPeriodOut {
@@ -985,6 +986,23 @@ export interface TaxAdjustmentSave {
   items?: TaxAdjustmentItem[]
 }
 
+export interface TaxAuditIssueOut {
+  code: string
+  level: string
+  title: string
+  message: string
+  amount: number
+  related: string[]
+}
+
+export interface TaxAuditOut {
+  as_of: string
+  tax_payable_total: number
+  tax_payable_subaccounts: TaxPayableSubaccountOut[]
+  issues: TaxAuditIssueOut[]
+  filings: TaxFilingAuditOut[]
+}
+
 export interface TaxDepreciationItem {
   line_no: string
   orig_value?: number | string
@@ -997,6 +1015,20 @@ export interface TaxDepreciationItem {
 export interface TaxDepreciationSave {
   report_year: number
   items?: TaxDepreciationItem[]
+}
+
+export interface TaxFilingAuditOut {
+  filing_id: number
+  tax_type: string
+  tax_type_label: string
+  period: string
+  status: string
+  tax_amount: number
+  paid_amount: number
+  expected_sub_account: string | null
+  account_balance: number | null
+  current_balance: number
+  issues: Record<string, unknown>[]
 }
 
 export interface TaxFilingIn {
@@ -1042,6 +1074,13 @@ export interface TaxLossItem {
 export interface TaxLossSave {
   report_year: number
   items?: TaxLossItem[]
+}
+
+export interface TaxPayableSubaccountOut {
+  sub_account: string
+  debit: number
+  credit: number
+  balance: number
 }
 
 export interface TaxPreferenceItem {

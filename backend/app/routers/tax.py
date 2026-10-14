@@ -7,9 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
-from .. import models, schemas, attach_svc, tax_report, auth_svc, workflow_svc
+from .. import models, schemas, attach_svc, tax_report, tax_reconcile, auth_svc, workflow_svc
 from ..auth_mw import current_user
 from .attachments import read_upload
+from ..schemas_read import TaxAuditOut
 
 router = APIRouter(prefix="/api/tax", tags=["tax"])
 
@@ -33,6 +34,14 @@ def _load(db: Session, fid: int) -> models.TaxFiling:
 def tax_meta(db: Session = Depends(get_db)):
     return {"tax_type": TAX_TYPE_LABEL, "taxpayer_type": TAXPAYER_LABEL, "status": STATUS_LABEL,
             "approval_enabled": workflow_svc.has_active(db, "tax")}
+
+
+@router.get("/audit", response_model=TaxAuditOut)
+def tax_audit(as_of: str | None = None, db: Session = Depends(get_db)):
+    """税务凭证、财务报表与税务申报记录联动审查。"""
+    from datetime import date
+    day = date.fromisoformat(as_of) if as_of else None
+    return tax_reconcile.audit(db, day)
 
 
 def _tax_can_direct(db: Session, user) -> bool:

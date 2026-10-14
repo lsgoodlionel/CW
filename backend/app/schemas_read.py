@@ -236,6 +236,44 @@ class FinanceOut(BaseModel):
     net_margin: float = 0          # 净利率 = 净利润/收入
 
 
+class TaxAuditIssueOut(BaseModel):
+    code: str
+    level: str
+    title: str
+    message: str
+    amount: float = 0
+    related: list[str] = []
+
+
+class TaxPayableSubaccountOut(BaseModel):
+    sub_account: str
+    debit: float
+    credit: float
+    balance: float
+
+
+class TaxFilingAuditOut(BaseModel):
+    filing_id: int
+    tax_type: str
+    tax_type_label: str
+    period: str
+    status: str
+    tax_amount: float
+    paid_amount: float
+    expected_sub_account: str | None = None
+    account_balance: float | None = None
+    current_balance: float = 0
+    issues: list[dict] = []
+
+
+class TaxAuditOut(BaseModel):
+    as_of: str
+    tax_payable_total: float
+    tax_payable_subaccounts: list[TaxPayableSubaccountOut]
+    issues: list[TaxAuditIssueOut]
+    filings: list[TaxFilingAuditOut] = []
+
+
 class DashboardOut(BaseModel):
     period: DashboardPeriodOut
     money: MoneyOut
@@ -250,6 +288,7 @@ class DashboardOut(BaseModel):
     trend: list[TrendPointOut]
     ops: OpsSummaryOut
     finance: FinanceOut = FinanceOut()
+    tax_audit: TaxAuditOut | None = None
 
 
 # ---------- 官方三表 ----------

@@ -16,6 +16,20 @@ interface TaxFiling {
   filed_date: string | null; status: string; note: string; attachments: Attachment[]
   workflow_instance_id: number | null
 }
+interface TaxAuditIssue { code: string; level: string; title: string; message: string; amount: number; related: string[] }
+interface TaxSubBalance { sub_account: string; debit: number; credit: number; balance: number }
+interface TaxFilingAudit {
+  filing_id: number; tax_type: string; tax_type_label: string; period: string; status: string
+  tax_amount: number; paid_amount: number; expected_sub_account: string | null
+  account_balance: number | null; current_balance: number
+  issues: { code: string; level: string; message: string }[]
+}
+interface TaxAudit {
+  as_of: string; tax_payable_total: number
+  tax_payable_subaccounts: TaxSubBalance[]
+  issues: TaxAuditIssue[]
+  filings: TaxFilingAudit[]
+}
 interface Meta { tax_type: Record<string, string>; taxpayer_type: Record<string, string>; status: Record<string, string>; approval_enabled?: boolean }
 interface CitRow { line_no: string; label: string; amount: number; level: number; category?: string }
 interface A104Row { line_no: string; label: string; sell: number; admin: number; fin: number }
@@ -81,11 +95,13 @@ function Filings({ meta }: { meta: Meta }) {
   const [existingAtt, setExistingAtt] = useState<Attachment[]>([])
   const [attView, setAttView] = useState<TaxFiling | null>(null)   // 查看某记录附件列表
   const [previewing, setPreviewing] = useState<Attachment | null>(null)
+  const [audit, setAudit] = useState<TaxAudit | null>(null)
   const [form] = Form.useForm()
 
   const load = useCallback(() => {
     setLoading(true)
     http.get<TaxFiling[]>('/tax/filings').then((r) => setRows(r.data)).finally(() => setLoading(false))
+    http.get<TaxAudit>('/tax/audit').then((r) => setAudit(r.data))
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -138,6 +154,12 @@ function Filings({ meta }: { meta: Meta }) {
       r.workflow_instance_id && s === 'pending'
         ? <Tag color="processing">审批中</Tag>
         : <Tag color={STATUS_COLOR[s]}>{meta.status[s] || s}</Tag>) },
+    { title: '联动审查', width: 120, render: (_: unknown, r: TaxFiling) => {
+      const a = audit?.filings.find((x) => x.filing_id === r.id)
+      if (!a) return '-'
+      if (!a.issues.length) return <Tag color="success">账务一致</Tag>
+      return <Tag color={a.issues.some((i) => i.level === 'warning') ? 'warning' : 'blue'}>{a.issues.length} 项提示</Tag>
+    } },
     { title: '备注', dataIndex: 'note', ellipsis: true, render: (v: string) => v || '-' },
     { title: '附件', dataIndex: 'attachments', width: 70, align: 'center' as const,
       render: (a: Attachment[], r: TaxFiling) => (a && a.length
@@ -162,6 +184,28 @@ function Filings({ meta }: { meta: Meta }) {
       <Space style={{ marginBottom: 12 }}>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit(null)}>新增申报记录</Button>
       </Space>
+      {audit && (
+        <Card size="small" title="税务凭证 / 报表 / 申报联动审查" style={{ marginBottom: 12 }}>
+          {audit.issues.length === 0 ? (
+            <Alert type="success" showIcon message="暂未发现应交税费明细串户或申报记录联动异常" />
+          ) : (
+            <Alert type={audit.issues.some((i) => i.level === 'error') ? 'error' : 'warning'} showIcon
+              message={`发现 ${audit.issues.length} 项联动提示`}
+              description={audit.issues.slice(0, 5).map((i) => (
+                <div key={`${i.code}-${i.title}`}>{i.title}: {i.message}</div>
+              ))} />
+          )}
+          <Table rowKey="sub_account" size="small" pagination={false} style={{ marginTop: 8 }}
+            dataSource={audit.tax_payable_subaccounts}
+            columns={[
+              { title: '应交税费明细', dataIndex: 'sub_account' },
+              { title: '借方累计', dataIndex: 'debit', width: 120, align: 'right' as const, render: formatYuan },
+              { title: '贷方累计', dataIndex: 'credit', width: 120, align: 'right' as const, render: formatYuan },
+              { title: '余额(贷方为正)', dataIndex: 'balance', width: 140, align: 'right' as const,
+                render: (v: number) => <span style={{ color: v < 0 ? '#cf1322' : undefined }}>{formatYuan(v)}</span> },
+            ]} />
+        </Card>
+      )}
       <Table rowKey="id" size="small" loading={loading} columns={columns} dataSource={rows}
         pagination={{ pageSize: 15, showTotal: (t) => `共 ${t} 条` }} />
 

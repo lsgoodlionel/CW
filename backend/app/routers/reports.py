@@ -13,7 +13,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from .. import models, reports_cn, report_excel
+from .. import models, reports_cn, report_excel, tax_reconcile
 from ..schemas_read import DashboardOut, OfficialReportsOut, TrialBalanceOut
 from ..voucher_attachments import count_missing_attachment_vouchers
 
@@ -404,6 +404,7 @@ def dashboard(
         "trend": _monthly_trend(db, months=6),
         "ops": ops,
         "finance": finance,
+        "tax_audit": tax_reconcile.audit(db, end),
     }
 
 

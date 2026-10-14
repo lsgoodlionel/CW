@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Row, Col, Card, Statistic, Spin, Empty, Segmented, DatePicker, Space, Tag, Progress } from 'antd'
+import { Row, Col, Card, Statistic, Spin, Empty, Segmented, DatePicker, Space, Tag, Progress, Alert } from 'antd'
 import {
   BankOutlined, WalletOutlined, RiseOutlined, FallOutlined,
   AccountBookOutlined, FileTextOutlined, ArrowUpOutlined, ArrowDownOutlined,
@@ -14,6 +14,9 @@ import dayjs, { Dayjs } from 'dayjs'
 import { http, DashboardData, formatYuan as yuan } from '../api'
 
 type PeriodType = 'day' | 'month' | 'quarter' | 'year'
+type TaxAuditIssue = { code: string; level: string; title: string; message: string; amount: number; related: string[] }
+type TaxAudit = { issues: TaxAuditIssue[]; tax_payable_subaccounts: { sub_account: string; balance: number }[] }
+type DashboardWithTaxAudit = DashboardData & { tax_audit?: TaxAudit | null }
 
 const EXP_COLORS = ['#1f6feb', '#52c41a', '#faad14', '#eb2f96', '#722ed1', '#13c2c2', '#fa541c']
 const BODY = { body: { padding: '10px 12px' } }
@@ -23,7 +26,7 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const [periodType, setPeriodType] = useState<PeriodType>('month')
   const [refDate, setRefDate] = useState<Dayjs>(dayjs())
-  const [data, setData] = useState<DashboardData | null>(null)
+  const [data, setData] = useState<DashboardWithTaxAudit | null>(null)
   const [loading, setLoading] = useState(true)
 
   const params = useMemo(() => ({
@@ -32,7 +35,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     setLoading(true)
-    http.get<DashboardData>('/reports/dashboard', { params })
+    http.get<DashboardWithTaxAudit>('/reports/dashboard', { params })
       .then((r) => setData(r.data)).finally(() => setLoading(false))
   }, [params])
 
@@ -45,6 +48,8 @@ export default function Dashboard() {
   const fin = data.finance
   const ops = data.ops
   const lab = data.period.label
+  const taxIssues = data.tax_audit?.issues || []
+  const taxIssueCount = taxIssues.length
 
   // 紧凑 KPI 卡
   const Kpi = ({ span = 3, title, value, prefix, suffix = '元', color, precision = 2, onClick }: {
@@ -103,6 +108,25 @@ export default function Dashboard() {
         <Kpi span={4} title="应交税费" value={data.tax_payable} color="#d48806" />
         <Kpi span={4} title="银行存款" value={data.money.bank} prefix={<BankOutlined />} />
       </Row>
+
+      {data.tax_audit && (
+        <Card size="small" title="税务联动审查" style={{ marginTop: 12 }} styles={{ body: { padding: 12 } }}>
+          {taxIssueCount === 0 ? (
+            <Alert type="success" showIcon message="税务凭证、应交税费明细与申报记录暂未发现异常" />
+          ) : (
+            <Alert type={taxIssues.some((i) => i.level === 'error') ? 'error' : 'warning'} showIcon
+              message={`发现 ${taxIssueCount} 项税务联动提示`}
+              description={
+                <div>
+                  {taxIssues.slice(0, 3).map((i) => (
+                    <div key={`${i.code}-${i.title}`}>{i.title}: {i.message}</div>
+                  ))}
+                  <a onClick={() => navigate('/tax')}>前往税务管理查看明细</a>
+                </div>
+              } />
+          )}
+        </Card>
+      )}
 
       {/* 运营 / 待办(覆盖各模块) */}
       <Card size="small" title="运营 / 待办概览" style={{ marginTop: 12 }} styles={{ body: { padding: 12 } }}>

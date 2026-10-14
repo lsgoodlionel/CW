@@ -19,6 +19,7 @@
 - 年初余额 = 上年 12-31 的累计余额
 - 上年金额 = 上一年度全年发生额
 - 三张官方报表、科目汇总表与账簿均只统计 `posted` 已入账凭证;`draft` 草稿/审批中凭证不进入财务数字
+- 税务联动审查按 `2221 应交税费` 明细科目汇总期末余额,并与税务申报记录交叉检查;若一级余额为 0 但明细税种一正一负互抵,仪表盘和税务管理页会提示“应交税费明细互抵”
 
 ## 科目 → 报表行次映射
 
@@ -49,4 +50,7 @@ GET /api/reports/official?report_type=month|quarter|year&year=&month=&quarter=
 
 GET /api/reports/export-excel?report_type=...&year=...&month=...&quarter=...
     → 按会小企模板导出 .xls(三个 sheet)
+
+GET /api/tax/audit?as_of=YYYY-MM-DD
+    → 税务凭证、财务报表与税务申报记录联动审查
 ```
