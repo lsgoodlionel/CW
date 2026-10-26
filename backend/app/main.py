@@ -16,6 +16,7 @@ from .routers import (
     about, contracts, tax, platform, diag,
 )
 from . import diag as diag_svc
+from .version import APP_NAME, APP_VERSION
 
 
 @asynccontextmanager
@@ -27,7 +28,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="小企业财务记账系统", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=lifespan)
 
 origins = ["*"] if settings.cors_origins.strip() == "*" else [
     o.strip() for o in settings.cors_origins.split(",") if o.strip()

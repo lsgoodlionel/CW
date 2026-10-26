@@ -44,7 +44,7 @@
 
 | 模块 | 能力 |
 |---|---|
-| 记账凭证 | 多行分录、科目下拉、实时借贷平衡校验、自动凭证号、**红字(负数)冲销**、关联客户、凭证间关联(预收/挂账/核销/应收/冲销),列表同时显示凭证关联、关联合同数量与附件补齐状态 |
+| 记账凭证 | 多行分录、科目下拉、实时借贷平衡校验、自动凭证号、**红字(负数)冲销**、**复制新建**、关联客户、凭证间关联(预收/挂账/核销/应收/冲销),列表同时显示凭证关联、关联合同数量与附件补齐状态;大额凭证可走审批 |
 | 往来单位 | 企业客户/个人客户/供应商/往来单位(银行、平台、租赁等)分类维护、往来业务历史、与凭证联动 |
 | 人员管理 | 灵活多级组织架构 + 员工档案(股东/管理层/普通员工);**支持一人多岗**(跨多部门兼任不同角色),部门可选已有人员添加兼职 |
 | 附件管理 | 发票/银行回单/合同/完税证明/其他上传、类型可修改、在线预览(图片/PDF/文本)、下载 |
@@ -57,7 +57,7 @@
 | 费用报销 | **事后管理**:报销申请单+费用明细,可**关联事前费用申请**(自动带出事由与明细),提交走审批流程,通过后一键生成记账凭证(借费用/贷银行);**申请附件自动同步到生成的凭证附件** |
 | 合同管理 | 录入与管理合同(销售/采购/服务/租赁等)、上传合同附件、**关联记账凭证**(一份合同对应多张分期收付款凭证) |
 | 税务管理 | 记录各税种申报结果(**国税/自然人**,印花税·增值税及附加·企业所得税·个人所得税等);**企业所得税月(季)度预缴申报表(A类 A200000)** 按账套自动计算并导出 Excel |
-| 用户与权限 | **全站强制登录** + RBAC(角色×权限矩阵、查看/新建/编辑/删除/审批)、**按部门+职位授权预设**(一键填充/批量应用)、超级管理员与子管理员、修改密码 |
+| 用户与权限 | **全站强制登录**(30 分钟无操作自动退出)+ RBAC(角色×权限矩阵、查看/新建/编辑/删除/审批/直录)、**按部门+职位授权预设**(一键填充/批量应用)、超级管理员 / 租户管理员 / 普通用户三级(见[权限与角色](#权限与角色))、修改密码 |
 | 操作日志 | 全系统行为留痕(含**修改前后差异详情**),按类型+年月季查询、展开看详情、一键导出 PDF |
 | 数据备份 | 整站数据(含附件、租户与成员)一键导出 zip / 导入恢复;SaaS 下按当前租户作用域导出 |
 | 多租户 SaaS | `DEPLOY_MODE` 切换私有化/多租户;共享库 + `tenant_id` 行级隔离(SQLAlchemy 全局自动过滤,含 SELECT/UPDATE/DELETE);登录选租户、令牌携带并校验租户、科目/角色按租户唯一 |
@@ -74,7 +74,9 @@
 - 一张凭证含多条分录(摘要、会计科目、明细科目、借方、贷方)
 - **强制复式平衡**:保存时校验 `Σ借方 = Σ贷方`,前后端双重校验
 - 凭证号可留空自动生成(`记-YYYYMM-NNN`)
-- 按日期区间、凭证号/摘要关键字检索,分页列表;列表「关联」列分别展示凭证关联数量与关联合同数量;「附件」列按类型展示数量,「状态」列提示缺哪些必需附件
+- 按日期区间、凭证号/摘要关键字、往来单位、科目(费用类型)、收支类型检索,分页列表;列表「关联」列分别展示凭证关联数量与关联合同数量;「附件」列按类型展示数量,「状态」列提示缺哪些必需附件
+- **复制新建**:以某张凭证的摘要/科目/明细/金额为模板新建凭证(日期取当天、凭证号自动生成、不带附件与关联),适合每月重复凭证
+- **大额凭证审批**:「企业信息」设置大额凭证审批阈值(0=不启用)后,超阈值且无「直录」权限的凭证保存为草稿,经「提交审批」通过后自动入账
 
 ### 2. 附件(原始单据)
 - 每张凭证可上传多个附件,分类为**发票 / 银行回单 / 合同 / 完税证明 / 费用审批记录 / 其他**;已上传附件的类型可随时修改
@@ -194,6 +196,7 @@
 - **私有化**:首次启动按 `.env` 的 `ADMIN_PASSWORD` 自动创建超管 `admin`(**请登录后立即改密**);`ADMIN_PASSWORD` 留空则同样进入首登设置。
 - **SaaS**:默认**不预置任何账号**,首次访问页面创建平台超级管理员;之后超管在「用户与权限」建用户/角色,在「平台管理」开通租户与成员。
 - 生产环境务必在 `.env` 设置随机 `AUTH_SECRET`。
+- 登录后 30 分钟无任何操作,前端自动清除登录状态并返回登录页。
 - RBAC:按模块×动作(查看/新建/编辑/删除/审批,及合同/税务/凭证的**直录 direct** 免审批)授权;合同/税务/大额凭证接入审批引擎,授权岗位可直录、未授权需审批。
 
 ## 技术栈与架构
@@ -266,7 +269,8 @@
 | `/users` | 用户与权限 | 用户/角色/权限矩阵、授权预设 |
 | `/platform` | 平台管理(超管) | 租户与成员、套餐/到期(仅 SaaS 超管可见) |
 | `/diagnostics` | 运行诊断(超管) | 诊断状态、最近日志、手动打包上传 |
-| `/settings` | 企业信息 | 企业资料 + 数据备份/恢复 |
+| `/settings` | 企业信息 | 企业资料、纳税人身份、大额凭证审批阈值 + 数据备份/恢复 |
+| `/about` | 关于系统 | 版本信息、在线查看/下载操作手册、问题反馈 |
 | `/login` · `/register` | 登录 / 注册 | 登录(选租户)、访客自助注册(SaaS)、首登设置超管 |
 
 ---
@@ -278,6 +282,7 @@
 ```
 # 系统
 GET    /api/health
+GET    /api/about                                  # 版本与关于信息
 
 # 企业信息
 GET    /api/company
@@ -308,6 +313,7 @@ PUT    /api/personnel/employees/{id}         DELETE /api/personnel/employees/{id
 GET    /api/vouchers            GET /api/vouchers/{id}
 POST   /api/vouchers            PUT /api/vouchers/{id}     DELETE /api/vouchers/{id}
 POST   /api/vouchers/{id}/reverse            # 红字冲销
+POST   /api/vouchers/{id}/submit             # 大额凭证提交审批
 POST   /api/vouchers/{id}/links              DELETE /api/vouchers/links/{id}   # 凭证关联
 
 # 附件
@@ -346,13 +352,33 @@ GET    /api/auth/register-open POST /api/auth/register      # 自助注册(saas 
 # 用户与权限(RBAC)
 GET/POST/PUT/DELETE /api/users              POST /api/users/{id}/reset-password
 GET/POST/PUT/DELETE /api/roles              GET /api/auth/permission-catalog
-GET/POST/PUT/DELETE /api/auth-presets
+GET/POST/PUT/DELETE /api/auth-presets      GET /api/auth-presets/resolve   POST /api/auth-presets/apply
 
-# 合同 / 税务 / 费用 / 审批
-GET/POST/PUT/DELETE /api/contracts          POST /api/contracts/{id}/submit
-GET/POST/PUT/DELETE /api/tax/filings        POST /api/tax/filings/{id}/submit
-GET/POST/PUT/DELETE /api/expense-apply | /api/expense
-GET    /api/workflow/definitions | /instances | /my-tasks   POST .../approve | .../reject
+# 合同
+GET/POST/PUT/DELETE /api/contracts          POST /api/contracts/{id}/submit | /attachments
+POST   /api/contracts/{id}/link             DELETE /api/contracts/link/{link_id}   # 关联凭证
+GET    /api/contracts/by-voucher/{voucher_id}                                       # 凭证反查合同
+
+# 税务
+GET/POST/PUT/DELETE /api/tax/filings        POST /api/tax/filings/{id}/submit | /attachments
+GET    /api/tax/audit                                    # 税务联动审查(2221 明细 × 报表 × 申报)
+GET    /api/tax/report/cit-quarterly | /cit-annual | /vat-small            # 导出 Excel
+GET    /api/tax/report/cit-quarterly/preview | /cit-annual/preview | /vat-small/preview
+GET/PUT /api/tax/adjustments | /losses | /depreciations | /rd-deductions
+GET/PUT /api/tax/accel-deprs | /salary-adjusts | /ad-medias | /preferences  # 各附表录入
+GET    /api/tax/preference-options | /meta
+
+# 费用申请 / 报销
+GET/POST/PUT/DELETE /api/expense-apply      POST /api/expense-apply/{id}/submit | /attachments
+GET/POST/PUT/DELETE /api/expense/claims     POST /api/expense/claims/{id}/submit | /attachments
+POST   /api/expense/claims/{id}/make-voucher | /regenerate-approval-doc   # 生成凭证 / 补生成审批单
+
+# 审批
+GET/POST/PUT/DELETE /api/workflow/definitions
+GET/POST /api/workflow/instances            GET /api/workflow/instances/{id}   GET /api/workflow/my-tasks
+POST   /api/workflow/tasks/{id}/approve | /reject | /reassign
+POST   /api/workflow/instances/{id}/cancel  DELETE /api/workflow/instances/{id}
+GET    /api/workflow/approver-check | /meta
 
 # 平台管理(仅平台超管)
 GET/POST/PUT /api/platform/tenants          POST /api/platform/tenants/{id}/reprovision
@@ -640,10 +666,11 @@ CW/
 │   ├── requirements.txt
 │   └── Dockerfile                   pip 超时/重试 + 可选 PIP_INDEX_URL 镜像
 ├── frontend/                    React 前端
-│   ├── src/pages/                  Dashboard/VoucherList/VoucherEdit/Accounts/Ledgers/
-│   │                               Reports/Logs/Settings/Contracts/Tax/Personnel/
-│   │                               Users/ApprovalCenter/PlatformAdmin/Diagnostics/
-│   │                               Login/Register
+│   ├── src/pages/                  Dashboard/VoucherList/VoucherEdit/Customers/Personnel/
+│   │                               Accounts/Ledgers/Reports/Workflow/ApprovalCenter/
+│   │                               ExpenseApply/Expense/Contracts/Tax/Logs/Users/
+│   │                               Settings/PlatformAdmin/Diagnostics/About/Login/Register
+│   ├── public/manual.html          用户与管理员操作手册(「关于系统」页在线查看/下载)
 │   ├── src/shared/                 共享契约(自动生成,勿手改)
 │   ├── nginx.conf                  静态托管 + /api 反代
 │   └── Dockerfile
