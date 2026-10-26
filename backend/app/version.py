@@ -1,12 +1,13 @@
 """应用版本与关于信息(单一来源,供 main、关于页、用户手册引用)。"""
 
 APP_NAME = "小企业财务记账系统"
-APP_VERSION = "1.0.0"
-RELEASE_DATE = "2026-08-13"
+APP_VERSION = "1.0.8"
+RELEASE_DATE = "2026-10-14"
 DESCRIPTION = (
     "面向小微企业、基于《小企业会计准则》的完整财务记账系统:复式记账、"
     "官方格式财务报表与六类账簿、往来单位与人员管理、审批流程、"
-    "费用申请与报销、用户与权限(RBAC)、数据备份恢复、操作日志留痕。"
+    "费用申请与报销、合同与税务管理、用户与权限(RBAC)、数据备份恢复、操作日志留痕;"
+    "支持私有化单企业部署与多租户 SaaS 部署。"
 )
 DEVELOPER = "lsgoodlionel"
 REPO_URL = "https://github.com/lsgoodlionel/CW"
