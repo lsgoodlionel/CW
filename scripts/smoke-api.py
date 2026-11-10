@@ -106,7 +106,8 @@ def main():
     check("新建凭证", status == 201 and isinstance(v, dict) and v.get("id"), f"{status} {v}")
 
     status, page = call("GET", "/api/vouchers")
-    check("凭证列表", status == 200, status)
+    before = page.get("total") if isinstance(page, dict) else None
+    check("凭证列表", status == 200 and isinstance(before, int) and before >= 1, status)
 
     status, dash = call("GET", f"/api/reports/dashboard?period_type=month&ref_date={today.isoformat()}")
     check("仪表盘", status == 200, status)
@@ -137,7 +138,8 @@ def main():
         check("恢复后科目仍为 81 个", status == 200 and len(accounts2) == 81, status)
         status, page2 = call("GET", "/api/vouchers")
         total = page2.get("total") if isinstance(page2, dict) else None
-        check("恢复后凭证仍在", status == 200 and total == 1, f"{status} total={total}")
+        check("恢复后凭证数与导出前一致", status == 200 and total == before,
+              f"{status} total={total} before={before}")
 
 
 if __name__ == "__main__":
