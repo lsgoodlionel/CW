@@ -2,7 +2,8 @@
 
 > 本文档面向**开发接力 / 团队移交 / 反向追溯**,全面记录已实现功能、需求来源、架构决策、数据模型、API、开发历程与待办规划。
 > 与 [README.md](../README.md)(面向使用者)互补;报表口径见 [REPORTS.md](REPORTS.md);架构蓝图见 [BLUEPRINT.md](BLUEPRINT.md)。
-> 最后更新:随「详细操作日志 + 备份完整性 + 本开发文档」一并提交。
+> 最后更新:2026-11-10(v1.0.8 之后:SaaS 租户级备份恢复修复 #38、PR 检查 CI #40)。
+> 事项追踪:[Issues](https://github.com/lsgoodlionel/CW/issues)、[里程碑](https://github.com/lsgoodlionel/CW/milestones)、[Project](https://github.com/users/lsgoodlionel/projects/2)、[Wiki](https://github.com/lsgoodlionel/CW/wiki)。
 
 ---
 
@@ -12,7 +13,8 @@
 
 - 源起数据模型:`小企业会计财务原始记录.xlsx`
 - 报表/账簿格式:财务报表导出复制税务报送 `.xls` 模板(会小企01/02/03),账簿对齐手工账模板(`全套会计账簿.et`)
-- 二级科目参考:`docs/二级科目明细表.md`
+- 二级科目参考:`backend/app/seed_subaccounts.py`(预置二级科目种子)
+- 部署形态:`DEPLOY_MODE=private`(私有化单租户,默认)/ `saas`(多租户),同一套代码
 
 ## 2. 技术栈与架构
 
@@ -29,47 +31,78 @@
            静态前端资源                        附件卷 /data/uploads
 ```
 
-后端启动 `init_db()`:建表 → 幂等迁移(ALTER 补列)→ 预置科目/二级科目/企业信息 → 历史数据回填。所有迁移**幂等**,兼容线上老库。
+后端启动 `init_db()`:建表 → 幂等迁移(ALTER 补列、`tenant_id` 回填与按租户唯一约束)→ 默认租户 → 预置科目/二级科目/企业信息/系统角色/审批流程 → 历史数据回填。所有迁移**幂等**,兼容线上老库。
+
+请求链路:`AuthMiddleware`(解析令牌 → 设置租户上下文 → 校验成员与订阅 → 按路径校验权限)→ `OperationLogMiddleware`(记录变更)→ 路由。租户隔离由 `tenant.py` 的 SQLAlchemy 全局事件完成(见 §3)。
 
 ### 目录结构(关键)
 ```
 backend/app/
-  main.py            入口:CORS + 操作日志中间件 + 路由注册
-  config.py database.py init_db.py     配置/会话/初始化与迁移
-  models.py schemas.py                 ORM 模型 / Pydantic 模式
+  main.py                              入口:CORS + 鉴权/操作日志中间件 + 异常处理 + 路由注册
+  config.py database.py init_db.py     配置 / 会话 / 建表、迁移与种子
+  version.py                           版本与「关于系统」信息(单一来源)
+  models.py schemas.py schemas_read.py ORM 模型 / 增删改查模式 / 只读与计算类响应模式
+  tenant.py tenant_provision.py        多租户隔离(上下文 + 全局过滤/回填 + tenant_get)/ 新租户初始化
+  subscription.py                      订阅到期、停用、用户配额判定
+  auth_svc.py auth_mw.py               密码哈希、令牌、权限目录 / 鉴权中间件
   seed_accounts.py seed_subaccounts.py 科目与二级科目种子
-  subaccounts_svc.py                   二级科目编号/自动建/改名同步
-  reports_cn.py report_excel.py        官方三表计算 / Excel 导出
+  subaccounts_svc.py account_excel.py  二级科目编号/自动建/改名同步 / 科目 Excel 导入导出
+  reports_cn.py report_excel.py        官方三表计算 / 按 report_templates/*.xls 模板导出
   ledgers.py ledger_excel.py           六类账簿 / Excel 导出
-  account_excel.py                     科目导入模板/导入/导出
-  oplog.py oplog_pdf.py                操作日志中间件+查询 / PDF
-  routers/  company accounts vouchers attachments reports
-            ledgers logs data_io customers personnel
+  tax_report.py tax_reconcile.py       企业所得税季报/年报及附表、增值税 / 税务联动审查
+  workflow_svc.py approval_doc.py      审批人解析与流程推进 / 费用审批记录单 PDF
+  attach_svc.py voucher_attachments.py 附件落盘与元数据 / 凭证附件补齐状态
+  oplog.py oplog_pdf.py                操作日志中间件与查询 / PDF 导出
+  diag.py                              运行日志采集、出错打包上传
+  backup_cli.py openapi_dump.py        命令行导出备份 / 导出 OpenAPI(生成共享契约)
+  standalone.py                        原生安装包单进程入口(SQLite + 托管前端)
+  routers/  about accounts attachments auth company contracts customers data_io diag
+            expense expense_apply ledgers logs personnel platform presets reports tax
+            users vouchers workflow
+backend/tests/                         自包含测试脚本(内存 SQLite,python -m tests.<模块>)
 frontend/src/
-  pages/  Dashboard VoucherList VoucherEdit Accounts Customers
-          Personnel Ledgers Reports Logs Settings
-  components/  AttachmentPreview VoucherLinks
+  pages/  Dashboard VoucherList VoucherEdit Customers Personnel Accounts Ledgers Reports
+          Workflow ApprovalCenter ExpenseApply Expense Contracts Tax Logs Users Settings
+          PlatformAdmin Diagnostics About Login Register
+  components/  AttachmentEditor AttachmentPreview VoucherLinks VoucherContractLinks
+  shared/      models.generated.ts(由 OpenAPI 生成,勿手改)models.ts labels.ts perm.ts amount.ts
   api.ts App.tsx
+frontend/public/manual.html            用户与管理员操作手册
+shared/contract/                       Web 与小程序共享契约(scripts/gen-contract.mjs、sync-shared.mjs)
+packaging/                             原生安装包构建(PyInstaller cw.spec、图标、Windows 版本资源)
+.github/workflows/                     ci.yml(PR 检查)· docker-images.yml(GHCR 镜像)· native-build.yml(原生包)
 ```
 
-## 3. 数据模型(12 张表)
+## 3. 数据模型(38 张表)
 
-| 表 | 说明 |
-|---|---|
-| `company_info` | 企业信息单例(名称/税号/地址/开户行/准则/本位币/人员等) |
-| `accounts` | 一级会计科目(编码/名称/类别/方向/启用) |
-| `sub_accounts` | 二级明细科目(隶属一级,编码=一级4位+顺序2位) |
-| `customers` | 往来单位(party_type:企业客户/个人客户/供应商/往来单位) |
-| `vouchers` | 记账凭证(凭证号/日期/摘要/借贷合计/状态/客户;`posted` 表示已入账并进入账簿/报表) |
-| `voucher_entries` | 凭证分录(摘要/科目/明细科目+二级id/借/贷,允许负数红字) |
-| `voucher_links` | 凭证关联(预收/挂账/核销/应收/冲销/其他) |
-| `attachments` | 附件(发票/银行回单/合同/完税证明/其他) |
-| `org_units` | 组织架构单元(自引用多级) |
-| `employees` | 员工档案(个人信息/持股比例/状态) |
-| `employee_positions` | 员工任职(部门+角色+职位,支持一人多岗) |
-| `operation_logs` | 操作日志(类型/行为/摘要/**detail 变更详情**/状态码/耗时/IP) |
+**多租户隔离**:除 `tenants`、`tenant_memberships`、`users` 为全局表外,业务表均继承 `TenantMixin`(带 `tenant_id`)。`tenant.py` 的 `do_orm_execute` 事件对 SELECT/UPDATE/DELETE 自动注入当前租户过滤,`before_flush` 自动回填新对象的 `tenant_id`;按主键取对象用 `tenant_get` 二次校验归属。全局表不受过滤,对它们的批量写操作必须显式限定范围(见 #38 修复)。
 
-**核心不变量**:每张凭证 `Σ借方 = Σ贷方`(前后端双重校验,允许红字负数);报表/账簿由分录实时聚合,不做月末结转。
+| 分组 | 表 | 说明 |
+|---|---|---|
+| 租户(全局) | `tenants` | 租户:名称/编码/启用/套餐 plan/状态 status/到期 expires_at/用户上限 max_users |
+| | `tenant_memberships` | 用户↔租户成员,`is_tenant_admin` 标识租户管理员,`(user_id, tenant_id)` 唯一 |
+| 账号与权限 | `users`(全局) | 登录账号:用户名/密码哈希/关联员工/超管标志/启用 |
+| | `roles` `role_permissions` `user_roles` | 按租户隔离的角色、权限点(`module:action`)、用户角色 |
+| | `auth_presets` | 部门 + 职位 → 系统角色的授权预设 |
+| 企业与主数据 | `company_info` | 企业信息(每租户一行)、纳税人身份、大额凭证审批阈值等 |
+| | `accounts` `sub_accounts` | 一级科目 / 二级明细科目(编码 = 一级 4 位 + 顺序 2 位),按租户唯一 |
+| | `customers` | 往来单位(企业客户/个人客户/供应商/往来单位) |
+| | `org_units` `employees` `employee_positions` | 组织架构(自引用多级)/ 员工档案(含离职日期)/ 任职(一人多岗) |
+| 凭证 | `vouchers` | 凭证号/日期/摘要/借贷合计/状态(`posted` 已入账才进报表)/往来单位/必需附件类型/审批实例 |
+| | `voucher_entries` | 分录:摘要/科目/明细科目/借/贷,允许负数红字 |
+| | `voucher_links` | 凭证关联(预收/挂账/核销/应收/冲销/其他) |
+| | `attachments` | 附件,可归属凭证/费用申请/费用报销/合同/税务申报之一 |
+| 审批与费用 | `workflow_definitions` `workflow_steps` | 流程定义(业务类型/启用)与步骤(审批人类型) |
+| | `workflow_instances` `workflow_tasks` | 审批实例(关联单据)与待办任务 |
+| | `expense_applications` `expense_application_items` | 费用申请(事前)及明细 |
+| | `expense_claims` `expense_items` | 费用报销(事后)及明细,可关联申请、合同与生成的凭证 |
+| 合同 | `contracts` `contract_voucher_links` | 合同(收支方向/含税金额/税率/税金)与关联凭证 |
+| 税务 | `tax_filings` | 税务申报记录(税种/纳税人类型/所属期/应纳/已缴/状态/审批实例) |
+| | `tax_adjustments` `tax_loss_carryovers` `tax_asset_depreciations` `tax_rd_deductions` | 年报附表录入:A105000 / A106000 / A105080 / A107012 |
+| | `tax_salary_adjusts` `tax_ad_medias` `tax_preferences` `tax_accel_deprs` | A105050 / A105060 / 税收优惠事项 / 季报 A201020 |
+| 审计 | `operation_logs` | 操作日志(类型/行为/摘要/操作人/变更详情 detail/状态码/耗时/IP) |
+
+**核心不变量**:每张凭证 `Σ借方 = Σ贷方`(前后端双重校验,允许红字负数);报表/账簿由已入账凭证的分录实时聚合,不做月末结转。
 
 ## 4. 已实现功能模块(附需求来源与关键实现)
 
@@ -121,12 +154,15 @@ frontend/src/
 
 ### 4.10 企业信息 + 数据备份
 - 企业信息:工商登记/财务设置/人员三组
-- **数据备份 v5**:整站数据一键导出 zip(含附件),导入整体恢复;覆盖全部 12 张表(company/accounts/sub_accounts/customers/vouchers+entries+attachments/voucher_links/org_units/employees+positions/**operation_logs**)。兼容 v1–v5 老备份;导入容忍被自动解压后重压缩的嵌套目录。
+- **数据备份(当前格式 v22)**:`data_io.py` 一键导出 zip(`data.json` + 附件),兼容 v1–v22 老备份;导入容忍被自动解压后重压缩的嵌套目录。
+  - 导出:租户上下文下只导出当前租户及其成员,不带出平台超管;无上下文导出全部。租户含订阅字段(plan/status/expires_at/max_users)。
+  - 整站恢复(私有化 / 无租户上下文):整体替换全部数据,含用户、租户与成员,恢复后确保有可登录超管。
+  - 租户级恢复(SaaS 租户上下文,`_restore_scope`):只替换本租户业务数据;不清空全局表;同名已有账号沿用、不改密码与超管身份;新账号一律非超管;成员只增不删;当前租户订阅保留;多租户全量备份拒绝(400)。见 #38 与 `tests/test_tenant_restore.py`。
 
 ### 4.11 部署与运维
-- 云端一行安装 `install.sh`(装 Docker/git → 克隆 → deploy)
-- 一键升级 `upgrade.sh`(自动定位部署目录 + 升级前自动备份 + 拉取重建;`FORCE=1` 强制重建)
-- `deploy.sh` 构建启动;数据库变更启动时自动迁移
+- 安装与升级同一条命令 `install.sh`:未部署则安装(Docker/git → 拉取 → `deploy.sh`),已部署则自动定位目录、保留 `.env`、升级前备份、拉取重建;`FORCE=1` 强制重建;`upgrade.sh` 兼容转调
+- `deploy.sh` 优先拉取 GHCR 预构建镜像,失败回退本地构建;数据库变更启动时自动迁移
+- `uninstall.sh` 卸载前先备份到仓库外;本地客户端 `install-windows.bat` / `install-mac.command`;原生安装包见 `packaging/`
 
 ## 5. API 清单(前缀 `/api`)
 
@@ -145,6 +181,7 @@ data       /data/export ; POST /data/import
 customers  CRUD /customers?party_type= ; GET /{id}/vouchers
 personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-units/{id}/members ; GET /meta
 ```
+以上为早期核心模块。合同、税务、费用申请/报销、审批、鉴权、用户与角色、平台管理、运行诊断等接口见 [README「API 一览」](../README.md#api-一览)。
 交互式文档:后端 `http://<host>:8000/docs`。
 
 ## 6. 开发历程(按提交)
@@ -162,9 +199,17 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 | 多级科目 | 一级/二级科目管理 + 二级 Excel 导入导出;录入自动建二级;改名同步凭证 |
 | 人员 | 组织架构 + 员工档案;一人多岗兼职 |
 | 利润表明细 | 「其中」行按二级科目归集(此前恒为0) |
-| 备份完整 | 操作日志纳入备份,覆盖全部 12 表 |
+| 备份完整 | 操作日志纳入备份,覆盖当时全部 12 表 |
+| 审批/费用/权限 | 审批流程引擎、费用申请与报销、用户与 RBAC、超管(#2–#5,见 §7) |
+| v1.0.0 | 关于系统与手册、本地客户端、原生安装包 |
+| 合同与税务 | 合同管理;企业所得税季报/年报及附表;增值税(小规模);直录/审批双通道 |
+| 多租户 SaaS | 四阶段隔离/选租户/平台管理/订阅;首登设置;运行诊断;账套管理模式三级权限 |
+| v1.0.1–v1.0.8 | 凭证必需附件;官方 `.xls` 报表模板;已入账口径;税务联动审查 |
+| v1.0.9(进行中) | 手册同步;SaaS 租户级恢复修复(#38);PR 检查 CI(#40) |
 
-## 7. 需求 #2–#5(#2 已实现,#3–#5 待开发)
+完整阶段记录(按提交与 Issue)见 Wiki [开发历程](https://github.com/lsgoodlionel/CW/wiki/开发历程) 与 [版本发布记录](https://github.com/lsgoodlionel/CW/wiki/版本发布记录)。
+
+## 7. 需求 #2–#5(均已实现,对应 Issue #2–#5)
 
 > 已确认的架构决策:**#4/#5 采用全站强制登录**;开发顺序 **2→3→4→5**。
 
@@ -208,23 +253,26 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 
 ### 7.4 超级管理员 ✅ 已实现
 - 内置超管 `admin`(首次启动创建),拥有全部权限(`permissions=['*']`,中间件直接放行)。
-- 可创建**子管理员**:给用户勾选 `user` 模块权限或授予超管标志(仅超管可授予/取消超管;至少保留一个超管;内置 admin 不可删除)。
+- 早期设计的「子管理员」已由账套管理模式取代(#30):**超级管理员**(全局,只在首登设置与「平台管理 → 超级管理员」维护,至少保留一个)/ **租户管理员**(`tenant_memberships.is_tenant_admin`,本账套全权)/ **普通用户**(按 RBAC)。「用户与权限」页不再出现超管设置。
 - 角色×权限矩阵 + 用户×角色 分配即「单一/批量权限管理」。
 - **授权预设(按部门+职位)**:`auth_presets`(部门×员工职位角色 → 系统角色)。用户关联员工后可「按部门角色预设填充」角色,或「批量应用」把所有关联员工的用户角色按预设覆盖。API `/api/auth-presets`(CRUD + `/resolve` + `/apply`);备份纳入。
 
 ## 8. 关键设计决策与已知限制
 
-- **单租户、当前无登录**(引入见 7.3);报表实时聚合、不结转。
+- **私有化单租户 / SaaS 多租户**由 `DEPLOY_MODE` 切换;全站强制登录(7.3),登录后 30 分钟无操作自动退出;报表实时聚合、不结转。
+- **全局表**(`tenants`/`tenant_memberships`/`users`)不受租户过滤:在租户上下文中对它们做批量写操作,必须显式限定范围。
+- **订阅续费**未接入支付网关(#43),由平台超管在后台延长到期日。
 - **现金流量表**为对方科目归类法近似,期初/期末/净额与账面现金一致(见 REPORTS.md)。
 - **利润表「其中」行**依赖明细科目命名匹配关键字;记账需把税费等记在对应一级科目下。
-- **数量金额式明细账**无数量/单价字段,仅列金额。
+- **数量金额式明细账**无数量/单价字段,仅列金额(#44)。
 - **迁移策略**:`init_db._ADDED_COLUMNS` 幂等 ALTER 补列 + 新表 create_all + 历史回填;禁止破坏性 `docker compose down -v`(会清库)。
 - 金额用 `NUMERIC(18,2)`;持股比例 `NUMERIC(7,4)`。
 
 ## 9. 本地/测试约定
 
-- 后端逻辑测试:容器内 Python 3.12 + 临时 SQLite(`docker run ... -e DATABASE_URL=sqlite:///...`),不触碰生产 Postgres。
+- 后端测试:`backend/tests/test_*.py` 为自包含脚本(内存 SQLite),在 `backend/` 下逐个 `python -m tests.<模块>` 运行;Python 3.12 + 锁定依赖,不触碰生产 Postgres。
 - 前端:`npm run build` 做类型检查。
+- CI:`ci.yml` 在每个 PR 与推送 main 时运行全部后端测试、前端构建与镜像构建(不推送)。
 - 每次变更后:重建镜像 → 起栈 → 对运行实例冒烟 → 清理测试数据 → 提交推送。
 - 数据安全红线:任何"重置/清空"前先确认是否真实数据,严禁对装有真实数据的实例执行 `down -v`。
 
@@ -233,10 +281,10 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 ```bash
 # 云端安装
 curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | bash
-# 一键升级(自动备份+迁移)
-curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/upgrade.sh | bash
+# 一键升级(与安装同一条命令;自动定位目录、保留 .env、升级前备份、迁移)
+curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | bash
 # 强制重建
-curl -fsSL .../upgrade.sh | FORCE=1 bash
+curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | FORCE=1 bash
 # 前置 Nginx 的服务器建议 .env 写回环绑定,避免 Docker 直接暴露公网端口
 HTTP_PORT=127.0.0.1:18080
 # 本地
