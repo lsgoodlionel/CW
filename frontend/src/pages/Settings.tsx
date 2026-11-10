@@ -4,7 +4,8 @@ import {
   Select, Switch, InputNumber,
 } from 'antd'
 import { DownloadOutlined, UploadOutlined, ExclamationCircleFilled } from '@ant-design/icons'
-import { http, Company, withToken } from '../api'
+import axios from 'axios'
+import { http, Company, withToken, getToken, clearToken } from '../api'
 
 const { Text, Paragraph } = Typography
 
@@ -158,6 +159,15 @@ function DataBackup() {
           message.success(
             `导入成功:科目 ${r.data.accounts}、凭证 ${r.data.vouchers}、附件 ${r.data.attachments}`,
           )
+          // 整站恢复会按备份重建账号,原登录令牌随之失效:直接探测(绕过 401 拦截器的"登录已过期"提示)
+          const me = await axios.get('/api/auth/me', {
+            headers: { Authorization: `Bearer ${getToken()}` }, validateStatus: () => true,
+          })
+          if (me.status === 401) {
+            clearToken()
+            message.info('账号已按备份恢复,请用备份中的账号重新登录')
+            setTimeout(() => { location.href = '/login' }, 1500)
+          }
         } finally {
           setImporting(false)
         }

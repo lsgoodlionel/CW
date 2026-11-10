@@ -128,6 +128,11 @@ def main():
         status, res = call("POST", "/api/data/import", body, headers)
         check("导入备份恢复", status == 200 and isinstance(res, dict) and res.get("success"),
               f"{status} {res}")
+        # 整站恢复会按备份重建账号(PostgreSQL 下用户 id 变化),原令牌失效属预期;与前端一致,重新登录
+        token = ""
+        status, res = call("POST", "/api/auth/login", {"username": USER, "password": PASSWORD})
+        token = res.get("token", "") if isinstance(res, dict) else ""
+        check("恢复后可用备份中的账号重新登录", status == 200 and bool(token), status)
         status, accounts2 = call("GET", "/api/accounts")
         check("恢复后科目仍为 81 个", status == 200 and len(accounts2) == 81, status)
         status, page2 = call("GET", "/api/vouchers")
