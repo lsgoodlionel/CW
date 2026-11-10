@@ -70,7 +70,7 @@ frontend/src/
 frontend/public/manual.html            用户与管理员操作手册
 shared/contract/                       Web 与小程序共享契约(scripts/gen-contract.mjs、sync-shared.mjs)
 packaging/                             原生安装包构建(PyInstaller cw.spec、图标、Windows 版本资源)
-.github/workflows/                     ci.yml(PR 检查)· docker-images.yml(GHCR 镜像)· native-build.yml(原生包)
+.github/workflows/                     ci.yml(PR 检查)· project-sync.yml(看板同步)· docker-images.yml(GHCR 镜像)· native-build.yml(原生包)
 ```
 
 ## 3. 数据模型(38 张表)
@@ -275,6 +275,18 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 - 前端:`npm run build` 做类型检查。
 - CI:`ci.yml` 在每个 PR 与推送 main 时运行版本号一致性检查、全部后端测试、API 冒烟(`scripts/smoke-api.py`,启动后端连接 PostgreSQL 16)、前端构建与镜像构建(不推送)。这些检查是 `main` 分支保护的必需检查。
 - 依赖:`backend/requirements.txt` 全部锁定精确版本;升级时优先同一系列最新版,并跑完 CI(含 PostgreSQL 冒烟)后再合入。
+- 看板同步:`project-sync.yml` 调用 `scripts/project-sync.sh`,在 Issue / PR 状态变化时更新 [Project](https://github.com/users/lsgoodlionel/projects/2) 的 Status:
+
+  | 事件 | Status |
+  |---|---|
+  | Issue 新建 | 待办(按 P0/P1/P2 标签填优先级) |
+  | Issue 指派 / 重新打开 | 开发中 |
+  | Issue 关闭 | 完成 |
+  | PR 新建 / 重新打开 / 转为可审阅(及其 `Closes` 的 Issue) | 验收中;草稿为开发中 |
+  | PR 合并(及关联 Issue) | 完成 |
+  | PR 未合并即关闭 | PR 从看板归档,关联 Issue 由验收中退回开发中 |
+
+  需要仓库密钥 `PROJECT_TOKEN`:在 GitHub → Settings → Developer settings → Fine-grained tokens 创建令牌,Repository access 选 `lsgoodlionel/CW`(Issues、Pull requests 只读),Account permissions 中 Projects 设为 Read and write;再用 `gh secret set PROJECT_TOKEN -R lsgoodlionel/CW` 保存。未配置时该工作流跳过,不影响其他检查。令牌到期后需重新创建。本地可用 `DRY_RUN=1 scripts/project-sync.sh <issue|pr> <编号> <动作>` 预览改动。
 - 发版:以 `VERSION` 为准同步修改 `backend/app/version.py`(含 `RELEASE_DATE`)、`frontend/package.json`、`frontend/package-lock.json`、`packaging/version_win.txt`,本地运行 `scripts/check-version.sh` 通过后合入 main,再打 `v<版本号>` 标签;标签触发的镜像与原生包构建会先校验标签与 `VERSION` 一致。
 - 每次变更后:重建镜像 → 起栈 → 对运行实例冒烟 → 清理测试数据 → 提交推送。
 - 数据安全红线:任何"重置/清空"前先确认是否真实数据,严禁对装有真实数据的实例执行 `down -v`。
