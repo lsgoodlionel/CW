@@ -16,6 +16,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  version-check:
+    name: 版本号一致性
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: bash scripts/check-version.sh
+
   backend-tests:
     name: 后端测试
     runs-on: ubuntu-latest
