@@ -616,6 +616,13 @@ npm install
 npm run dev        # http://localhost:5173,/api 自动代理到 :8000
 ```
 
+测试(每个模块是自包含脚本,使用内存 SQLite;PR 与推送 main 时由 `ci.yml` 自动运行):
+
+```bash
+cd backend
+for f in tests/test_*.py; do python -m "tests.$(basename "$f" .py)" || break; done
+```
+
 ---
 
 ## 运维
@@ -678,7 +685,7 @@ CW/
 │   └── Dockerfile
 ├── shared/contract/             Web 与小程序的共享契约(models.generated.ts 由后端 OpenAPI 生成)
 ├── docs/                        蓝图、报表说明、多端同步、官方模板
-├── .github/workflows/           docker-images.yml(构建推送 GHCR)· native-build.yml(原生包)
+├── .github/workflows/           ci.yml(PR 检查:后端测试/前端构建/镜像构建)· docker-images.yml(构建推送 GHCR)· native-build.yml(原生包)
 ├── docker-compose.yml           三容器 + 镜像/构建参数透传
 ├── install.sh                   云端一键安装(透传 DEPLOY_MODE 等)
 ├── deploy.sh                    优先拉 GHCR 预构建镜像,失败回退本地构建
