@@ -2,7 +2,7 @@
 
 > 本文档面向**开发接力 / 团队移交 / 反向追溯**,全面记录已实现功能、需求来源、架构决策、数据模型、API、开发历程与待办规划。
 > 与 [README.md](../README.md)(面向使用者)互补;报表口径见 [REPORTS.md](REPORTS.md);架构蓝图见 [BLUEPRINT.md](BLUEPRINT.md)。
-> 最后更新:2026-11-10(v1.0.9:SaaS 租户级备份恢复修复 #38、PR 检查 CI #40、Actions 升级 #42)。
+> 最后更新:2026-11-10(v1.0.10:Node.js 24 #49、后端依赖升级与 PostgreSQL API 冒烟 #51)。
 > 事项追踪:[Issues](https://github.com/lsgoodlionel/CW/issues)、[里程碑](https://github.com/lsgoodlionel/CW/milestones)、[Project](https://github.com/users/lsgoodlionel/projects/2)、[Wiki](https://github.com/lsgoodlionel/CW/wiki)。
 
 ---
@@ -206,6 +206,7 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 | 多租户 SaaS | 四阶段隔离/选租户/平台管理/订阅;首登设置;运行诊断;账套管理模式三级权限 |
 | v1.0.1–v1.0.8 | 凭证必需附件;官方 `.xls` 报表模板;已入账口径;税务联动审查 |
 | v1.0.9 | 手册与版本号同步;SaaS 租户级恢复修复(#38);PR 检查 CI(#40);Actions 升级(#42);开发文档更新(#41) |
+| v1.0.10 | 前端构建与镜像升级到 Node.js 24(#49);后端依赖升级、PostgreSQL API 冒烟、整站恢复后提示重新登录(#51) |
 
 完整阶段记录(按提交与 Issue)见 Wiki [开发历程](https://github.com/lsgoodlionel/CW/wiki/开发历程) 与 [版本发布记录](https://github.com/lsgoodlionel/CW/wiki/版本发布记录)。
 
