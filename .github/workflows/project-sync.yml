@@ -1,0 +1,55 @@
+name: 同步执行看板(Project 状态)
+
+# Issue / PR 状态变化时,同步到 Project「CW 开发与发布」的 Status:
+#   Issue 新建 → 待办(并按 P0/P1/P2 标签填优先级);指派 / 重新打开 → 开发中;关闭 → 完成
+#   PR 新建 / 重新打开 / 转为可审阅 → 验收中(草稿为开发中),其 Closes 关联的 Issue 同步
+#   PR 合并 → PR 与关联 Issue 完成;未合并关闭 → PR 从看板归档,关联 Issue 由验收中退回开发中
+# 需要仓库密钥 PROJECT_TOKEN(含 Project 读写权限的个人令牌);未配置时跳过,不影响其他检查。
+on:
+  issues:
+    types: [opened, assigned, reopened, closed]
+  pull_request:
+    types: [opened, reopened, ready_for_review, converted_to_draft, closed]
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: "类型"
+        type: choice
+        options: [issue, pr]
+      number:
+        description: "Issue / PR 编号"
+        required: true
+      action:
+        description: "按哪种事件同步(如 opened、closed)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: project-sync-${{ github.event.issue.number || github.event.pull_request.number || inputs.number }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: 同步看板状态
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts/project-sync.sh
+          sparse-checkout-cone-mode: false
+
+      - name: 同步
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          REPO: ${{ github.repository }}
+          KIND: ${{ inputs.kind || (github.event.issue && 'issue') || 'pr' }}
+          NUMBER: ${{ inputs.number || github.event.issue.number || github.event.pull_request.number }}
+          ACTION: ${{ inputs.action || github.event.action }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice::未配置仓库密钥 PROJECT_TOKEN,跳过看板同步(配置方法见 docs/DEVELOPMENT.md)"
+            exit 0
+          fi
+          bash scripts/project-sync.sh "$KIND" "$NUMBER" "$ACTION"
