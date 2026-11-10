@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 在 macOS / Linux 上构建"无需 Docker 的原生可执行程序"。
-# 前置:已装 Node 18+ 与 Python 3.11+。产物:dist/CWFinance
+# 前置:已装 Node 24+ 与 Python 3.11+。产物:dist/CWFinance
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

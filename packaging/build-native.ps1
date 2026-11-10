@@ -1,5 +1,5 @@
 # 在 Windows 上构建"无需 Docker 的原生可执行程序"。
-# 前置:已装 Node 18+ 与 Python 3.11+。产物:dist\CWFinance.exe
+# 前置:已装 Node 24+ 与 Python 3.11+。产物:dist\CWFinance.exe
 # 用法(PowerShell):  ./packaging/build-native.ps1
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
