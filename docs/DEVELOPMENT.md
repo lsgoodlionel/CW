@@ -2,7 +2,7 @@
 
 > 本文档面向**开发接力 / 团队移交 / 反向追溯**,全面记录已实现功能、需求来源、架构决策、数据模型、API、开发历程与待办规划。
 > 与 [README.md](../README.md)(面向使用者)互补;报表口径见 [REPORTS.md](REPORTS.md);架构蓝图见 [BLUEPRINT.md](BLUEPRINT.md)。
-> 最后更新:2026-11-10(v1.0.8 之后:SaaS 租户级备份恢复修复 #38、PR 检查 CI #40)。
+> 最后更新:2026-11-10(v1.0.9:SaaS 租户级备份恢复修复 #38、PR 检查 CI #40、Actions 升级 #42)。
 > 事项追踪:[Issues](https://github.com/lsgoodlionel/CW/issues)、[里程碑](https://github.com/lsgoodlionel/CW/milestones)、[Project](https://github.com/users/lsgoodlionel/projects/2)、[Wiki](https://github.com/lsgoodlionel/CW/wiki)。
 
 ---
@@ -205,7 +205,7 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 | 合同与税务 | 合同管理;企业所得税季报/年报及附表;增值税(小规模);直录/审批双通道 |
 | 多租户 SaaS | 四阶段隔离/选租户/平台管理/订阅;首登设置;运行诊断;账套管理模式三级权限 |
 | v1.0.1–v1.0.8 | 凭证必需附件;官方 `.xls` 报表模板;已入账口径;税务联动审查 |
-| v1.0.9(进行中) | 手册同步;SaaS 租户级恢复修复(#38);PR 检查 CI(#40) |
+| v1.0.9 | 手册与版本号同步;SaaS 租户级恢复修复(#38);PR 检查 CI(#40);Actions 升级(#42);开发文档更新(#41) |
 
 完整阶段记录(按提交与 Issue)见 Wiki [开发历程](https://github.com/lsgoodlionel/CW/wiki/开发历程) 与 [版本发布记录](https://github.com/lsgoodlionel/CW/wiki/版本发布记录)。
 
@@ -272,7 +272,8 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 
 - 后端测试:`backend/tests/test_*.py` 为自包含脚本(内存 SQLite),在 `backend/` 下逐个 `python -m tests.<模块>` 运行;Python 3.12 + 锁定依赖,不触碰生产 Postgres。
 - 前端:`npm run build` 做类型检查。
-- CI:`ci.yml` 在每个 PR 与推送 main 时运行全部后端测试、前端构建与镜像构建(不推送)。
+- CI:`ci.yml` 在每个 PR 与推送 main 时运行版本号一致性检查、全部后端测试、前端构建与镜像构建(不推送)。
+- 发版:以 `VERSION` 为准同步修改 `backend/app/version.py`(含 `RELEASE_DATE`)、`frontend/package.json`、`frontend/package-lock.json`、`packaging/version_win.txt`,本地运行 `scripts/check-version.sh` 通过后合入 main,再打 `v<版本号>` 标签;标签触发的镜像与原生包构建会先校验标签与 `VERSION` 一致。
 - 每次变更后:重建镜像 → 起栈 → 对运行实例冒烟 → 清理测试数据 → 提交推送。
 - 数据安全红线:任何"重置/清空"前先确认是否真实数据,严禁对装有真实数据的实例执行 `down -v`。
 
