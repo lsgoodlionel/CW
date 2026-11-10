@@ -272,7 +272,8 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 
 - 后端测试:`backend/tests/test_*.py` 为自包含脚本(内存 SQLite),在 `backend/` 下逐个 `python -m tests.<模块>` 运行;Python 3.12 + 锁定依赖,不触碰生产 Postgres。
 - 前端:`npm run build` 做类型检查。
-- CI:`ci.yml` 在每个 PR 与推送 main 时运行版本号一致性检查、全部后端测试、前端构建与镜像构建(不推送)。
+- CI:`ci.yml` 在每个 PR 与推送 main 时运行版本号一致性检查、全部后端测试、API 冒烟(`scripts/smoke-api.py`,启动后端连接 PostgreSQL 16)、前端构建与镜像构建(不推送)。这些检查是 `main` 分支保护的必需检查。
+- 依赖:`backend/requirements.txt` 全部锁定精确版本;升级时优先同一系列最新版,并跑完 CI(含 PostgreSQL 冒烟)后再合入。
 - 发版:以 `VERSION` 为准同步修改 `backend/app/version.py`(含 `RELEASE_DATE`)、`frontend/package.json`、`frontend/package-lock.json`、`packaging/version_win.txt`,本地运行 `scripts/check-version.sh` 通过后合入 main,再打 `v<版本号>` 标签;标签触发的镜像与原生包构建会先校验标签与 `VERSION` 一致。
 - 每次变更后:重建镜像 → 起栈 → 对运行实例冒烟 → 清理测试数据 → 提交推送。
 - 数据安全红线:任何"重置/清空"前先确认是否真实数据,严禁对装有真实数据的实例执行 `down -v`。

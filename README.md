@@ -623,6 +623,12 @@ cd backend
 for f in tests/test_*.py; do python -m "tests.$(basename "$f" .py)" || break; done
 ```
 
+API 冒烟(对运行中的后端走完登录、凭证、报表/账簿/日志导出与备份往返;CI 中连接 PostgreSQL 16 运行):
+
+```bash
+python scripts/smoke-api.py http://127.0.0.1:8000 admin admin123
+```
+
 ---
 
 ## 运维
