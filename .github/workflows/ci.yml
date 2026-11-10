@@ -72,7 +72,6 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       DATABASE_URL: postgresql+psycopg://finance:finance@localhost:5432/finance
-      UPLOAD_DIR: ${{ runner.temp }}/uploads
       ADMIN_PASSWORD: admin123
       AUTH_SECRET: ci-smoke-secret
     steps:
@@ -89,6 +88,8 @@ jobs:
 
       - name: 启动后端并运行冒烟
         working-directory: backend
+        env:
+          UPLOAD_DIR: ${{ runner.temp }}/uploads
         run: |
           python -m uvicorn app.main:app --port 8000 > "$RUNNER_TEMP/server.log" 2>&1 &
           python ../scripts/smoke-api.py http://127.0.0.1:8000 admin "$ADMIN_PASSWORD"
