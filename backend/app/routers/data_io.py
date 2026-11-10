@@ -2,7 +2,7 @@
 
 导出:打包为 zip —— `data.json`(企业信息/科目/凭证/分录/附件元数据)
      + `attachments/<stored_name>` 附件文件。
-导入:读取 zip 快照,**整体替换**现有数据(事务保护)。
+导入:读取 zip 快照,**整体替换**现有数据(事务保护);SaaS 租户内导入只替换本租户业务数据。
 """
 import io
 import json
@@ -28,7 +28,7 @@ EXPORT_VERSION = 22
 # 1-7 见历史;8:用户/角色/权限;9:费用申请 + 附件多归属(扁平附件表)
 # 10:企业信息导出全部字段;11:合同管理 + 税务申报记录(含其附件归属)
 # 21:多租户——导出租户与成员关系,并在租户上下文下按租户作用域导出
-# 22:凭证 required_attachment_kinds(必需附件类型)纳入备份
+# 22:凭证 required_attachment_kinds(必需附件类型)纳入备份;租户订阅字段(plan 等)可选携带
 SUPPORTED_VERSIONS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22}
 
 
@@ -289,7 +289,9 @@ def build_backup_zip(db: Session) -> bytes:
         ],
         "tenants": [
             {"ref": t.id, "name": t.name, "code": t.code,
-             "is_active": t.is_active, "note": t.note or ""}
+             "is_active": t.is_active, "note": t.note or "",
+             "plan": t.plan, "status": t.status,
+             "expires_at": t.expires_at or "", "max_users": t.max_users}
             for t in tenants
         ],
         "tenant_memberships": [
@@ -409,9 +411,37 @@ def _dt(v):
     return _DT.fromisoformat(v) if v else None
 
 
+def _restore_scope(payload: dict) -> int | None:
+    """确定恢复作用域:SaaS 且处于租户上下文时返回该租户 id(租户级恢复),否则 None(整站恢复)。
+
+    租户级恢复只替换当前租户的业务数据;用户、租户与成员关系是全局表,不受租户过滤,
+    整表清空会波及全平台,故租户级恢复不清空它们,只做合并。私有化模式只有默认租户,
+    仍按整站恢复处理(行为与单机版一致)。
+    """
+    from ..config import is_saas
+    from ..tenant import get_current_tenant
+    scope_tid = get_current_tenant() if is_saas() else None
+    if scope_tid is not None and len(payload.get("tenants") or []) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="该备份包含多个租户(平台全量备份),不能在单个租户内导入")
+    return scope_tid
+
+
 def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
-    """在单个事务内清空并重建全部数据。附件文件落盘后再提交元数据。"""
-    # 1. 清空(附件文件单独处理)
+    """在单个事务内清空并重建数据。附件文件落盘后再提交元数据。
+
+    整站恢复(私有化 / 无租户上下文):整体替换全部数据,含用户、租户与成员关系。
+    租户级恢复(SaaS 租户上下文):只替换当前租户的业务数据;已有账号不改动,
+    新账号一律非超管,成员关系只增不删,其他租户与平台账号不受影响。
+    """
+    scope_tid = _restore_scope(payload)
+    # 租户级恢复:记下本租户员工 id,恢复后据此重新绑定已有账号的关联员工
+    tenant_emp_ids: set[int] = set()
+    if scope_tid is not None:
+        tenant_emp_ids = set(db.scalars(select(models.Employee.id)).all())
+
+    # 1. 清空(附件文件单独处理;租户上下文下 DELETE 自动只作用于本租户)
     # 先删引用 accounts 的子表(凭证分录、费用明细),再删 accounts,避免外键冲突
     db.execute(delete(models.VoucherLink))
     db.execute(delete(models.VoucherEntry))
@@ -446,10 +476,12 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     db.execute(delete(models.AuthPreset))
     db.execute(delete(models.UserRole))
     db.execute(delete(models.RolePermission))
-    db.execute(delete(models.TenantMembership))   # 成员关系引用 user/tenant,先删
-    db.execute(delete(models.User))
+    if scope_tid is None:
+        db.execute(delete(models.TenantMembership))   # 成员关系引用 user/tenant,先删
+        db.execute(delete(models.User))
     db.execute(delete(models.Role))
-    db.execute(delete(models.Tenant))
+    if scope_tid is None:
+        db.execute(delete(models.Tenant))
 
     # 2. 企业信息(按当前租户定位;缺失则新建,tenant_id 由 before_flush 回填)
     company = db.scalar(select(models.CompanyInfo).order_by(models.CompanyInfo.id).limit(1))
@@ -463,13 +495,23 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     # 2b. 租户(保留原 id,使业务数据 tenant_id 与成员关系可对齐)
     from ..config import DEFAULT_TENANT_ID
     ref_to_tenant_id: dict[int, int] = {}
-    for t in payload.get("tenants", []):
+    if scope_tid is not None:
+        # 租户级恢复:不重建租户(保留当前租户及其订阅信息),备份中的租户一律映射到当前租户
+        src_ref = next((t.get("ref") for t in payload.get("tenants", [])
+                        if t.get("ref") is not None), DEFAULT_TENANT_ID)
+        ref_to_tenant_id[src_ref] = scope_tid
+    for t in payload.get("tenants", []) if scope_tid is None else []:
         tid_ref = t.get("ref")
         if tid_ref is None:
             continue
-        db.add(models.Tenant(
+        tenant = models.Tenant(
             id=tid_ref, name=t.get("name", "默认企业"), code=t.get("code", ""),
-            is_active=t.get("is_active", True), note=t.get("note", "")))
+            is_active=t.get("is_active", True), note=t.get("note", ""))
+        # v22 起备份含订阅信息;旧备份缺失时沿用模型默认值
+        for key in ("plan", "status", "expires_at", "max_users"):
+            if key in t:
+                setattr(tenant, key, t[key])
+        db.add(tenant)
         ref_to_tenant_id[tid_ref] = tid_ref
     # 旧备份(<21)无租户表:重建默认租户,保证业务数据 tenant_id 有对应租户
     if not ref_to_tenant_id:
@@ -610,19 +652,43 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
     username_to_user: dict[str, models.User] = {}
     for u in payload.get("users", []):
         emp = ref_to_emp.get(u.get("employee_ref"))
-        user = models.User(
-            username=u["username"], password_hash=u.get("password_hash", ""),
-            display_name=u.get("display_name", ""),
-            employee_id=emp.id if emp else None,
-            is_super_admin=u.get("is_super_admin", False),
-            is_active=u.get("is_active", True))
-        db.add(user)
+        user = None
+        if scope_tid is not None:
+            # 租户级恢复:同名账号已存在则沿用,不改其密码、启用状态与超管身份;
+            # 仅当它原先未关联员工或关联的是本租户(已被清空的)员工时,重新绑定员工
+            user = db.scalar(select(models.User).where(models.User.username == u["username"]))
+            if user is not None and (user.employee_id is None
+                                     or user.employee_id in tenant_emp_ids):
+                user.employee_id = emp.id if emp else None
+        if user is None:
+            user = models.User(
+                username=u["username"], password_hash=u.get("password_hash", ""),
+                display_name=u.get("display_name", ""),
+                employee_id=emp.id if emp else None,
+                # 租户级恢复绝不创建超管,防止伪造备份提权
+                is_super_admin=u.get("is_super_admin", False) if scope_tid is None else False,
+                is_active=u.get("is_active", True))
+            db.add(user)
         db.flush()
         username_to_user[user.username] = user
-        for rn in u.get("role_names", []):
+        for rn in dict.fromkeys(u.get("role_names", [])):
             role = name_to_role.get(rn)
             if role:
                 db.add(models.UserRole(user_id=user.id, role_id=role.id))
+
+    # 租户级恢复:成员关系只增不删(保留导入者等现有成员),已有成员的管理员标记不变
+    existing_members: set[int] = set()
+    if scope_tid is not None:
+        existing_members = set(db.scalars(select(models.TenantMembership.user_id).where(
+            models.TenantMembership.tenant_id == scope_tid)).all())
+
+    def _add_member(user_id: int, tenant_id: int, is_admin: bool) -> None:
+        if tenant_id == scope_tid:
+            if user_id in existing_members:
+                return
+            existing_members.add(user_id)
+        db.add(models.TenantMembership(
+            user_id=user_id, tenant_id=tenant_id, is_tenant_admin=is_admin))
 
     # 3e-2. 租户成员关系(用户名 → 用户,tenant_ref → 已重建租户 id)
     if payload.get("tenant_memberships"):
@@ -631,17 +697,13 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
             tid_new = ref_to_tenant_id.get(m.get("tenant_ref"))
             if user is None or tid_new is None:
                 continue
-            db.add(models.TenantMembership(
-                user_id=user.id, tenant_id=tid_new,
-                is_tenant_admin=m.get("is_tenant_admin", False)))
+            _add_member(user.id, tid_new, m.get("is_tenant_admin", False))
     else:
         # 旧备份(<21)无成员数据:所有用户并入(2b 兜底建的)默认租户,超管为管理员
         default_tid = next(iter(ref_to_tenant_id.values()), None)
         if default_tid is not None:
             for usr in username_to_user.values():
-                db.add(models.TenantMembership(
-                    user_id=usr.id, tenant_id=default_tid,
-                    is_tenant_admin=bool(usr.is_super_admin)))
+                _add_member(usr.id, default_tid, bool(usr.is_super_admin))
     db.flush()
 
     for pr in payload.get("auth_presets", []):
@@ -953,14 +1015,19 @@ def _restore(db: Session, zf: zipfile.ZipFile, payload: dict) -> dict:
         attachment_count += 1
 
     # 显式 id 插入 Tenant 后同步 Postgres 自增序列,避免后续新建租户主键冲突
-    if db.get_bind().dialect.name == "postgresql":
+    if scope_tid is None and db.get_bind().dialect.name == "postgresql":
         db.execute(text(
             "SELECT setval(pg_get_serial_sequence('tenants','id'), "
             "(SELECT COALESCE(MAX(id), 1) FROM tenants))"))
 
     db.commit()
-    # 恢复后确保仍有可登录的超级管理员(旧版本备份不含用户/角色,否则会被锁死)
-    _ensure_super_admin(db)
+    if scope_tid is None:
+        # 恢复后确保仍有可登录的超级管理员(旧版本备份不含用户/角色,否则会被锁死)
+        _ensure_super_admin(db)
+    else:
+        # 租户级恢复未动平台账号,只为本租户补齐系统角色(旧备份可能无角色)
+        from ..init_db import _seed_roles
+        _seed_roles(db)
     return {
         "accounts": len(code_to_account),
         "customers": len(ref_to_customer),
