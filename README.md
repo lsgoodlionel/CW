@@ -474,7 +474,7 @@ curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | D
 > cd ~/CW && echo 'PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple' >> .env && FORCE_BUILD=1 ./deploy.sh
 > ```
 >
-> 如果本地构建拉 Docker Hub 基础镜像时出现 IPv6 reset(例如 `node:20-alpine ... read tcp [IPv6]->[2600:...]:443: read: connection reset by peer`),脚本会提示 IPv6 诊断方向。处理原则是优先使用 GHCR 预构建镜像;必须本地构建时,在服务器网络层临时禁用 Docker 到 Docker Hub 的 IPv6 或配置可审计的 IPv4 优先策略后重试,不要把服务器专属 `/etc/hosts` 写入通用部署脚本。
+> 如果本地构建拉 Docker Hub 基础镜像时出现 IPv6 reset(例如 `node:24-alpine ... read tcp [IPv6]->[2600:...]:443: read: connection reset by peer`),脚本会提示 IPv6 诊断方向。处理原则是优先使用 GHCR 预构建镜像;必须本地构建时,在服务器网络层临时禁用 Docker 到 Docker Hub 的 IPv6 或配置可审计的 IPv4 优先策略后重试,不要把服务器专属 `/etc/hosts` 写入通用部署脚本。
 
 ### 本地桌面(Windows / macOS)一键安装客户端
 
@@ -497,7 +497,7 @@ curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install-mac.co
 把整个系统打包成**单个可执行文件**:一个进程同时提供后端 API、托管前端页面、用 **SQLite** 存数据(放到用户数据目录),运行后自动打开浏览器。**无需安装 Docker、Python 或数据库**。
 
 - **获取**:在 GitHub Releases 下载对应平台的 `CWFinance`(Windows 为 `CWFinance-windows.exe`),双击运行即可。首次运行会在用户数据目录创建 SQLite 库并初始化(初始账号 admin / admin123)。
-- **自行构建**(在目标操作系统上,需 Node 18+ 与 Python 3.11+):
+- **自行构建**(在目标操作系统上,需 Node 24+ 与 Python 3.11+):
   - macOS / Linux:`./packaging/build-native.sh` → 产物 `dist/CWFinance`
   - Windows(PowerShell):`./packaging/build-native.ps1` → 产物 `dist\CWFinance.exe`
 - **数据位置**:Windows `%APPDATA%\CWFinance`、macOS `~/Library/Application Support/CWFinance`、Linux `~/.local/share/CWFinance`(含 `cw.db` 与 `uploads/`)。可在「企业信息 → 数据备份」导出迁移。

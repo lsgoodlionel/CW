@@ -141,7 +141,7 @@
 <p>把整个系统打包成<b>单个可执行文件</b>:一个进程同时跑后端、托管前端、用 <b>SQLite</b> 存数据(用户数据目录),运行后自动开浏览器。<b>无需安装 Docker / Python / 数据库</b>,适合单机离线使用。</p>
 <ul>
   <li><b>获取</b>:GitHub Releases 下载对应平台的 <code>CWFinance</code>(Windows 为 <code>CWFinance-windows.exe</code>),双击运行。初始账号 admin / admin123。</li>
-  <li><b>自行构建</b>(目标系统需 Node 18+、Python 3.11+):macOS/Linux 运行 <code>packaging/build-native.sh</code>,Windows 运行 <code>packaging/build-native.ps1</code>。</li>
+  <li><b>自行构建</b>(目标系统需 Node 24+、Python 3.11+):macOS/Linux 运行 <code>packaging/build-native.sh</code>,Windows 运行 <code>packaging/build-native.ps1</code>。</li>
   <li><b>数据位置</b>:Win <code>%APPDATA%\CWFinance</code> / mac <code>~/Library/Application Support/CWFinance</code> / Linux <code>~/.local/share/CWFinance</code>。可在「数据备份」导出迁移。</li>
 </ul>
 <div class="note">原生版适合单机/单人;多人或服务器仍建议用 Docker(PostgreSQL)版。两者数据可用备份 zip 互导。</div>
