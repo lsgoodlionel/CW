@@ -286,7 +286,7 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
   | PR 合并(及关联 Issue) | 完成 |
   | PR 未合并即关闭 | PR 从看板归档,关联 Issue 由验收中退回开发中 |
 
-  需要仓库密钥 `PROJECT_TOKEN`:在 GitHub → Settings → Developer settings → Fine-grained tokens 创建令牌,Repository access 选 `lsgoodlionel/CW`(Issues、Pull requests 只读),Account permissions 中 Projects 设为 Read and write;再用 `gh secret set PROJECT_TOKEN -R lsgoodlionel/CW` 保存。未配置时该工作流跳过,不影响其他检查。令牌到期后需重新创建。本地可用 `DRY_RUN=1 scripts/project-sync.sh <issue|pr> <编号> <动作>` 预览改动。
+  需要仓库密钥 `PROJECT_TOKEN`:Project 属于个人账号,细粒度令牌(Fine-grained)不支持个人账号下的 Project,须用经典令牌:GitHub → Settings → Developer settings → Personal access tokens → **Tokens (classic)** → Generate new token (classic),只勾选 `project` 权限(仓库为公开仓库,读取 Issue / PR 无需 `repo`);再用 `gh secret set PROJECT_TOKEN -R lsgoodlionel/CW` 保存。未配置时该工作流跳过,不影响其他检查。令牌到期后需重新创建并更新密钥。本地可用 `DRY_RUN=1 scripts/project-sync.sh <issue|pr> <编号> <动作>` 预览改动。
 - 发版:以 `VERSION` 为准同步修改 `backend/app/version.py`(含 `RELEASE_DATE`)、`frontend/package.json`、`frontend/package-lock.json`、`packaging/version_win.txt`,本地运行 `scripts/check-version.sh` 通过后合入 main,再打 `v<版本号>` 标签;标签触发的镜像与原生包构建会先校验标签与 `VERSION` 一致。
 - 每次变更后:重建镜像 → 起栈 → 对运行实例冒烟 → 清理测试数据 → 提交推送。
 - 数据安全红线:任何"重置/清空"前先确认是否真实数据,严禁对装有真实数据的实例执行 `down -v`。
