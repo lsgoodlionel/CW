@@ -2,7 +2,7 @@
 
 > 本文档面向**开发接力 / 团队移交 / 反向追溯**,全面记录已实现功能、需求来源、架构决策、数据模型、API、开发历程与待办规划。
 > 与 [README.md](../README.md)(面向使用者)互补;报表口径见 [REPORTS.md](REPORTS.md);架构蓝图见 [BLUEPRINT.md](BLUEPRINT.md)。
-> 最后更新:2026-11-25(v1.0.12:生产升级凭据预检、镜像定版与失败回退)。
+> 最后更新:2026-11-25(v1.0.13:诊断令牌配置校验与中文路径编码)。
 > 事项追踪:[Issues](https://github.com/lsgoodlionel/CW/issues)、[里程碑](https://github.com/lsgoodlionel/CW/milestones)、[Project](https://github.com/users/lsgoodlionel/projects/2)、[Wiki](https://github.com/lsgoodlionel/CW/wiki)。
 
 ---
@@ -211,6 +211,7 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 | v1.0.10 | 前端构建与镜像升级到 Node.js 24(#49);后端依赖升级、PostgreSQL API 冒烟、整站恢复后提示重新登录(#51) |
 | v1.0.11 | A4 账簿归档与附件清单、报表 PDF、历史复制、诊断记录、仪表盘筛选跳转;生产已用不可变镜像 digest 验收 |
 | v1.0.12 | 数据库网桥密码预检、按提交/Release 定版镜像、失败回退和部署记录后置;升级不再重置 Git 或覆盖未提交改动 |
+| v1.0.13 | 诊断令牌注释占位值不再误判为已配置;无效值在页面给出提示,GitHub 请求头保持 ASCII,中文路径正确编码 |
 
 完整阶段记录(按提交与 Issue)见 Wiki [开发历程](https://github.com/lsgoodlionel/CW/wiki/开发历程) 与 [版本发布记录](https://github.com/lsgoodlionel/CW/wiki/版本发布记录)。
 
@@ -314,3 +315,5 @@ docker compose up -d --build     # http://localhost:8080
 升级已有部署时,`install.sh`/`upgrade.sh` 保留部署目录现有 `.env` 中的 `HTTP_PORT`、`POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB` 等关键值;要改端口、数据库凭据或 SaaS 参数,先编辑 `.env`,再运行升级。远程管道执行且 `sudo` 需要密码时使用 `ssh -t` 或先登录交互终端。若本地构建拉 Docker Hub 基础镜像遇到 IPv6 reset,优先改用 GHCR 预构建镜像;必须本地构建时在服务器网络层配置临时 IPv4 优先策略,不要把单台服务器的 `/etc/hosts` workaround 写入通用脚本。
 
 2026-11-25 lsgood 事故复盘:升级前后端镜像虽已下载,数据库容器的初始化环境与当前 `.env` 不一致,数据卷内 `finance` 密码也未随 `.env` 改变,造成新旧后端均认证失败。容器内连 `localhost` 可能命中 PostgreSQL trust 规则,不能证明密码正确;预检现改为网桥 IP 登录并用错误密码反证。旧升级脚本使用可变 `latest`,两次切换后实际运行镜像未通过目标 digest 检查;改为明确 digest 才完成 v1.0.11 部署。现行 `deploy.sh` 默认使用提交或 Release 标签,校验运行镜像、版本及健康后才写 `.deployed_sha`;已有服务下载失败时保留旧容器。`install.sh` 只允许 Git 快进,不会重置工作树;备份失败则停止。现场备份位于 `/opt/cw/backups/pre-v1.0.11-20261125082526`,正式升级结束后仍须核对 Nginx 外部入口与登录后业务流程。
+
+同日运行诊断读取历史时报 `latin-1 codec can't encode characters`:只读核对发现服务器 Compose 中 `PAPER_REPO_TOKEN` 是包含中文与 `#` 的注释占位值,并非真实令牌,但旧版 `enabled()` 仅检查非空,因此把无效值放入 `Authorization` 头。v1.0.13 将无效令牌判为禁用并提供不泄露内容的配置提示;URL 对仓库/路径编码,User-Agent 固定 ASCII。服务器 `.env` 应清空占位值并重建后端;若需读取私有仓库上传记录,须由管理员安全配置真实 PAT。

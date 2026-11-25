@@ -14,6 +14,7 @@ interface DiagStatus {
   slug: string
   cooldown: number
   token_configured: boolean
+  config_error: string | null
   buffered_lines: number
 }
 
@@ -103,10 +104,15 @@ export default function Diagnostics() {
                   : <Tag>未启用</Tag>}
               </Descriptions.Item>
               <Descriptions.Item label="令牌配置">
-                {status.token_configured
+                {status.config_error
+                  ? <Tag color="red">配置无效</Tag>
+                  : status.token_configured
                   ? <Tag color="green">已配置</Tag>
                   : <Tag color="red">未配置</Tag>}
               </Descriptions.Item>
+              {status.config_error && <Descriptions.Item label="配置提示" span={2}>
+                <Typography.Text type="danger">{status.config_error}</Typography.Text>
+              </Descriptions.Item>}
               <Descriptions.Item label="排查仓库">{status.repo || '-'}</Descriptions.Item>
               <Descriptions.Item label="分支">{status.branch || '-'}</Descriptions.Item>
               <Descriptions.Item label="标识(slug)">{status.slug || '-'}</Descriptions.Item>
@@ -133,7 +139,7 @@ export default function Diagnostics() {
               onClick={report}
             >立即打包上传</Button>
             {!canUpload && (
-              <Typography.Text type="danger">未配置 PAPER_REPO_TOKEN,无法上传</Typography.Text>
+              <Typography.Text type="danger">{status?.config_error || '未配置 PAPER_REPO_TOKEN,无法上传'}</Typography.Text>
             )}
           </Space>
         </Space>

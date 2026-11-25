@@ -34,6 +34,7 @@ _ring: deque[str] = deque(maxlen=_RING_MAX)
 _last_upload: dict[str, float] = {}
 _lock = threading.Lock()
 _GITHUB_API = "https://api.github.com"
+_USER_AGENT = "CW-Diagnostics/1.0"
 
 
 class _RingHandler(logging.Handler):
@@ -60,7 +61,20 @@ def install_log_capture() -> None:
 
 
 def enabled() -> bool:
-    return bool(settings.error_report_enabled and settings.paper_repo_token and settings.paper_repo)
+    return bool(settings.error_report_enabled and token_valid() and settings.paper_repo)
+
+
+def token_valid() -> bool:
+    """GitHub PAT 必须可安全写入 HTTP 头;注释占位值不能算已配置。"""
+    token = settings.paper_repo_token
+    return bool(token and token.isascii() and not any(ch.isspace() for ch in token)
+                and "#" not in token)
+
+
+def token_error() -> str | None:
+    if settings.paper_repo_token and not token_valid():
+        return "PAPER_REPO_TOKEN 格式无效:请检查 .env 是否把注释写入令牌值"
+    return None
 
 
 def recent_lines() -> list[str]:
@@ -86,7 +100,7 @@ def _build_zip(meta: dict, tb_text: str) -> bytes:
 
 def _upload(path: str, content: bytes, message: str) -> int:
     """经 GitHub Contents API 新建文件(时间戳路径唯一,无需 SHA)。返回 HTTP 状态。"""
-    url = f"{_GITHUB_API}/repos/{settings.paper_repo}/contents/{path}"
+    url = f"{_GITHUB_API}/repos/{quote(settings.paper_repo, safe='/')}/contents/{quote(path, safe='/')}"
     body = json.dumps({
         "message": message,
         "content": base64.b64encode(content).decode(),
@@ -96,18 +110,18 @@ def _upload(path: str, content: bytes, message: str) -> int:
     req.add_header("Authorization", f"Bearer {settings.paper_repo_token}")
     req.add_header("Accept", "application/vnd.github+json")
     req.add_header("X-GitHub-Api-Version", "2022-11-28")
-    req.add_header("User-Agent", f"{settings.log_app_slug}-diag")
+    req.add_header("User-Agent", _USER_AGENT)
     with urllib.request.urlopen(req, timeout=20) as resp:  # noqa: S310 (固定 GitHub API)
         return resp.status
 
 
 def _github_get(path: str) -> dict | list:
-    url = f"{_GITHUB_API}/repos/{settings.paper_repo}/contents/{quote(path, safe='/')}?ref={quote(settings.paper_repo_branch)}"
+    url = f"{_GITHUB_API}/repos/{quote(settings.paper_repo, safe='/')}/contents/{quote(path, safe='/')}?ref={quote(settings.paper_repo_branch, safe='')}"
     req = urllib.request.Request(url)
     req.add_header("Authorization", f"Bearer {settings.paper_repo_token}")
     req.add_header("Accept", "application/vnd.github+json")
     req.add_header("X-GitHub-Api-Version", "2022-11-28")
-    req.add_header("User-Agent", f"{settings.log_app_slug}-diag")
+    req.add_header("User-Agent", _USER_AGENT)
     with urllib.request.urlopen(req, timeout=20) as resp:
         return json.load(resp)
 

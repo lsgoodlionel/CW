@@ -33,7 +33,8 @@ def diag_status(_: models.User = Depends(require_super_admin)):
         "branch": settings.paper_repo_branch,
         "slug": settings.log_app_slug,
         "cooldown": settings.error_report_cooldown,
-        "token_configured": bool(settings.paper_repo_token),
+        "token_configured": diag.token_valid(),
+        "config_error": diag.token_error(),
         "buffered_lines": len(diag.recent_lines()),
     }
 

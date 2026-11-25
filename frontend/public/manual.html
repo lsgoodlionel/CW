@@ -87,7 +87,7 @@
 <header class="hero">
   <h1>小企业财务记账系统 · 操作手册</h1>
   <p>覆盖服务器安装 → 管理员设置 → 用户使用 → 备份升级 → 卸载 全流程</p>
-  <div class="stamp">适用系统版本 v1.0.12 · 备份格式 v22 · 更新于 2026-11-25</div>
+  <div class="stamp">适用系统版本 v1.0.13 · 备份格式 v22 · 更新于 2026-11-25</div>
 </header>
 
 <!-- 1 简介 -->
@@ -533,7 +533,7 @@
   <li><b>手动上传</b>:可填写备注后手动打包上传,便于开发人员在仓库中区分本次上传。</li>
   <li><b>最近日志</b>:查看最近的运行日志。</li>
 </ul>
-<div class="note">只有服务器 <code>.env</code> 配置了 <code>PAPER_REPO_TOKEN</code> 才会真正上传;未配置时诊断功能不会向外发送任何数据(私有化默认如此)。日志可能含敏感信息,排查仓库应设为私有。</div>
+<div class="note">只有服务器 <code>.env</code> 配置了有效的 <code>PAPER_REPO_TOKEN</code> 才会真正上传。请勿把中文说明或行内注释写在令牌值中;未配置或配置无效时页面会提示原因,也不会向外发送数据。日志可能含敏感信息,排查仓库应设为私有。</div>
 
 <h2 class="sec" id="backup">6. 数据备份与恢复</h2>
 <ol>
@@ -609,7 +609,7 @@
 <p>系统内「关于系统」页可查看版本、开发者、问题反馈入口与本手册。问题反馈:<a href="https://github.com/lsgoodlionel/CW/issues">GitHub Issues</a>。</p>
 
 <hr style="margin:40px 0;border:none;border-top:1px solid var(--line)">
-<p style="color:var(--muted);font-size:13px">© 小企业财务记账系统 · 本手册随版本更新维护 · 适用系统版本 v1.0.12(2026-11-25)。如与实际界面不符,以系统当前版本为准。</p>
+<p style="color:var(--muted);font-size:13px">© 小企业财务记账系统 · 本手册随版本更新维护 · 适用系统版本 v1.0.13(2026-11-25)。如与实际界面不符,以系统当前版本为准。</p>
 </main>
 </div>
 </body>

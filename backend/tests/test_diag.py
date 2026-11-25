@@ -79,6 +79,32 @@ def run():
         diag._upload = orig_upload
         settings.paper_repo_token = ""
 
+    # .env 中把中文注释当作 token 值时,历史列表应安全为空并提示配置错误。
+    settings.paper_repo_token = " # 诊断令牌未配置"
+    check("注释占位值不算有效令牌", diag.enabled() is False and diag.token_valid() is False)
+    check("无效令牌提示可读", "格式无效" in (diag.token_error() or ""))
+    check("无效令牌历史记录安全为空", diag.upload_history() == [])
+    settings.paper_repo_token = "fake-token"
+
+    # slug 可为中文,但 HTTP 头必须保持 ASCII,URL 路径需编码。
+    original_urlopen = diag.urllib.request.urlopen
+    requests = []
+    class FakeResponse(io.BytesIO):
+        status = 201
+    def fake_urlopen(req, timeout):
+        requests.append(req)
+        return FakeResponse(b"[]")
+    diag.urllib.request.urlopen = fake_urlopen
+    try:
+        diag._github_get("中文/logs")
+        diag._upload("中文/logs/test.zip", b"zip", "test")
+        check("中文路径已编码", all("%E4%B8%AD%E6%96%87" in req.full_url for req in requests))
+        check("GitHub 请求头均可编码", all(
+            all(str(value).isascii() for value in req.headers.values()) for req in requests))
+    finally:
+        diag.urllib.request.urlopen = original_urlopen
+        settings.paper_repo_token = ""
+
     print("\n结果:" + ("全部通过" if not failures else f"{len(failures)} 项失败: {failures}"))
     if failures:
         raise SystemExit(1)
