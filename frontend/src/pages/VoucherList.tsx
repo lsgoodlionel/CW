@@ -3,19 +3,25 @@ import {
   Table, Button, Space, DatePicker, Input, Popconfirm, Tag, message, Select,
 } from 'antd'
 import { PlusOutlined, PaperClipOutlined } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
-import type { Dayjs } from 'dayjs'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import dayjs, { Dayjs } from 'dayjs'
 import { http, VoucherListItem, Customer, AccountTreeNode, ATTACHMENT_KIND_LABEL, formatYuan } from '../api'
 
 const { RangePicker } = DatePicker
 
 export default function VoucherList() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [items, setItems] = useState<VoucherListItem[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
-  const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null)
+  const [range, setRange] = useState<[Dayjs, Dayjs] | null>(() => {
+    const start = searchParams.get('start'), end = searchParams.get('end')
+    return start && end ? [dayjs(start), dayjs(end)] : null
+  })
+  const [status, setStatus] = useState<string | undefined>(searchParams.get('status') || undefined)
+  const [missingOnly, setMissingOnly] = useState(searchParams.get('missing_attachments') === 'true')
   const [keyword, setKeyword] = useState('')
   const [customerId, setCustomerId] = useState<number>()
   const [accountId, setAccountId] = useState<number>()
@@ -39,10 +45,20 @@ export default function VoucherList() {
     if (customerId) params.customer_id = customerId
     if (accountId) params.account_id = accountId
     if (flow) params.flow = flow
+    if (status) params.status = status
+    if (missingOnly) params.missing_attachments = 'true'
     http.get('/vouchers', { params })
       .then((r) => { setItems(r.data.items); setTotal(r.data.total) })
       .finally(() => setLoading(false))
-  }, [page, range, keyword, customerId, accountId, flow])
+  }, [page, range, keyword, customerId, accountId, flow, status, missingOnly])
+
+  useEffect(() => {
+    const start = searchParams.get('start'), end = searchParams.get('end')
+    setRange(start && end ? [dayjs(start), dayjs(end)] : null)
+    setStatus(searchParams.get('status') || undefined)
+    setMissingOnly(searchParams.get('missing_attachments') === 'true')
+    setPage(1)
+  }, [searchParams])
 
   useEffect(() => { load() }, [load])
 
@@ -149,6 +165,12 @@ export default function VoucherList() {
         <Select allowClear placeholder="收支类型" style={{ width: 120 }}
           value={flow} onChange={(v) => { setPage(1); setFlow(v) }}
           options={[{ value: 'income', label: '收入' }, { value: 'expense', label: '支出' }]} />
+        <Select allowClear placeholder="凭证状态" style={{ width: 120 }} value={status}
+          onChange={(v) => { setPage(1); setStatus(v) }}
+          options={[{ value: 'posted', label: '已入账' }, { value: 'draft', label: '草稿' }]} />
+        <Select style={{ width: 130 }} value={missingOnly ? 'missing' : 'all'}
+          onChange={(v) => { setPage(1); setMissingOnly(v === 'missing') }}
+          options={[{ value: 'all', label: '全部附件状态' }, { value: 'missing', label: '仅缺附件' }]} />
         <Button type="primary" icon={<PlusOutlined />}
           onClick={() => navigate('/vouchers/new')}>新建凭证</Button>
       </Space>

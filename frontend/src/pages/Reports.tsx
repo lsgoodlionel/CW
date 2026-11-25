@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Card, Tabs, Table, Tag, Segmented, Select, Button, Space } from 'antd'
-import { DownloadOutlined } from '@ant-design/icons'
+import { Card, Tabs, Table, Tag, Segmented, Select, Button, Space, DatePicker } from 'antd'
+import { DownloadOutlined, FilePdfOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
   http, withToken,
@@ -20,6 +20,8 @@ export default function Reports() {
   const [quarter, setQuarter] = useState(Math.floor(now.month() / 3) + 1)
   const [data, setData] = useState<OfficialReports | null>(null)
   const [trial, setTrial] = useState<TrialBalance | null>(null)
+  const [orientation, setOrientation] = useState<'auto' | 'portrait' | 'landscape'>(() =>
+    (localStorage.getItem('report_pdf_orientation') as 'auto' | 'portrait' | 'landscape') || 'auto')
 
   const params = useMemo(() => {
     const p: Record<string, string | number> = { report_type: reportType, year }
@@ -47,16 +49,18 @@ export default function Reports() {
     const qs = new URLSearchParams(params as Record<string, string>).toString()
     window.open(withToken(`/api/reports/export-excel?${qs}`), '_blank')
   }
-
-  const years = Array.from({ length: 8 }, (_, i) => now.year() - i)
+  const reportPdf = (preview: boolean) => {
+    const qs = new URLSearchParams({ ...params, orientation, preview: String(preview) } as Record<string, string>).toString()
+    window.open(withToken(`/api/reports/export-pdf?${qs}`), '_blank')
+  }
 
   return (
     <Card>
       <Space wrap style={{ marginBottom: 16 }}>
         <Segmented value={reportType} onChange={(v) => setReportType(v as ReportType)}
           options={[{ label: '月报', value: 'month' }, { label: '季报', value: 'quarter' }, { label: '年报', value: 'year' }]} />
-        <Select value={year} style={{ width: 100 }} onChange={setYear}
-          options={years.map((y) => ({ value: y, label: `${y}年` }))} />
+        <DatePicker picker="year" value={dayjs().year(year)} allowClear={false}
+          onChange={(v) => v && setYear(v.year())} />
         {reportType === 'month' && (
           <Select value={month} style={{ width: 90 }} onChange={setMonth}
             options={Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: `${i + 1}月` }))} />
@@ -68,6 +72,12 @@ export default function Reports() {
         <Button type="primary" icon={<DownloadOutlined />} onClick={exportExcel}>
           一键导出 Excel
         </Button>
+        <Select value={orientation} style={{ width: 125 }} onChange={(v) => {
+          setOrientation(v); localStorage.setItem('report_pdf_orientation', v)
+        }} options={[{ value: 'auto', label: 'A4 自动横向' },
+          { value: 'landscape', label: 'A4 横向' }, { value: 'portrait', label: 'A4 纵向' }]} />
+        <Button icon={<FilePdfOutlined />} onClick={() => reportPdf(true)}>预览 PDF</Button>
+        <Button icon={<FilePdfOutlined />} onClick={() => reportPdf(false)}>保存 PDF</Button>
         {data && <Tag color="blue">{data.period.label}</Tag>}
       </Space>
 

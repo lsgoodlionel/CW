@@ -47,6 +47,14 @@ def run():
     settings.error_report_cooldown = 600
     try:
         check("有token时启用", diag.enabled() is True)
+        original_get = diag._github_get
+        diag._github_get = lambda path: [
+            {"name": "20261125-080000_manual.zip", "size": 12},
+            {"name": "20261124-080000_manual.zip", "size": 8},
+        ]
+        check("上传历史按日期过滤", [x["name"] for x in diag.upload_history("2026-11-25", "2026-11-25")]
+              == ["20261125-080000_manual.zip"])
+        diag._github_get = original_get
         path = diag.report_manual("手动测试")
         check("手动上传路径正确", path is not None and path.startswith("CW/logs/") and path.endswith("_manual.zip"))
         check("手动上传已调用_upload", len(calls) == 1)
@@ -67,6 +75,7 @@ def run():
         time.sleep(0.6)                       # 等后台线程完成
         check("同类错误节流仅上传一次", len(calls) == 1)
     finally:
+        diag._github_get = original_get
         diag._upload = orig_upload
         settings.paper_repo_token = ""
 

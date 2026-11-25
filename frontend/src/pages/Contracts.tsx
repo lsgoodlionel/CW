@@ -52,7 +52,7 @@ export default function Contracts() {
   const navigate = useNavigate()
   const [rows, setRows] = useState<Contract[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState(new URLSearchParams(window.location.search).get('status') || 'all')
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Contract | null>(null)
@@ -105,6 +105,16 @@ export default function Contracts() {
     })
     else form.setFieldsValue({ category: 'other', direction: 'income', status: 'active', amount: 0, tax_rate: 0 })
     setOpen(true)
+  }
+  const copyNew = (c: Contract) => {
+    openEdit(null)
+    form.setFieldsValue({
+      name: c.name, category: c.category, direction: c.direction,
+      customer_id: c.customer_id, party_name: c.customer_name || c.party_name,
+      amount: Number(c.amount), tax_rate: Number(c.tax_rate),
+      our_signatory: c.our_signatory, counterparty_contact: c.counterparty_contact,
+      note: c.note,
+    })
   }
   const _payload = (v: Record<string, unknown>) => {
     const hasCust = Boolean(v.customer_id)
@@ -176,6 +186,7 @@ export default function Contracts() {
       title: '操作', width: 190, render: (_: unknown, r: Contract) => (
         <Space>
           <a onClick={() => openEdit(r)}>编辑</a>
+          <a onClick={() => copyNew(r)}>复制新建</a>
           <a onClick={() => openDetail(r.id)}>详情</a>
           {approvalEnabled && r.status === 'draft' && !r.workflow_instance_id && (
             <a onClick={() => submitApproval(r.id)}>提交审批</a>

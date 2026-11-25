@@ -111,6 +111,8 @@ def list_vouchers(
     customer_id: int | None = None,
     account_id: int | None = None,
     flow: str | None = None,       # income 收入 / expense 支出(按分录科目损益方向)
+    status: str | None = None,
+    missing_attachments: bool = False,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -128,6 +130,19 @@ def list_vouchers(
         ))
     if customer_id:
         stmt = stmt.where(models.Voucher.customer_id == customer_id)
+    if status:
+        if status not in ("draft", "posted"):
+            raise HTTPException(status_code=400, detail="未知凭证状态")
+        stmt = stmt.where(models.Voucher.status == status)
+    if missing_attachments:
+        # 缺件状态会合并关联凭证与合同附件,须沿用同一计算函数后分页。
+        candidate_ids = db.scalars(stmt.with_only_columns(models.Voucher.id)).all()
+        context = attachment_context(db, candidate_ids)
+        candidates = db.scalars(select(models.Voucher).where(models.Voucher.id.in_(candidate_ids))).all()
+        missing_ids = [v.id for v in candidates if missing_attachment_kinds(
+            parse_required_attachment_kinds(v.required_attachment_kinds),
+            context.get(v.id, ({}, {}))[0])]
+        stmt = stmt.where(models.Voucher.id.in_(missing_ids))
     if account_id or flow:
         # 该凭证的分录中存在满足条件的科目(费用类型=具体科目;收支类型=损益类科目方向)
         sub = (select(models.VoucherEntry.id)

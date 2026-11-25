@@ -88,6 +88,7 @@ export default function Tax() {
 
 function Filings({ meta }: { meta: Meta }) {
   const [rows, setRows] = useState<TaxFiling[]>([])
+  const [statusFilter, setStatusFilter] = useState(new URLSearchParams(window.location.search).get('status') || 'all')
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<TaxFiling | null>(null)
@@ -114,6 +115,14 @@ function Filings({ meta }: { meta: Meta }) {
     })
     else form.setFieldsValue({ tax_type: 'stamp', taxpayer_type: 'enterprise', status: 'pending', tax_basis: 0, tax_amount: 0, paid_amount: 0 })
     setOpen(true)
+  }
+  const copyNew = (f: TaxFiling) => {
+    openEdit(null)
+    form.setFieldsValue({
+      tax_type: f.tax_type, taxpayer_type: f.taxpayer_type,
+      period: f.period, tax_basis: Number(f.tax_basis), tax_amount: Number(f.tax_amount),
+      paid_amount: 0, status: 'pending', note: f.note,
+    })
   }
   const _payload = (v: Record<string, unknown>) => ({
     ...v,
@@ -168,6 +177,7 @@ function Filings({ meta }: { meta: Meta }) {
       title: '操作', width: 170, render: (_: unknown, r: TaxFiling) => (
         <Space>
           <a onClick={() => openEdit(r)}>编辑</a>
+          <a onClick={() => copyNew(r)}>复制新建</a>
           {meta.approval_enabled && r.status === 'pending' && !r.workflow_instance_id && (
             <a onClick={() => submitApproval(r.id)}>提交审批</a>
           )}
@@ -183,6 +193,9 @@ function Filings({ meta }: { meta: Meta }) {
     <>
       <Space style={{ marginBottom: 12 }}>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit(null)}>新增申报记录</Button>
+        <Select value={statusFilter} style={{ width: 140 }} onChange={setStatusFilter}
+          options={[{ value: 'all', label: '全部申报状态' },
+            ...Object.entries(meta.status).map(([value, label]) => ({ value, label }))]} />
       </Space>
       {audit && (
         <Card size="small" title="税务凭证 / 报表 / 申报联动审查" style={{ marginBottom: 12 }}>
@@ -206,7 +219,8 @@ function Filings({ meta }: { meta: Meta }) {
             ]} />
         </Card>
       )}
-      <Table rowKey="id" size="small" loading={loading} columns={columns} dataSource={rows}
+      <Table rowKey="id" size="small" loading={loading} columns={columns}
+        dataSource={statusFilter === 'all' ? rows : rows.filter((r) => r.status === statusFilter)}
         pagination={{ pageSize: 15, showTotal: (t) => `共 ${t} 条` }} />
 
       <Modal title={editing ? '编辑申报记录' : '新增申报记录'} open={open} onOk={save}

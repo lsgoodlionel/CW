@@ -4,9 +4,11 @@ import io
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Side, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.page import PageMargins
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import ledgers
+from . import ledgers, models
 from .reports_cn import Period
 
 THIN = Side(style="thin", color="000000")
@@ -23,9 +25,12 @@ MONEY = "#,##0.00"
 
 
 def build_ledger_workbook(db: Session, ledger_type: str, period: Period,
-                          account_code: str | None = None) -> bytes:
+                          account_code: str | None = None,
+                          include_cover: bool = False) -> bytes:
     wb = Workbook()
     wb.remove(wb.active)
+    if include_cover:
+        _write_cover(wb, db, period, ledger_type)
     types = list(ledgers.LEDGER_TYPES) if ledger_type == "all" else [ledger_type]
     for lt in types:
         data = ledgers.build_ledger(db, lt, period, account_code)
@@ -36,6 +41,40 @@ def build_ledger_workbook(db: Session, ledger_type: str, period: Period,
     wb.save(buf)
     buf.seek(0)
     return buf.read()
+
+
+def _write_cover(wb: Workbook, db: Session, period: Period, ledger_type: str):
+    company = db.scalar(select(models.CompanyInfo))
+    ws = wb.create_sheet("封面")
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.orientation = "portrait"
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 1
+    ws.page_margins = PageMargins(left=.6, right=.6, top=.7, bottom=.7)
+    ws.column_dimensions["A"].width = 20
+    ws.column_dimensions["B"].width = 42
+    ws.merge_cells("A2:B2")
+    ws["A2"] = "会计账簿封面"
+    ws["A2"].font = Font(size=22, bold=True)
+    ws["A2"].alignment = CENTER
+    rows = [("单位名称", company.name if company else ""),
+            ("账簿名称", "全套六类会计账簿" if ledger_type == "all" else ledgers.LEDGER_TYPES[ledger_type]),
+            ("会计期间", period.label),
+            ("日期范围", f"{period.cur_start} 至 {period.cur_end}"),
+            ("会计准则", company.accounting_standard if company else "小企业会计准则"),
+            ("记账本位币", company.currency if company else "人民币"),
+            ("会计", company.accountant if company else ""),
+            ("复核", company.auditor if company else ""),
+            ("记账", company.bookkeeper if company else "")]
+    for number, (label, value) in enumerate(rows, 5):
+        ws.row_dimensions[number].height = 35
+        for col, text in ((1, label), (2, value)):
+            cell = ws.cell(number, col, text)
+            cell.border = BORDER
+            cell.alignment = CENTER if col == 1 else LEFT
+            cell.font = Font(size=12, bold=col == 1)
+    ws.print_area = "A1:B17"
 
 
 # 金额列索引(0-based,用于设置数字格式与右对齐),按账簿类型
@@ -59,6 +98,13 @@ def _write_sheet(wb: Workbook, data: dict, period: Period):
     max_ncols = max([len(default_cols)]
                     + [len(g.get("columns", default_cols)) for g in groups])
     ws = wb.create_sheet(data["title"][:31])
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.orientation = "landscape"
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.page_margins = PageMargins(left=.25, right=.25, top=.45, bottom=.45, header=.2, footer=.2)
+    ws.oddFooter.center.text = "第 &P 页 / 共 &N 页"
     last_col = get_column_letter(max_ncols)
 
     ws.merge_cells(f"A1:{last_col}1")
@@ -119,6 +165,8 @@ def _write_sheet(wb: Workbook, data: dict, period: Period):
         r += 1  # 组间空行
 
     _set_widths(ws, ledger_type, max_ncols, default_sub)
+    ws.print_title_rows = "1:3"
+    ws.print_options.horizontalCentered = True
 
 
 def _set_widths(ws, ledger_type, ncols, sub_columns):

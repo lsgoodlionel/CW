@@ -76,15 +76,18 @@ def attach_cells(data: dict) -> dict:
     return data
 
 
-def _opening_balance(db: Session, code: str, before: date) -> Decimal:
+def _opening_balance(db: Session, code: str, before: date,
+                     sub_account: str | None = None) -> Decimal:
     """科目在 before(含)之前的累计余额(借-贷)。"""
-    val = db.scalar(
-        select(func.coalesce(func.sum(models.VoucherEntry.debit), 0)
+    stmt = (select(func.coalesce(func.sum(models.VoucherEntry.debit), 0)
                - func.coalesce(func.sum(models.VoucherEntry.credit), 0))
         .join(models.Voucher, models.Voucher.id == models.VoucherEntry.voucher_id)
         .join(models.Account, models.Account.id == models.VoucherEntry.account_id)
-        .where(models.Account.code == code, models.Voucher.voucher_date <= before)
-    )
+        .where(models.Account.code == code, models.Voucher.voucher_date <= before,
+               models.Voucher.status == "posted"))
+    if sub_account is not None:
+        stmt = stmt.where(models.VoucherEntry.sub_account == sub_account)
+    val = db.scalar(stmt)
     return Decimal(val or 0)
 
 
@@ -95,7 +98,8 @@ def _load_entries(db: Session, start: date, end: date, codes: list[str] | None):
         .join(models.Voucher, models.Voucher.id == models.VoucherEntry.voucher_id)
         .join(models.Account, models.Account.id == models.VoucherEntry.account_id)
         .where(models.Voucher.voucher_date >= start,
-               models.Voucher.voucher_date <= end)
+               models.Voucher.voucher_date <= end,
+               models.Voucher.status == "posted")
         .order_by(models.Voucher.voucher_date, models.Voucher.voucher_no,
                   models.VoucherEntry.line_no)
     )
@@ -132,9 +136,10 @@ def _dir_label(bal: Decimal) -> str:
 # 三栏式(总账 / 明细账 / 现金 / 银行 共用底层)
 # ---------------------------------------------------------------------------
 def _three_column_group(db, code, name, sub_label, start, end, entries,
-                        counter=None, journal=False) -> dict:
+                        counter=None, journal=False, filter_sub=False) -> dict:
     """构造一个科目(或明细)的三栏式账簿分组。"""
-    opening = _opening_balance(db, code, start - timedelta(days=1))
+    opening = _opening_balance(db, code, start - timedelta(days=1),
+                               sub_label if filter_sub else None)
     running = opening
     rows = [{
         "date": "", "voucher_no": "", "summary": "期初余额", "counter": "",
@@ -180,7 +185,8 @@ def _all_active_codes(db: Session, start: date, end: date) -> list[str]:
         select(models.Account.code)
         .join(models.VoucherEntry, models.VoucherEntry.account_id == models.Account.id)
         .join(models.Voucher, models.Voucher.id == models.VoucherEntry.voucher_id)
-        .where(models.Voucher.voucher_date <= end)
+        .where(models.Voucher.voucher_date <= end,
+               models.Voucher.status == "posted")
     ).all())
     return sorted(codes)
 
@@ -247,11 +253,23 @@ def _detail_three(db, base, period: Period, account_code):
         subs: dict[str, list] = {}
         for r in rows:
             subs.setdefault(r[0].sub_account or "", []).append(r)
+        # 期初仍有余额的明细也应出现,即使本期没有新分录。
+        prior_subs = db.scalars(
+            select(models.VoucherEntry.sub_account)
+            .join(models.Voucher, models.Voucher.id == models.VoucherEntry.voucher_id)
+            .join(models.Account, models.Account.id == models.VoucherEntry.account_id)
+            .where(models.Account.code == code, models.Voucher.status == "posted",
+                   models.Voucher.voucher_date < start).distinct()
+        ).all()
+        for sub in prior_subs:
+            if _opening_balance(db, code, start - timedelta(days=1), sub or "") != 0:
+                subs.setdefault(sub or "", [])
         if not subs and _opening_balance(db, code, start - timedelta(days=1)) == 0:
             continue
-        for sub, sub_rows in (subs.items() or [("", [])]):
+        for sub, sub_rows in subs.items():
             groups.append(_three_column_group(
-                db, code, acc_names.get(code, ""), sub, start, end, sub_rows))
+                db, code, acc_names.get(code, ""), sub, start, end, sub_rows,
+                filter_sub=True))
     base["columns"] = ["日期", "凭证字号", "摘要", "借方金额", "贷方金额", "借或贷", "余额"]
     base["groups"] = groups
     return base
@@ -291,9 +309,9 @@ def _codes_with_subaccounts(db: Session, start: date, end: date) -> list[str]:
         select(models.Account.code)
         .join(models.VoucherEntry, models.VoucherEntry.account_id == models.Account.id)
         .join(models.Voucher, models.Voucher.id == models.VoucherEntry.voucher_id)
-        .where(models.Voucher.voucher_date >= start,
-               models.Voucher.voucher_date <= end,
-               models.VoucherEntry.sub_account != "")
+        .where(models.Voucher.voucher_date <= end,
+               models.VoucherEntry.sub_account != "",
+               models.Voucher.status == "posted")
     ).all())
     return sorted(codes)
 

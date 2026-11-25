@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Card, Descriptions, Tag, Button, Space, Input, Select, message, Spin, Typography,
+  Card, Descriptions, Tag, Button, Space, Input, Select, message, Spin, Typography, DatePicker, Table,
 } from 'antd'
 import { ReloadOutlined, CloudUploadOutlined } from '@ant-design/icons'
-import { http } from '../api'
+import { http, withToken } from '../api'
+import type { Dayjs } from 'dayjs'
 
 // 诊断状态返回结构(本地 interface,后端契约见页面头部说明,不改生成文件)
 interface DiagStatus {
@@ -38,6 +39,20 @@ export default function Diagnostics() {
   const [lines, setLines] = useState<string[]>([])
   const [logLoading, setLogLoading] = useState(false)
   const [lineCount, setLineCount] = useState<number>(DEFAULT_LINE_COUNT)
+  const [historyRange, setHistoryRange] = useState<[Dayjs, Dayjs] | null>(null)
+  const [history, setHistory] = useState<{ name: string; uploaded_at_utc: string; size: number }[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+
+  const loadHistory = useCallback(() => {
+    setHistoryLoading(true)
+    const params = historyRange ? {
+      start: historyRange[0].format('YYYY-MM-DD'), end: historyRange[1].format('YYYY-MM-DD'),
+    } : {}
+    http.get<{ items: typeof history }>('/diag/history', { params })
+      .then((r) => setHistory(r.data.items))
+      .catch(() => setHistory([]))
+      .finally(() => setHistoryLoading(false))
+  }, [historyRange])
 
   const loadStatus = useCallback(() => {
     setStatusLoading(true)
@@ -55,6 +70,7 @@ export default function Diagnostics() {
 
   useEffect(() => { loadStatus() }, [loadStatus])
   useEffect(() => { loadRecent(lineCount) }, [loadRecent, lineCount])
+  useEffect(() => { loadHistory() }, [loadHistory])
 
   const report = async () => {
     setReporting(true)
@@ -121,6 +137,21 @@ export default function Diagnostics() {
             )}
           </Space>
         </Space>
+      </Card>
+
+      <Card
+        title="诊断上传记录"
+        extra={<Space><DatePicker.RangePicker value={historyRange} onChange={(v) => setHistoryRange(v as [Dayjs, Dayjs] | null)} />
+          <Button icon={<ReloadOutlined />} loading={historyLoading} onClick={loadHistory}>刷新</Button></Space>}
+      >
+        <Table rowKey="name" size="small" loading={historyLoading} dataSource={history}
+          pagination={{ pageSize: 10 }} columns={[
+            { title: '上传时间（UTC）', dataIndex: 'uploaded_at_utc', width: 210 },
+            { title: '文件名', dataIndex: 'name' },
+            { title: '大小', dataIndex: 'size', width: 110, render: (v: number) => `${Math.ceil(v / 1024)} KB` },
+            { title: '操作', width: 100, render: (_: unknown, r: { name: string }) =>
+              <a href={withToken(`/api/diag/history/${encodeURIComponent(r.name)}/download`)} target="_blank" rel="noreferrer">下载</a> },
+          ]} />
       </Card>
 
       <Card

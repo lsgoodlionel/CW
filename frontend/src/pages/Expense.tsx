@@ -4,7 +4,7 @@ import {
   Popconfirm, message, Segmented, Timeline, Divider, AutoComplete, Alert,
 } from 'antd'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   http, ExpenseClaim, ExpenseApplication, Attachment, AccountTreeNode, Employee, OrgUnit,
   ActiveWorkflow, APPROVER_TYPE_LABEL, EXPENSE_STATUS_LABEL, APPLY_TYPE_LABEL,
@@ -18,6 +18,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function Expense() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [claims, setClaims] = useState<ExpenseClaim[]>([])
   const [accounts, setAccounts] = useState<AccountTreeNode[]>([])
   const [subMap, setSubMap] = useState<Record<number, { value: string }[]>>({})
@@ -28,7 +29,8 @@ export default function Expense() {
   const [units, setUnits] = useState<OrgUnit[]>([])
   const [approvedApps, setApprovedApps] = useState<ExpenseApplication[]>([])
   const [contracts, setContracts] = useState<{ id: number; contract_no: string; name: string }[]>([])
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'all')
+  const withoutVoucher = searchParams.get('without_voucher') === 'true'
   const [loading, setLoading] = useState(false)
 
   const [open, setOpen] = useState(false)
@@ -42,8 +44,9 @@ export default function Expense() {
     setLoading(true)
     const params = statusFilter === 'all' ? {} : { status: statusFilter }
     http.get<ExpenseClaim[]>('/expense/claims', { params })
-      .then((r) => setClaims(r.data)).finally(() => setLoading(false))
-  }, [statusFilter])
+      .then((r) => setClaims(withoutVoucher ? r.data.filter((c: ExpenseClaim) => !c.voucher_id) : r.data))
+      .finally(() => setLoading(false))
+  }, [statusFilter, withoutVoucher])
   useEffect(() => { load() }, [load])
   useEffect(() => {
     http.get<AccountTreeNode[]>('/accounts/tree').then((r) => {
@@ -94,6 +97,15 @@ export default function Expense() {
     else form.setFieldsValue({ items: [{ amount: 0 }] })
     setOpen(true)
   }
+  const copyNew = (c: ExpenseClaim) => {
+    openEdit(null)
+    form.setFieldsValue({
+      application_id: c.application_id, applicant_employee_id: c.applicant_employee_id,
+      org_unit_id: c.org_unit_id, contract_id: c.contract_id,
+      reason: c.reason, items: c.items.map(({ category, account_id, sub_account, amount, note }) =>
+        ({ category, account_id, sub_account, amount, note })),
+    })
+  }
   // 上传附件前确保报销单已落库(新建则先建草稿),返回单据 id
   const ensureOwner = async (): Promise<number | null> => {
     if (editing) return editing.id
@@ -142,6 +154,7 @@ export default function Expense() {
         <Space wrap>
           {(r.status === 'draft' || r.status === 'rejected') && <>
             <a onClick={() => openEdit(r)}>编辑</a>
+            <a onClick={() => copyNew(r)}>复制新建</a>
             <a onClick={() => submit(r.id)}>提交</a>
             <Popconfirm title="删除该报销单?" onConfirm={() => remove(r.id)}>
               <a style={{ color: '#cf1322' }}>删除</a>

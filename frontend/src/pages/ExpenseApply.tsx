@@ -10,12 +10,14 @@ import {
   STEP_STATE_LABEL, STEP_STATE_COLOR, formatYuan,
 } from '../api'
 import AttachmentEditor from '../components/AttachmentEditor'
+import { useSearchParams } from 'react-router-dom'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'default', pending: 'processing', approved: 'success', rejected: 'error', closed: 'gold',
 }
 
 export default function ExpenseApply() {
+  const [searchParams] = useSearchParams()
   const [apps, setApps] = useState<ExpenseApplication[]>([])
   const [accounts, setAccounts] = useState<AccountTreeNode[]>([])
   const [subMap, setSubMap] = useState<Record<number, { value: string }[]>>({})
@@ -25,7 +27,7 @@ export default function ExpenseApply() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [units, setUnits] = useState<OrgUnit[]>([])
   const [contracts, setContracts] = useState<{ id: number; contract_no: string; name: string }[]>([])
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'all')
   const [loading, setLoading] = useState(false)
 
   const [open, setOpen] = useState(false)
@@ -71,6 +73,15 @@ export default function ExpenseApply() {
     else form.setFieldsValue({ apply_type: 'general', items: [{ amount: 0 }] })
     setOpen(true)
   }
+  const copyNew = (a: ExpenseApplication) => {
+    openEdit(null)
+    form.setFieldsValue({
+      apply_type: a.apply_type, applicant_employee_id: a.applicant_employee_id,
+      org_unit_id: a.org_unit_id, contract_id: a.contract_id,
+      reason: a.reason, items: a.items.map(({ category, account_id, sub_account, amount, note }) =>
+        ({ category, account_id, sub_account, amount, note })),
+    })
+  }
   // 上传附件前确保单据已落库(新建则先建草稿),返回单据 id
   const ensureOwner = async (): Promise<number | null> => {
     if (editing) return editing.id
@@ -115,6 +126,7 @@ export default function ExpenseApply() {
         <Space wrap>
           {(r.status === 'draft' || r.status === 'rejected') && <>
             <a onClick={() => openEdit(r)}>编辑</a>
+            <a onClick={() => copyNew(r)}>复制新建</a>
             <a onClick={() => submit(r.id)}>提交</a>
             <Popconfirm title="删除该申请?" onConfirm={() => remove(r.id)}>
               <a style={{ color: '#cf1322' }}>删除</a>

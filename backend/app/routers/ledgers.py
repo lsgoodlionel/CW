@@ -4,12 +4,44 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field
 
 from ..database import get_db
-from .. import ledgers, ledger_excel, reports_cn
+from .. import ledgers, ledger_excel, ledger_archive, reports_cn, auth_svc
+from ..auth_mw import current_user
 from ..schemas_read import LedgerOut, LedgerTypesOut
 
 router = APIRouter(prefix="/api/ledgers", tags=["ledgers"])
+
+
+class ArchiveRequest(BaseModel):
+    ledger_type: str = "all"
+    report_type: str = "year"
+    year: int
+    month: int | None = None
+    quarter: int | None = None
+    account_code: str | None = None
+    mode: str = "subject"
+    folder_names: dict[str, str] = Field(default_factory=dict)
+
+
+def _archive_params(payload: ArchiveRequest):
+    if payload.ledger_type != "all" and payload.ledger_type not in ledgers.LEDGER_TYPES:
+        raise HTTPException(status_code=400, detail="未知账簿种类")
+    if payload.mode not in ("subject", "date"):
+        raise HTTPException(status_code=400, detail="归档方式须为费用科目或日期")
+    if len(payload.folder_names) > 200 or any(len(v) > 160 for v in payload.folder_names.values()):
+        raise HTTPException(status_code=400, detail="目录设置过长")
+    return _period(payload.report_type, payload.year, payload.month, payload.quarter)
+
+
+def _guard_archive(user, items):
+    if user is None or user.is_super_admin:
+        return
+    if not auth_svc.user_has(user, "voucher", "view"):
+        raise HTTPException(status_code=403, detail="需要记账凭证查看权限")
+    if any(i.get("source") == "关联合同" for i in items) and not auth_svc.user_has(user, "contract", "view"):
+        raise HTTPException(status_code=403, detail="归档包含合同附件，需要合同查看权限")
 
 
 def _period(report_type: str, year: int, month: int | None, quarter: int | None):
@@ -64,3 +96,31 @@ def export_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"},
     )
+
+
+@router.post("/archive-preview")
+def archive_preview(payload: ArchiveRequest, db: Session = Depends(get_db), user=Depends(current_user)):
+    period = _archive_params(payload)
+    vouchers, items = ledger_archive.make_manifest(
+        db, period, payload.mode, payload.account_code, payload.folder_names)
+    _guard_archive(user, items)
+    public = [{k: v for k, v in item.items() if k != "stored_path"} for item in items]
+    return {"period": period.label, "voucher_count": len(vouchers),
+            "attachment_count": sum(i["type"] == "附件" for i in items),
+            "items": public}
+
+
+@router.post("/archive-export")
+def archive_export(payload: ArchiveRequest, db: Session = Depends(get_db), user=Depends(current_user)):
+    period = _archive_params(payload)
+    _, items = ledger_archive.make_manifest(db, period, payload.mode, payload.account_code,
+                                             payload.folder_names)
+    _guard_archive(user, items)
+    try:
+        content = ledger_archive.build_archive(db, period, payload.ledger_type, payload.mode,
+                                               payload.account_code, payload.folder_names)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    fname = f"账簿凭证附件-{period.label}.zip"
+    return StreamingResponse(iter([content]), media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"})

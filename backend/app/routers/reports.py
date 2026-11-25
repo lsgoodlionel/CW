@@ -13,7 +13,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from .. import models, reports_cn, report_excel, tax_reconcile
+from .. import models, reports_cn, report_excel, report_pdf, tax_reconcile
 from ..schemas_read import DashboardOut, OfficialReportsOut, TrialBalanceOut
 from ..voucher_attachments import count_missing_attachment_vouchers
 
@@ -72,6 +72,23 @@ def export_excel(
         headers={"Content-Disposition":
                  f"attachment; filename*=UTF-8''{quote(fname)}"},
     )
+
+
+@router.get("/export-pdf")
+def export_report_pdf(
+    report_type: str = Query("month"), year: int = Query(...),
+    month: int | None = None, quarter: int | None = None,
+    orientation: str = Query("auto"), preview: bool = False,
+    db: Session = Depends(get_db),
+):
+    if orientation not in ("auto", "portrait", "landscape"):
+        raise HTTPException(status_code=400, detail="纸张方向须为自动、纵向或横向")
+    period = _resolve_period(report_type, year, month, quarter)
+    content = report_pdf.build_report_pdf(db, period, orientation)
+    disposition = "inline" if preview else "attachment"
+    fname = f"财务报表-{period.label}.pdf"
+    return StreamingResponse(iter([content]), media_type="application/pdf",
+        headers={"Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(fname)}"})
 
 
 def _sum_by_account(db: Session, start: date | None, end: date | None):
@@ -426,7 +443,8 @@ def _ops_summary(db: Session) -> dict:
         "claim_pending": _count(models.ExpenseClaim,
                                 models.ExpenseClaim.status == "pending"),
         "claim_approved": _count(models.ExpenseClaim,
-                                 models.ExpenseClaim.status == "approved"),
+                                 models.ExpenseClaim.status == "approved",
+                                 models.ExpenseClaim.voucher_id.is_(None)),
         "claim_paid": _count(models.ExpenseClaim,
                              models.ExpenseClaim.status == "paid"),
         "customers": _count(models.Customer),

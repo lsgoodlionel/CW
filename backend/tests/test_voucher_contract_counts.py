@@ -130,6 +130,10 @@ def run():
     ops = reports._ops_summary(db)
     check("仪表盘统计真正缺附件的凭证",
           ops["vouchers_missing_attachments"] == 1)
+    filtered = vouchers.list_vouchers(missing_attachments=True, page=1, page_size=20, db=db)
+    check("仪表盘跳转筛选与缺附件统计一致",
+          filtered.total == ops["vouchers_missing_attachments"]
+          and [item.id for item in filtered.items] == [incomplete.id])
 
     set_current_tenant(None)
     db.close()

@@ -1,5 +1,8 @@
 """运行诊断 API(仅平台超级管理员):查看诊断状态/近期日志、手动打包上传。"""
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from urllib.parse import quote
+from datetime import date
 from pydantic import BaseModel
 
 from .. import models, diag
@@ -40,6 +43,28 @@ def diag_recent(limit: int = 200, _: models.User = Depends(require_super_admin))
     """返回最近日志行(用于界面快速查看)。"""
     lines = diag.recent_lines()
     return {"lines": lines[-max(1, min(limit, 800)):]}
+
+
+@router.get("/history")
+def diag_history(start: date | None = None, end: date | None = None,
+                 _: models.User = Depends(require_super_admin)):
+    try:
+        return {"items": diag.upload_history(start.isoformat() if start else None,
+                                             end.isoformat() if end else None)}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"读取上传记录失败:{exc}") from exc
+
+
+@router.get("/history/{name}/download")
+def diag_history_download(name: str, _: models.User = Depends(require_super_admin)):
+    try:
+        content = diag.download_uploaded(name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"下载上传记录失败:{exc}") from exc
+    return StreamingResponse(iter([content]), media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
 
 
 @router.post("/report")

@@ -66,10 +66,10 @@ export default function Dashboard() {
     </Col>
   )
   const Op = ({ title, value, icon, color, to }: {
-    title: string; value: number; icon: React.ReactNode; color?: string; to: string
+    title: string; value: number; icon: React.ReactNode; color?: string; to?: string
   }) => (
     <Col xs={12} sm={8} lg={3}>
-      <Card size="small" styles={BODY} hoverable onClick={() => navigate(to)}>
+      <Card size="small" styles={BODY} hoverable={Boolean(to)} onClick={to ? () => navigate(to) : undefined}>
         <Statistic title={title} value={value} valueStyle={{ ...VS, color: value ? color : undefined }} prefix={icon} />
       </Card>
     </Col>
@@ -154,20 +154,22 @@ export default function Dashboard() {
       <Card size="small" title="运营 / 待办概览" style={{ marginTop: 12 }} styles={{ body: { padding: 12 } }}>
         <Row gutter={[12, 12]}>
           <Op title="审批进行中" value={ops.workflow_pending} icon={<AuditOutlined />} color="#1f6feb" to="/approvals" />
-          <Op title="费用申请待审" value={ops.apply_pending} icon={<FileDoneOutlined />} color="#d48806" to="/expense-apply" />
-          <Op title="报销审批中" value={ops.claim_pending} icon={<SolutionOutlined />} color="#d48806" to="/expense" />
-          <Op title="待生成凭证" value={ops.claim_approved} icon={<SolutionOutlined />} color="#d48806" to="/expense" />
-          <Op title="税务待申报" value={ops.tax_pending} icon={<CalculatorOutlined />} color="#cf1322" to="/tax" />
-          <Op title="履行中合同" value={ops.contracts_active} icon={<FileProtectOutlined />} color="#1f6feb" to="/contracts" />
+          <Op title="费用申请待审" value={ops.apply_pending} icon={<FileDoneOutlined />} color="#d48806" to="/expense-apply?status=pending" />
+          <Op title="报销审批中" value={ops.claim_pending} icon={<SolutionOutlined />} color="#d48806" to="/expense?status=pending" />
+          <Op title="待生成凭证" value={ops.claim_approved} icon={<SolutionOutlined />} color="#d48806" to="/expense?status=approved&without_voucher=true" />
+          <Op title="税务待申报" value={ops.tax_pending} icon={<CalculatorOutlined />} color="#cf1322" to="/tax?status=pending" />
+          <Op title="履行中合同" value={ops.contracts_active} icon={<FileProtectOutlined />} color="#1f6feb" to="/contracts?status=active" />
           <Op title="往来单位" value={ops.customers} icon={<TeamOutlined />} to="/customers" />
           <Op title="在册员工" value={ops.employees} icon={<IdcardOutlined />} to="/personnel" />
         </Row>
         <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
           <Op title="凭证总数" value={ops.vouchers_total} icon={<FileTextOutlined />} to="/vouchers" />
-          <Op title={`本期凭证(${lab})`} value={data.voucher_count} icon={<FileTextOutlined />} to="/vouchers" />
-          <Op title="缺附件凭证" value={ops.vouchers_missing_attachments} icon={<FileTextOutlined />} color="#d48806" to="/vouchers" />
+          <Op title={`本期凭证(${lab})`} value={data.voucher_count} icon={<FileTextOutlined />}
+            to={`/vouchers?start=${data.period.start}&end=${data.period.end}&status=posted`} />
+          <Op title="缺附件凭证" value={ops.vouchers_missing_attachments} icon={<FileTextOutlined />}
+            color="#d48806" to="/vouchers?missing_attachments=true" />
           <Op title="合同总数" value={ops.contracts_total} icon={<FileProtectOutlined />} to="/contracts" />
-          <Op title="附件总数" value={ops.attachments} icon={<FileTextOutlined />} to="/vouchers" />
+          <Op title="附件总数" value={ops.attachments} icon={<FileTextOutlined />} />
         </Row>
       </Card>
 

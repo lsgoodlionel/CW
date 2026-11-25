@@ -13,10 +13,13 @@ import hashlib
 import io
 import json
 import logging
+import re
 import threading
 import time
 import traceback as _tb
 import urllib.request
+import urllib.error
+from urllib.parse import quote
 import zipfile
 from collections import deque
 from datetime import datetime, timezone
@@ -96,6 +99,53 @@ def _upload(path: str, content: bytes, message: str) -> int:
     req.add_header("User-Agent", f"{settings.log_app_slug}-diag")
     with urllib.request.urlopen(req, timeout=20) as resp:  # noqa: S310 (固定 GitHub API)
         return resp.status
+
+
+def _github_get(path: str) -> dict | list:
+    url = f"{_GITHUB_API}/repos/{settings.paper_repo}/contents/{quote(path, safe='/')}?ref={quote(settings.paper_repo_branch)}"
+    req = urllib.request.Request(url)
+    req.add_header("Authorization", f"Bearer {settings.paper_repo_token}")
+    req.add_header("Accept", "application/vnd.github+json")
+    req.add_header("X-GitHub-Api-Version", "2022-11-28")
+    req.add_header("User-Agent", f"{settings.log_app_slug}-diag")
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return json.load(resp)
+
+
+def upload_history(start: str | None = None, end: str | None = None) -> list[dict]:
+    """按 ZIP 文件名中的 UTC 时间过滤上传记录。"""
+    if not enabled():
+        return []
+    try:
+        rows = _github_get(f"{settings.log_app_slug}/logs")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return []
+        raise
+    if not isinstance(rows, list):
+        return []
+    out = []
+    for row in rows:
+        name = row.get("name", "")
+        if not name.endswith(".zip") or len(name) < 15:
+            continue
+        stamp = name[:8]
+        if start and stamp < start.replace("-", ""):
+            continue
+        if end and stamp > end.replace("-", ""):
+            continue
+        out.append({"name": name, "uploaded_at_utc": f"{name[:4]}-{name[4:6]}-{name[6:8]} {name[9:11]}:{name[11:13]}:{name[13:15]} UTC",
+                    "size": row.get("size", 0)})
+    return sorted(out, key=lambda x: x["name"], reverse=True)
+
+
+def download_uploaded(name: str) -> bytes:
+    if not enabled() or not re.fullmatch(r"\d{8}-\d{6}_[A-Za-z0-9_-]+\.zip", name):
+        raise ValueError("无效的诊断文件名")
+    item = _github_get(f"{settings.log_app_slug}/logs/{name}")
+    if not isinstance(item, dict) or item.get("encoding") != "base64":
+        raise ValueError("诊断文件不可下载")
+    return base64.b64decode(item["content"])
 
 
 def _package_and_upload(meta: dict, tb_text: str) -> str | None:
