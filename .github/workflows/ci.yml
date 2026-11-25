@@ -21,7 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: bash scripts/check-version.sh
+      - name: 版本与部署安全检查
+        run: |
+          bash scripts/check-version.sh
+          bash -n install.sh deploy.sh
+          bash scripts/test-install-env.sh
+          python3 scripts/test_check_db_auth.py
 
   backend-tests:
     name: 后端测试

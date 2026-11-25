@@ -422,7 +422,7 @@ GET    /api/diag/status | /recent           POST /api/diag/report
 | `PAPER_REPO_TOKEN` | 空 | GitHub PAT(该仓库 contents 写权限);**空则不上传** |
 | `PAPER_REPO_BRANCH` / `LOG_APP_SLUG` | `main` / `CW` | 诊断上传分支 / 仓库内应用目录 |
 | `ERROR_REPORT_COOLDOWN` | `600` | 同类错误上传冷却秒数 |
-| `BACKEND_IMAGE` / `FRONTEND_IMAGE` | GHCR latest | 部署使用的镜像(默认拉 GHCR 预构建) |
+| `BACKEND_IMAGE` / `FRONTEND_IMAGE` | 自动按当前提交或 Release 定版 | 部署使用的镜像;显式配置时优先采用管理员指定值 |
 | `FORCE_BUILD` | `0` | 设 `1` 强制本地构建(自定义代码/离线) |
 | `PIP_INDEX_URL` | 空 | 本地构建后端时的 PyPI 镜像源(慢速网络) |
 
@@ -470,11 +470,13 @@ curl -fsSL https://raw.githubusercontent.com/lsgoodlionel/CW/main/install.sh | D
 
 #### 后端镜像走 GitHub Releases/GHCR(稳定升级,免服务器 pip 构建)
 
-升级时 `deploy.sh` 会**优先拉取云端预构建镜像**(`ghcr.io/lsgoodlionel/cw-backend|cw-frontend`,由 `.github/workflows/docker-images.yml` 在推送 main / 打标签时自动构建发布),拉取成功即直接启动,不在服务器上跑 `pip`;拉取失败(镜像未公开/网络受限)才回退本地构建。
+升级时 `deploy.sh` 会先通过数据库网桥验证当前 `.env` 的账号密码,再按当前 Git 提交的 `sha-xxxxxxx` 标签或对应 Release 的 `vX.Y.Z` 标签拉取 GHCR 镜像。已有服务拉取失败时会停止并保留旧容器;需要服务器本地构建时显式使用 `FORCE_BUILD=1`。新装环境拉取失败可回退本地构建。服务健康、前后端镜像 ID 和版本全部核对通过后才更新 `.deployed_sha`;失败时自动尝试恢复升级前镜像。
+
+若预检提示数据库密码认证失败,**不要删除数据库卷或反复重建容器**。PostgreSQL 数据卷中的账户密码不会因修改 `.env` 自动更新;先核对现有账户并安全统一凭据。运行中的数据库容器初始化环境与 `.env` 不一致时,预检以实际密码认证结果为准,不会显示密码值。
 
 > **一次性设置(启用免鉴权拉取)**:首次 CI 发布后,打开 <https://github.com/lsgoodlionel?tab=packages> → 分别进入 `cw-backend`、`cw-frontend` → **Package settings → Change visibility → Public**。设为公开后,服务器即可免登录拉取预构建镜像。
 >
-> 若暂不公开镜像:升级会自动回退本地构建;此时可在服务器 `.env` 设置 PyPI 镜像源再重试,规避慢速网络导致的 pip 超时:
+> 若暂不公开镜像:已有服务会保持运行并停止升级;需要显式本地构建时,可先在服务器 `.env` 设置 PyPI 镜像源再执行 `FORCE_BUILD=1`:
 >
 > ```bash
 > cd ~/CW && echo 'PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple' >> .env && FORCE_BUILD=1 ./deploy.sh

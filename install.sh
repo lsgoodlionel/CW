@@ -71,9 +71,17 @@ install_prereqs() {
 }
 
 # ---------- 定位已部署目录(用于识别升级) ----------
+repo_git() {
+  local dir="$1"; shift
+  if git -c "safe.directory=$dir" -C "$dir" rev-parse HEAD >/dev/null 2>&1; then
+    $GT git -c "safe.directory=$dir" -C "$dir" "$@"
+  else
+    $SUDO $GT git -c "safe.directory=$dir" -C "$dir" "$@"
+  fi
+}
 _is_our_repo() {
   [ -n "$1" ] && [ -f "$1/docker-compose.yml" ] && [ -d "$1/.git" ] && \
-    git -C "$1" remote get-url origin 2>/dev/null | grep -q "$REPO_SLUG"
+    repo_git "$1" remote get-url origin 2>/dev/null | grep -q "$REPO_SLUG"
 }
 _find_repo_dir() {
   _is_our_repo "$APP_DIR" && { echo "$APP_DIR"; return 0; }
@@ -131,7 +139,7 @@ set_env() {
 warn_existing_env_ignored() {
   local key="$1"
   [ "${!key+x}" = "x" ] || return 0
-  warn "检测到已有 .env,忽略外部 ${key}=${!key}；如需修改,请先编辑部署目录 .env 后重新运行升级。"
+  warn "检测到已有 .env,忽略外部 ${key} 参数；如需修改,请先编辑部署目录 .env 后重新运行升级。"
 }
 apply_env_overrides() {
   local fresh=0
@@ -170,40 +178,48 @@ apply_env_overrides() {
 }
 
 run_deploy() {
-  chmod +x deploy.sh
-  if docker info >/dev/null 2>&1; then ./deploy.sh; else $SUDO ./deploy.sh; fi
+  if docker info >/dev/null 2>&1; then bash deploy.sh; else $SUDO bash deploy.sh; fi
 }
 
 # ---------- 升级 ----------
 do_upgrade() {
   local dir="$1"; cd "$dir"
   info "检测到已部署:$dir —— 执行升级(数据卷保留、数据不丢)"
+  if ! repo_git "$dir" diff --quiet || ! repo_git "$dir" diff --cached --quiet; then
+    err "仓库存在未提交的受跟踪文件改动,停止升级并保留现场。"
+    exit 1
+  fi
   apply_env_overrides
   # 升级前自动备份。</dev/null 关键:curl|bash 时若不切断 stdin,docker 会读走管道里
   # 剩余脚本内容,导致备份后脚本静默退出、代码与容器都未更新。
-  mkdir -p backups
+  $SUDO mkdir -p backups
   local bk="backups/finance-backup-$(date +%Y%m%d-%H%M%S).zip"
-  if dc exec -T backend python -m app.backup_cli </dev/null > "$bk" 2>/dev/null && [ -s "$bk" ]; then
+  local temp_bk
+  temp_bk="$(mktemp)"
+  if dc exec -T backend python -m app.backup_cli </dev/null > "$temp_bk" 2>/dev/null \
+     && [ -s "$temp_bk" ] && $SUDO install -m 600 "$temp_bk" "$bk"; then
+    rm -f "$temp_bk"
     info "已自动备份当前数据 → $dir/$bk"
   else
-    rm -f "$bk" 2>/dev/null || true
-    warn "升级前自动备份未成功(数据卷完整保留、数据不丢),继续升级。"
-    warn "如需手动备份,可先在「企业信息 → 数据备份」导出,或 dc exec -T backend python -m app.backup_cli > bk.zip"
+    rm -f "$temp_bk"
+    err "升级前自动备份失败,停止升级并保留现有服务。请先排查备份或手动导出。"
+    exit 1
   fi
   local before after
-  before="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  before="$(repo_git "$dir" rev-parse --short HEAD 2>/dev/null || echo unknown)"
   info "拉取最新代码(分支 ${BRANCH})..."
-  if $GT git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch --all --quiet 2>/dev/null \
-     && git reset --hard "origin/${BRANCH}" >/dev/null 2>&1; then :
-  else
-    warn "git 更新失败/超时,改用归档下载覆盖最新代码..."
-    _dl_tarball "$dir" update || warn "归档下载也失败,使用现有代码重建。"
-    rm -f .deployed_sha 2>/dev/null || true
+  if ! repo_git "$dir" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch --quiet origin "$BRANCH"; then
+    err "git 拉取失败,停止升级并保留当前代码与容器。"
+    exit 1
   fi
-  after="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  if ! repo_git "$dir" merge --ff-only "origin/${BRANCH}" >/dev/null; then
+    err "本地与远端无法安全快进,停止升级；未重置或覆盖工作树。"
+    exit 1
+  fi
+  after="$(repo_git "$dir" rev-parse --short HEAD 2>/dev/null || echo unknown)"
   if [ "$before" != "$after" ]; then
     info "版本更新:$before → $after"
-    git log --oneline "${before}..${after}" 2>/dev/null | sed 's/^/  • /' || true
+    repo_git "$dir" log --oneline "${before}..${after}" 2>/dev/null | sed 's/^/  • /' || true
   elif [ "${FORCE:-}" = "1" ]; then
     warn "代码已是最新($after),按 FORCE=1 强制重建。"
   else

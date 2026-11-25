@@ -2,14 +2,14 @@
 
 > 本文档面向**开发接力 / 团队移交 / 反向追溯**,全面记录已实现功能、需求来源、架构决策、数据模型、API、开发历程与待办规划。
 > 与 [README.md](../README.md)(面向使用者)互补;报表口径见 [REPORTS.md](REPORTS.md);架构蓝图见 [BLUEPRINT.md](BLUEPRINT.md)。
-> 最后更新:2026-11-10(v1.0.10:Node.js 24 #49、后端依赖升级与 PostgreSQL API 冒烟 #51)。
+> 最后更新:2026-11-25(v1.0.12:生产升级凭据预检、镜像定版与失败回退)。
 > 事项追踪:[Issues](https://github.com/lsgoodlionel/CW/issues)、[里程碑](https://github.com/lsgoodlionel/CW/milestones)、[Project](https://github.com/users/lsgoodlionel/projects/2)、[Wiki](https://github.com/lsgoodlionel/CW/wiki)。
 
 ---
 
 ## 1. 项目概览
 
-> 2026-11-25 v1.0.11 发布准备:账簿只统计已入账凭证,增加 A4 页设置与按科目/日期组织的凭证附件归档 ZIP;报表增加 A4 PDF 预览/保存;日志详情改为字段差异表;诊断增加按日期查询上传记录;看板主要数量卡片将筛选条件传至目标页。同步前已核对仓库 `lsgoodlionel/CW` 的 `main=73e704e`、最新 Release `v1.0.10`,最近可查的主分支 CI 与镜像构建成功;获用户授权后本地 `main` 快进 13 个提交。最新依赖下后端 2 个导出测试、全部 `test_*.py` 脚本套件、Node 24 前端构建和 `check-version.sh v1.0.11` 均通过。待推送后记录本次提交和 CI/CD 结果。
+> 2026-11-25 v1.0.11 已发布并在 lsgood 服务器完成部署。此前数据库数据卷中 `finance` 账户密码与部署 `.env` 不一致,导致新旧后端均无法登录;通过数据库网桥验证并统一账户密码后恢复服务。按 `latest` 切换时两次出现运行镜像与目标 digest 校验不一致,自动回退保持 HTTP 200;明确指定不可变 digest 后前后端镜像与版本校验通过,`127.0.0.1:18080` 首页、手册和健康接口均为 HTTP 200。无法仅凭现有证据确定 `latest` 流程在拉取、打标签还是 Compose 选镜像阶段产生差异。v1.0.12 将这次现场经验落实为升级预检和回退保护。
 
 面向小微企业、基于《小企业会计准则》的完整财务记账系统。前后端分离,复式记账,自动生成官方格式报表与全套账簿,支持 Excel/PDF 导出、数据备份恢复、操作日志留痕,以及云服务器一行命令部署与升级。
 
@@ -209,6 +209,8 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 | v1.0.1–v1.0.8 | 凭证必需附件;官方 `.xls` 报表模板;已入账口径;税务联动审查 |
 | v1.0.9 | 手册与版本号同步;SaaS 租户级恢复修复(#38);PR 检查 CI(#40);Actions 升级(#42);开发文档更新(#41) |
 | v1.0.10 | 前端构建与镜像升级到 Node.js 24(#49);后端依赖升级、PostgreSQL API 冒烟、整站恢复后提示重新登录(#51) |
+| v1.0.11 | A4 账簿归档与附件清单、报表 PDF、历史复制、诊断记录、仪表盘筛选跳转;生产已用不可变镜像 digest 验收 |
+| v1.0.12 | 数据库网桥密码预检、按提交/Release 定版镜像、失败回退和部署记录后置;升级不再重置 Git 或覆盖未提交改动 |
 
 完整阶段记录(按提交与 Issue)见 Wiki [开发历程](https://github.com/lsgoodlionel/CW/wiki/开发历程) 与 [版本发布记录](https://github.com/lsgoodlionel/CW/wiki/版本发布记录)。
 
@@ -310,3 +312,5 @@ docker compose up -d --build     # http://localhost:8080
 数据卷:`db_data`(库)、`uploads`(附件)。应用级备份:企业信息页导出/导入 zip,或 `GET /api/data/export`。
 
 升级已有部署时,`install.sh`/`upgrade.sh` 保留部署目录现有 `.env` 中的 `HTTP_PORT`、`POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB` 等关键值;要改端口、数据库凭据或 SaaS 参数,先编辑 `.env`,再运行升级。远程管道执行且 `sudo` 需要密码时使用 `ssh -t` 或先登录交互终端。若本地构建拉 Docker Hub 基础镜像遇到 IPv6 reset,优先改用 GHCR 预构建镜像;必须本地构建时在服务器网络层配置临时 IPv4 优先策略,不要把单台服务器的 `/etc/hosts` workaround 写入通用脚本。
+
+2026-11-25 lsgood 事故复盘:升级前后端镜像虽已下载,数据库容器的初始化环境与当前 `.env` 不一致,数据卷内 `finance` 密码也未随 `.env` 改变,造成新旧后端均认证失败。容器内连 `localhost` 可能命中 PostgreSQL trust 规则,不能证明密码正确;预检现改为网桥 IP 登录并用错误密码反证。旧升级脚本使用可变 `latest`,两次切换后实际运行镜像未通过目标 digest 检查;改为明确 digest 才完成 v1.0.11 部署。现行 `deploy.sh` 默认使用提交或 Release 标签,校验运行镜像、版本及健康后才写 `.deployed_sha`;已有服务下载失败时保留旧容器。`install.sh` 只允许 Git 快进,不会重置工作树;备份失败则停止。现场备份位于 `/opt/cw/backups/pre-v1.0.11-20261125082526`,正式升级结束后仍须核对 Nginx 外部入口与登录后业务流程。
