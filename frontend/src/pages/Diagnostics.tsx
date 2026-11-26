@@ -2,12 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   Card, Descriptions, Tag, Button, Space, Input, Select, message, Spin, Typography, DatePicker, Table,
 } from 'antd'
-import { ReloadOutlined, CloudUploadOutlined } from '@ant-design/icons'
+import { ReloadOutlined, CloudUploadOutlined, DownloadOutlined } from '@ant-design/icons'
 import { http, withToken } from '../api'
 import type { Dayjs } from 'dayjs'
 
 // 诊断状态返回结构(本地 interface,后端契约见页面头部说明,不改生成文件)
 interface DiagStatus {
+  capture_enabled: boolean
   enabled: boolean
   repo: string
   branch: string
@@ -37,6 +38,7 @@ export default function Diagnostics() {
   const [statusLoading, setStatusLoading] = useState(false)
   const [note, setNote] = useState('')
   const [reporting, setReporting] = useState(false)
+  const [packaging, setPackaging] = useState(false)
   const [lines, setLines] = useState<string[]>([])
   const [logLoading, setLogLoading] = useState(false)
   const [lineCount, setLineCount] = useState<number>(DEFAULT_LINE_COUNT)
@@ -85,6 +87,24 @@ export default function Diagnostics() {
     }
   }
 
+  const downloadPackage = async () => {
+    setPackaging(true)
+    try {
+      const r = await http.post<Blob>('/diag/package', { note: note || undefined }, { responseType: 'blob' })
+      const url = URL.createObjectURL(r.data)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `CW-diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+      message.success('诊断包已下载到本地')
+    } finally {
+      setPackaging(false)
+    }
+  }
+
   const canUpload = Boolean(status?.enabled)
 
   return (
@@ -99,9 +119,12 @@ export default function Diagnostics() {
           {status && (
             <Descriptions column={2} size="small" bordered>
               <Descriptions.Item label="采集状态">
-                {status.enabled
+                {status.capture_enabled
                   ? <Tag color="green">启用</Tag>
                   : <Tag>未启用</Tag>}
+              </Descriptions.Item>
+              <Descriptions.Item label="自动上传">
+                {status.enabled ? <Tag color="green">启用</Tag> : <Tag>未启用</Tag>}
               </Descriptions.Item>
               <Descriptions.Item label="令牌配置">
                 {status.config_error
@@ -131,6 +154,9 @@ export default function Diagnostics() {
             allowClear
           />
           <Space>
+            <Button icon={<DownloadOutlined />} loading={packaging} onClick={downloadPackage}>
+              打包下载到本地
+            </Button>
             <Button
               type="primary"
               icon={<CloudUploadOutlined />}
@@ -139,7 +165,7 @@ export default function Diagnostics() {
               onClick={report}
             >立即打包上传</Button>
             {!canUpload && (
-              <Typography.Text type="danger">{status?.config_error || '未配置 PAPER_REPO_TOKEN,无法上传'}</Typography.Text>
+              <Typography.Text type="secondary">{status?.config_error || '自动上传需配置专用令牌；可先打包下载'}</Typography.Text>
             )}
           </Space>
         </Space>

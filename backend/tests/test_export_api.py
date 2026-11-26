@@ -32,6 +32,13 @@ def test_export_routes():
                        "month": 7, "mode": "date"}
             preview = client.post("/api/ledgers/archive-preview", json=payload)
             assert preview.status_code == 200
+            file_preview = client.post("/api/ledgers/archive-file-preview",
+                                       json={**payload, "path": "账簿/会计账簿.xlsx"})
+            assert file_preview.status_code == 200 and file_preview.headers["content-type"].startswith("text/html")
+            assert "封面" in file_preview.text
+            missing = client.post("/api/ledgers/archive-file-preview",
+                                  json={**payload, "path": "其他/不存在.pdf"})
+            assert missing.status_code == 404
             result = client.post("/api/ledgers/archive-export", json=payload)
             assert result.status_code == 200 and result.headers["content-type"] == "application/zip"
             with zipfile.ZipFile(io.BytesIO(result.content)) as zf:

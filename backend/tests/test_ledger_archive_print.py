@@ -4,13 +4,14 @@ import tempfile
 import zipfile
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 from pathlib import Path
 from openpyxl import load_workbook
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app import ledger_archive, ledgers, models, report_pdf, reports_cn
+from app import archive_preview, ledger_archive, ledgers, models, report_pdf, reports_cn
 from app.config import settings
 from app.database import Base
 from app.tenant import install_tenant_isolation, set_current_tenant
@@ -64,11 +65,16 @@ def test_archive_and_print():
             vouchers, items = ledger_archive.make_manifest(db, period, "subject")
             assert len(vouchers) == 1
             assert any(i["type"] == "附件" and "6602" in i["path"] for i in items)
+            attachment_item = next(i for i in items if i["type"] == "附件")
+            assert "发票" in attachment_item["path"] and "invoice" not in attachment_item["path"]
+            assert attachment_item["classification_reason"] == "按费用或成本科目借方分录归档"
             data = ledger_archive.build_archive(db, period, "all", "subject")
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
                 names = set(zf.namelist())
                 assert {i["path"] for i in items} == names
-                assert zf.read(next(i["path"] for i in items if i["type"] == "附件")) == b"test invoice"
+                assert zf.read(attachment_item["path"]) == b"test invoice"
+                assert zf.read(attachment_item["path"]) == ledger_archive.item_content(
+                    db, period, "all", vouchers, items, attachment_item)
                 assert zf.read("凭证/第001册_封面与凭证.pdf").startswith(b"%PDF")
                 assert zf.read("账簿/会计账簿.xlsx").startswith(b"PK")
                 wb = load_workbook(io.BytesIO(zf.read("账簿/会计账簿.xlsx")))
@@ -76,8 +82,23 @@ def test_archive_and_print():
                 assert all(str(sheet.page_setup.paperSize) == str(sheet.PAPERSIZE_A4)
                            for sheet in wb.worksheets), [
                                (sheet.title, sheet.page_setup.paperSize) for sheet in wb.worksheets]
+                html, mime = archive_preview.render_file("会计账簿.xlsx", zf.read("账簿/会计账簿.xlsx"))
+                assert mime.startswith("text/html") and "封面".encode() in html
+                pdf, mime = archive_preview.render_file("凭证.pdf", zf.read("凭证/第001册_封面与凭证.pdf"))
+                assert mime == "application/pdf" and pdf.startswith(b"%PDF")
             assert report_pdf.build_report_pdf(db, period).startswith(b"%PDF")
             assert report_pdf.build_report_pdf(db, period, "portrait").startswith(b"%PDF")
+            tax = SimpleNamespace(entries=[
+                SimpleNamespace(account=models.Account(code="2221", name="应交税费", category="liability", direction="credit"),
+                                debit=Decimal("50"), credit=Decimal("0")),
+                SimpleNamespace(account=bank, debit=Decimal("0"), credit=Decimal("50")),
+            ])
+            folder, reason = ledger_archive._subject_folder(tax, {})
+            assert folder == "附件/非费用业务/2221 应交税费" and "无费用" in reason
+            empty_folder, reason = ledger_archive._subject_folder(SimpleNamespace(entries=[]), {})
+            assert empty_folder == "附件/待核对" and "没有可用科目" in reason
+            html, mime = archive_preview.render_file("说明.txt", b"<script>alert(1)</script>")
+            assert mime.startswith("text/html") and b"&lt;script&gt;" in html and b"<script>alert" not in html
         finally:
             settings.upload_dir = previous
             set_current_tenant(None)

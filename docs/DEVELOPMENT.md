@@ -2,7 +2,7 @@
 
 > 本文档面向**开发接力 / 团队移交 / 反向追溯**,全面记录已实现功能、需求来源、架构决策、数据模型、API、开发历程与待办规划。
 > 与 [README.md](../README.md)(面向使用者)互补;报表口径见 [REPORTS.md](REPORTS.md);架构蓝图见 [BLUEPRINT.md](BLUEPRINT.md)。
-> 最后更新:2026-11-25(v1.0.13:诊断令牌配置校验与中文路径编码)。
+> 最后更新:2026-11-26(v1.0.14:诊断默认本地打包下载与专用令牌安全配置)。
 > 事项追踪:[Issues](https://github.com/lsgoodlionel/CW/issues)、[里程碑](https://github.com/lsgoodlionel/CW/milestones)、[Project](https://github.com/users/lsgoodlionel/projects/2)、[Wiki](https://github.com/lsgoodlionel/CW/wiki)。
 
 ---
@@ -212,6 +212,7 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 | v1.0.11 | A4 账簿归档与附件清单、报表 PDF、历史复制、诊断记录、仪表盘筛选跳转;生产已用不可变镜像 digest 验收 |
 | v1.0.12 | 数据库网桥密码预检、按提交/Release 定版镜像、失败回退和部署记录后置;升级不再重置 Git 或覆盖未提交改动 |
 | v1.0.13 | 诊断令牌注释占位值不再误判为已配置;无效值在页面给出提示,GitHub 请求头保持 ASCII,中文路径正确编码 |
+| v1.0.14 | 诊断页区分日志采集和外部上传状态;超管无需令牌可本地打包下载;新增服务器交互式专用 PAT 配置与测试上传工具。归档清单逐文件预览,附件类型中文命名,非费用凭证按主要业务科目归档并标注依据 |
 
 完整阶段记录(按提交与 Issue)见 Wiki [开发历程](https://github.com/lsgoodlionel/CW/wiki/开发历程) 与 [版本发布记录](https://github.com/lsgoodlionel/CW/wiki/版本发布记录)。
 

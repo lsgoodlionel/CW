@@ -5,7 +5,8 @@ import dayjs from 'dayjs'
 import { http, Account, withToken, Ledger, LedgerRow, LEDGER_TYPE_LABEL, formatAmount } from '../api'
 
 type ReportType = 'month' | 'quarter' | 'year'
-type ArchiveItem = { path: string; type: string; voucher_no: string; source: string; description: string }
+type ArchiveItem = { path: string; type: string; voucher_no: string; source: string; description: string;
+  classification_reason?: string }
 type ArchivePreview = { period: string; voucher_count: number; attachment_count: number; items: ArchiveItem[] }
 
 const fmt = (v: string | number | null) =>
@@ -30,6 +31,8 @@ export default function Ledgers() {
   })
   const [archivePreview, setArchivePreview] = useState<ArchivePreview | null>(null)
   const [archiveBusy, setArchiveBusy] = useState(false)
+  const [fileBusy, setFileBusy] = useState<string | null>(null)
+  const [filePreview, setFilePreview] = useState<{ path: string; url: string; mediaType: string } | null>(null)
   const [folderCode, setFolderCode] = useState<string>()
 
   useEffect(() => {
@@ -80,6 +83,21 @@ export default function Ledgers() {
       message.success('已生成归档包，可继续查看目录清单')
     } catch { message.error('归档包生成失败') }
     finally { setArchiveBusy(false) }
+  }
+  const closeFilePreview = () => {
+    if (filePreview) URL.revokeObjectURL(filePreview.url)
+    setFilePreview(null)
+  }
+  const previewFile = async (item: ArchiveItem) => {
+    setFileBusy(item.path)
+    try {
+      const r = await http.post<Blob>('/ledgers/archive-file-preview',
+        { ...archivePayload(), path: item.path }, { responseType: 'blob' })
+      closeFilePreview()
+      setFilePreview({ path: item.path, url: URL.createObjectURL(r.data),
+        mediaType: String(r.headers['content-type'] || r.data.type || '') })
+    } catch { message.error('文件内容预览失败，请重新预览目录后重试') }
+    finally { setFileBusy(null) }
   }
   const archiveTree = useMemo(() => {
     type Node = { key: string; title: string; children?: Node[] }
@@ -168,10 +186,9 @@ export default function Ledgers() {
           }} options={[{ value: 'all', label: '全套六类账簿' },
             ...Object.entries(LEDGER_TYPE_LABEL).map(([value, label]) => ({ value, label }))]} />
           {archiveMode === 'subject' && <Space wrap>
-            <Select showSearch placeholder="选择费用科目设置目录" style={{ width: 240 }} value={folderCode}
+            <Select showSearch placeholder="选择科目设置目录" style={{ width: 240 }} value={folderCode}
               onChange={setFolderCode} optionFilterProp="label"
-              options={accounts.filter((a) => a.category === 'profit' || a.category === 'cost')
-                .map((a) => ({ value: a.code, label: `${a.code} ${a.name}` }))} />
+              options={accounts.map((a) => ({ value: a.code, label: `${a.code} ${a.name}` }))} />
             {folderCode && <Input style={{ width: 310 }} placeholder="目录路径，可用 / 分多级"
               value={folderNames[folderCode] || ''} onChange={(e) => {
                 setFolderNames({ ...folderNames, [folderCode]: e.target.value }); setArchivePreview(null)
@@ -182,17 +199,36 @@ export default function Ledgers() {
           </Space>}
           {archivePreview && <>
             <Typography.Text>{archivePreview.period} · 凭证 {archivePreview.voucher_count} 张 · 附件 {archivePreview.attachment_count} 件</Typography.Text>
+            {archiveMode === 'subject' && archivePreview.items.some((item) => item.path.startsWith('附件/非费用业务/') || item.path.startsWith('附件/待核对/')) &&
+              <Alert type="info" showIcon message="部分凭证没有费用或成本科目借方分录"
+                description="税费、资产、往来等附件改按主要业务科目归入“非费用业务”；没有可用分录的凭证归入“待核对”。可在上方选择科目调整目录。" />}
             <div style={{ maxHeight: 340, overflow: 'auto', border: '1px solid #eee', padding: 10 }}>
-              <Tree treeData={archiveTree} defaultExpandAll key={`${archiveMode}-${archivePreview.items.length}`} />
+              <Tree treeData={archiveTree} defaultExpandAll key={`${archiveMode}-${archivePreview.items.length}`}
+                onSelect={(_, info) => {
+                  const item = archivePreview.items.find((entry) => entry.path === String(info.node.key))
+                  if (item) previewFile(item)
+                }} />
             </div>
             <Table rowKey="path" size="small" pagination={{ pageSize: 8 }} dataSource={archivePreview.items}
               columns={[{ title: '凭证号', dataIndex: 'voucher_no', width: 160 },
                 { title: '类型', dataIndex: 'type', width: 80 },
                 { title: '来源', dataIndex: 'source', width: 90 },
                 { title: '原始名称/摘要', dataIndex: 'description', ellipsis: true },
-                { title: '归档路径', dataIndex: 'path', ellipsis: true }]} />
+                { title: '归档依据', dataIndex: 'classification_reason', ellipsis: true },
+                { title: '归档路径（点击预览）', dataIndex: 'path', ellipsis: true,
+                  render: (path: string, item: ArchiveItem) => <Button type="link" size="small"
+                    loading={fileBusy === path} onClick={() => previewFile(item)}>{path}</Button> }]} />
           </>}
         </Space>
+      </Modal>
+      <Modal title={`文件预览：${filePreview?.path || ''}`} open={Boolean(filePreview)} width={980}
+        onCancel={closeFilePreview} footer={<Button onClick={closeFilePreview}>关闭</Button>} destroyOnClose>
+        {filePreview?.mediaType.startsWith('image/')
+          ? <img src={filePreview.url} alt={filePreview.path} style={{ maxWidth: '100%', maxHeight: '70vh' }} />
+          : filePreview?.mediaType.startsWith('application/pdf')
+            ? <iframe title={filePreview.path} src={filePreview.url} style={{ width: '100%', height: '70vh', border: 0 }} />
+            : filePreview && <iframe title={filePreview.path} src={filePreview.url} sandbox=""
+                style={{ width: '100%', height: '70vh', border: 0 }} />}
       </Modal>
     </Card>
   )

@@ -81,6 +81,11 @@ def recent_lines() -> list[str]:
     return list(_ring)
 
 
+def capture_enabled() -> bool:
+    """日志采集与外部上传分别报告,避免未配 token 时误报采集关闭。"""
+    return any(isinstance(handler, _RingHandler) for handler in logging.getLogger().handlers)
+
+
 def _signature(exc: BaseException) -> str:
     """错误签名:异常类型 + 最末栈帧(文件:行),用于节流去重。"""
     frames = _tb.extract_tb(exc.__traceback__)
@@ -96,6 +101,18 @@ def _build_zip(meta: dict, tb_text: str) -> bytes:
         zf.writestr("traceback.txt", tb_text or "(无异常栈)")
         zf.writestr("recent.log", "\n".join(_ring) or "(无日志)")
     return buf.getvalue()
+
+
+def package_local(note: str = "") -> bytes:
+    """仅打包当前进程的日志,不访问外部仓库或要求 token。"""
+    meta = {
+        "app": settings.log_app_slug, "version": APP_VERSION,
+        "deploy_mode": settings.deploy_mode,
+        "time_utc": datetime.now(timezone.utc).isoformat(),
+        "error_type": "manual", "error": note,
+        "trigger": "local_download",
+    }
+    return _build_zip(meta, "")
 
 
 def _upload(path: str, content: bytes, message: str) -> int:

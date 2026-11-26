@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
 from ..database import get_db
-from .. import ledgers, ledger_excel, ledger_archive, reports_cn, auth_svc
+from .. import ledgers, ledger_excel, ledger_archive, archive_preview as archive_view, reports_cn, auth_svc
 from ..auth_mw import current_user
 from ..schemas_read import LedgerOut, LedgerTypesOut
 
@@ -23,6 +23,10 @@ class ArchiveRequest(BaseModel):
     account_code: str | None = None
     mode: str = "subject"
     folder_names: dict[str, str] = Field(default_factory=dict)
+
+
+class ArchiveFileRequest(ArchiveRequest):
+    path: str = Field(min_length=1, max_length=500)
 
 
 def _archive_params(payload: ArchiveRequest):
@@ -124,3 +128,23 @@ def archive_export(payload: ArchiveRequest, db: Session = Depends(get_db), user=
     fname = f"账簿凭证附件-{period.label}.zip"
     return StreamingResponse(iter([content]), media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"})
+
+
+@router.post("/archive-file-preview")
+def archive_file_preview(payload: ArchiveFileRequest, db: Session = Depends(get_db), user=Depends(current_user)):
+    period = _archive_params(payload)
+    vouchers, items = ledger_archive.make_manifest(db, period, payload.mode,
+                                                    payload.account_code, payload.folder_names)
+    _guard_archive(user, items)
+    item = next((item for item in items if item["path"] == payload.path), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="文件不在当前归档清单中，请重新预览目录")
+    try:
+        raw = ledger_archive.item_content(db, period, payload.ledger_type, vouchers, items,
+                                          item, payload.account_code)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    content, media_type = archive_view.render_file(item["path"], raw)
+    return StreamingResponse(iter([content]), media_type=media_type,
+                             headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+                                      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'"})

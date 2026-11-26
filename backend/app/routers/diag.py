@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from urllib.parse import quote
 from datetime import date
+from datetime import datetime, timezone
 from pydantic import BaseModel
 
 from .. import models, diag
@@ -28,6 +29,7 @@ class ManualReportIn(BaseModel):
 def diag_status(_: models.User = Depends(require_super_admin)):
     """诊断配置与状态(不含 token)。"""
     return {
+        "capture_enabled": diag.capture_enabled(),
         "enabled": diag.enabled(),
         "repo": settings.paper_repo,
         "branch": settings.paper_repo_branch,
@@ -80,3 +82,12 @@ def diag_report(payload: ManualReportIn, _: models.User = Depends(require_super_
     if path is None:
         raise HTTPException(status_code=400, detail="诊断上传未启用")
     return {"success": True, "path": path}
+
+
+@router.post("/package")
+def diag_package(payload: ManualReportIn, _: models.User = Depends(require_super_admin)):
+    """无外部令牌时仍可打包下载近期日志(仅超级管理员)。"""
+    content = diag.package_local(payload.note)
+    filename = f"CW-diagnostics-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}.zip"
+    return StreamingResponse(iter([content]), media_type="application/zip",
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})

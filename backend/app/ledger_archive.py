@@ -62,6 +62,35 @@ def _source_attachments(db, vouchers):
     return related, by_source
 
 
+def _subject_folder(voucher, folder_names):
+    """按凭证分录确定归档业务科目,避免非费用凭证被笼统归为未分类。"""
+    entries = [entry for entry in voucher.entries if entry.account]
+    expense = [entry for entry in entries if entry.debit > 0 and
+               entry.account.direction == "debit" and
+               entry.account.category in ("cost", "profit")]
+    if expense:
+        chosen = max(expense, key=lambda entry: entry.debit)
+        group = "费用科目"
+        reason = ("多个费用或成本科目，按最大借方金额归档" if len(expense) > 1
+                  else "按费用或成本科目借方分录归档")
+    else:
+        non_cash = [entry for entry in entries if entry.account.code not in ("1001", "1002", "1012")]
+        debit = [entry for entry in non_cash if entry.debit > 0]
+        credit = [entry for entry in non_cash if entry.credit > 0]
+        chosen = (max(debit, key=lambda entry: entry.debit) if debit else
+                  max(credit, key=lambda entry: entry.credit) if credit else
+                  entries[0] if entries else None)
+        group = "非费用业务" if chosen else "待核对"
+        reason = ("无费用或成本借方分录，按主要业务科目归档" if chosen else
+                  "凭证没有可用科目分录，请核对凭证")
+    if chosen is None:
+        return "附件/待核对", reason
+    account = chosen.account
+    name = folder_names.get(account.code) or f"{account.code} {account.name}"
+    parts = [_safe(part) for part in name.split("/") if part.strip()][:4]
+    return f"附件/{group}/" + "/".join(parts or [f"{account.code} {_safe(account.name)}"]), reason
+
+
 def make_manifest(db, period, mode: str, account_code=None, folder_names=None):
     if mode not in ("subject", "date"):
         raise ValueError("归档方式须为科目或日期")
@@ -89,6 +118,7 @@ def make_manifest(db, period, mode: str, account_code=None, folder_names=None):
     ]
     for index, volume in enumerate(volumes, 1):
         items.append({"path": f"凭证/第{index:03d}册_封面与凭证.pdf", "type": "凭证册",
+                      "volume_index": index,
                       "voucher_id": None, "voucher_no": "", "date": "",
                       "description": f"第 {index} 册 / 共 {len(volumes)} 册，{len(volume)} 张凭证",
                       "source": "系统生成", "attachment_id": None})
@@ -102,6 +132,7 @@ def make_manifest(db, period, mode: str, account_code=None, folder_names=None):
                       "description": v.note, "source": "本凭证", "attachment_id": None})
         used.add(doc_path)
         seen = set()
+        subject_folder, classification_reason = _subject_folder(v, folder_names)
         for source, source_id in related[v.id]:
             for a in by_source.get(source_id, []):
                 if a.id in seen:
@@ -109,16 +140,14 @@ def make_manifest(db, period, mode: str, account_code=None, folder_names=None):
                 seen.add(a.id)
                 if mode == "date":
                     folder = f"附件/发生日期/{v.voucher_date:%Y/%m}/{stem}"
+                    reason = "按凭证发生日期归档"
                 else:
-                    expense = next((e.account for e in v.entries if e.account and
-                                    e.account.category in ("profit", "cost") and e.debit > 0), None)
-                    code = expense.code if expense else "other"
-                    name = folder_names.get(code) or (f"{code} {_safe(expense.name)}" if expense else "未分类")
-                    parts = [_safe(p) for p in name.split("/") if p.strip()][:4]
-                    folder = "附件/费用科目/" + "/".join(parts or ["未分类"])
+                    folder = subject_folder
+                    reason = classification_reason
                 ext = Path(a.original_name).suffix.lower()
                 ext = ext if re.fullmatch(r"\.[a-z0-9]{1,10}", ext) else ""
-                filename = _safe(f"{v.voucher_date:%Y%m%d}_{v.voucher_no}_{a.kind}_{a.id}") + ext
+                kind_label = KIND_LABELS.get(a.kind, "其他附件")
+                filename = _safe(f"{v.voucher_date:%Y%m%d}_{v.voucher_no}_{kind_label}_{a.id}") + ext
                 path = f"{folder}/{filename}"
                 if path in used:
                     path = f"{folder}/{a.id}_{filename}"
@@ -126,9 +155,59 @@ def make_manifest(db, period, mode: str, account_code=None, folder_names=None):
                 items.append({"path": path, "type": "附件", "voucher_id": v.id,
                               "voucher_no": v.voucher_no, "date": v.voucher_date.isoformat(),
                               "description": a.original_name, "source": source,
-                              "attachment_id": a.id, "kind": KIND_LABELS.get(a.kind, a.kind),
+                              "attachment_id": a.id, "kind": kind_label,
+                              "classification_reason": reason,
+                              "mime_type": a.mime_type,
                               "stored_path": a.stored_path})
     return vouchers, items
+
+
+def _public_items(items):
+    return [{key: value for key, value in item.items() if key != "stored_path"} for item in items]
+
+
+def _manifest_csv(items):
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["凭证号", "日期", "类型", "附件类别", "来源", "摘要/原文件名", "归档路径", "归档依据"])
+    for item in items:
+        writer.writerow([item["voucher_no"], item["date"], item["type"], item.get("kind", ""),
+                         item["source"], item["description"], item["path"],
+                         item.get("classification_reason", "")])
+    return ("\ufeff" + output.getvalue()).encode("utf-8")
+
+
+def _attachment_bytes(item):
+    root = upload_root().resolve()
+    path = Path(item["stored_path"]).resolve()
+    if not path.is_relative_to(root) or not path.is_file():
+        raise FileNotFoundError(f"附件 {item['attachment_id']} 文件缺失或路径无效")
+    return path.read_bytes()
+
+
+def item_content(db, period, ledger_type, vouchers, items, item, account_code=None):
+    """返回某一清单文件的实际内容;在线预览与 ZIP 取同一来源。"""
+    kind = item["type"]
+    if kind == "账簿":
+        return ledger_excel.build_ledger_workbook(db, ledger_type, period, account_code, include_cover=True)
+    if kind == "清单":
+        return (_manifest_csv(items) if item["path"].endswith(".csv") else
+                json.dumps(_public_items(items), ensure_ascii=False, indent=2).encode("utf-8"))
+    if kind == "凭证册":
+        volume_size = 100
+        volumes = [vouchers[i:i+volume_size] for i in range(0, len(vouchers), volume_size)] or [[]]
+        index = item["volume_index"]
+        company = db.scalar(select(models.CompanyInfo))
+        return build_vouchers_pdf(db, volumes[index-1], company.name if company else "", index, len(volumes))
+    if kind == "凭证":
+        voucher = next((voucher for voucher in vouchers if voucher.id == item["voucher_id"]), None)
+        if voucher is None:
+            raise ValueError("凭证不在归档清单中")
+        company = db.scalar(select(models.CompanyInfo))
+        return build_vouchers_pdf(db, [voucher], company.name if company else "")
+    if kind == "附件":
+        return _attachment_bytes(item)
+    raise ValueError("未知归档文件类型")
 
 
 def _paragraph(text, style):
@@ -199,34 +278,8 @@ def build_vouchers_pdf(db, vouchers, company_name="", volume_no=1, volume_count=
 
 def build_archive(db, period, ledger_type, mode, account_code=None, folder_names=None):
     vouchers, items = make_manifest(db, period, mode, account_code, folder_names)
-    company = db.scalar(select(models.CompanyInfo))
-    company_name = company.name if company else ""
-    root = upload_root().resolve()
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("账簿/会计账簿.xlsx",
-                    ledger_excel.build_ledger_workbook(db, ledger_type, period, account_code,
-                                                       include_cover=True))
-        volume_size = 100
-        volumes = [vouchers[i:i+volume_size] for i in range(0, len(vouchers), volume_size)] or [[]]
-        for index, volume in enumerate(volumes, 1):
-            zf.writestr(f"凭证/第{index:03d}册_封面与凭证.pdf",
-                        build_vouchers_pdf(db, volume, company_name, index, len(volumes)))
-        by_id = {v.id: v for v in vouchers}
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(["凭证号", "日期", "类型", "附件类别", "来源", "摘要/原文件名", "归档路径"])
         for item in items:
-            if item["type"] == "凭证":
-                zf.writestr(item["path"], build_vouchers_pdf(db, [by_id[item["voucher_id"]]], company_name))
-            writer.writerow([item["voucher_no"], item["date"], item["type"], item.get("kind", ""),
-                             item["source"], item["description"], item["path"]])
-            if item["type"] == "附件":
-                path = Path(item["stored_path"]).resolve()
-                if not path.is_relative_to(root) or not path.is_file():
-                    raise FileNotFoundError(f"附件 {item['attachment_id']} 文件缺失或路径无效")
-                zf.write(path, item["path"])
-        zf.writestr("清单/凭证与附件清单.csv", "\ufeff" + output.getvalue())
-        public_items = [{k: v for k, v in item.items() if k != "stored_path"} for item in items]
-        zf.writestr("清单/归档目录.json", json.dumps(public_items, ensure_ascii=False, indent=2))
+            zf.writestr(item["path"], item_content(db, period, ledger_type, vouchers, items, item, account_code))
     return buf.getvalue()

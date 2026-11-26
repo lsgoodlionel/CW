@@ -27,6 +27,7 @@ def run():
 
     # 环形缓冲
     diag.install_log_capture()
+    check("日志采集独立于上传令牌", diag.capture_enabled() is True)
     import logging
     logging.getLogger("cw.test").error("测试错误行-ABC")
     check("环形缓冲记录日志", any("测试错误行-ABC" in ln for ln in diag.recent_lines()))
@@ -37,6 +38,8 @@ def run():
     names = set(zf.namelist())
     check("zip含三文件", {"meta.json", "traceback.txt", "recent.log"} <= names)
     check("zip含traceback", b"TRACE-XYZ" in zf.read("traceback.txt"))
+    local_zip = zipfile.ZipFile(io.BytesIO(diag.package_local("本地下载")))
+    check("未配置令牌也可本地打包", b"local_download" in local_zip.read("meta.json"))
 
     # 启用态:monkeypatch _upload 记录调用,不触网
     calls = []
