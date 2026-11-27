@@ -10,7 +10,7 @@
  * 重新生成:node scripts/gen-contract.mjs
  *
  * 这里的名字沿用后端 schema 名;前端习惯用的短名见同目录 models.ts 的别名映射。
- * 共 141 个类型。
+ * 共 144 个类型。
  */
 /* eslint-disable */
 
@@ -97,6 +97,29 @@ export interface ApproverProblemOut {
   biz_type: string
   biz_type_label: string
   missing_steps: MissingStepOut[]
+}
+
+export interface ArchiveFileRequest {
+  ledger_type?: string
+  report_type?: string
+  year: number
+  month?: number | null
+  quarter?: number | null
+  account_code?: string | null
+  mode?: string
+  folder_names?: Record<string, string>
+  path: string
+}
+
+export interface ArchiveRequest {
+  ledger_type?: string
+  report_type?: string
+  year: number
+  month?: number | null
+  quarter?: number | null
+  account_code?: string | null
+  mode?: string
+  folder_names?: Record<string, string>
 }
 
 export interface AttachmentOut {
@@ -829,6 +852,22 @@ export interface RegisterIn {
   display_name?: string
 }
 
+export interface RelatedAttachmentOut {
+  id: number
+  voucher_id: number | null
+  expense_application_id: number | null
+  expense_claim_id: number | null
+  contract_id: number | null
+  tax_filing_id: number | null
+  kind: string
+  original_name: string
+  mime_type: string
+  size_bytes: number
+  uploaded_at: string
+  source: string
+  source_label: string
+}
+
 export interface ReportPeriodOut {
   label: string
   report_type: string
@@ -1255,14 +1294,17 @@ export interface VoucherDetail {
   total_debit: string
   total_credit: string
   status: string
+  bank_transaction: boolean
   required_attachment_kinds: string[]
   missing_attachment_kinds: string[]
   workflow_instance_id: number | null
   created_at: string
   entries: EntryOut[]
   attachments: AttachmentOut[]
+  related_attachments: RelatedAttachmentOut[]
   attachment_kind_counts: Record<string, number>
   attachment_source_counts: Record<string, number>
+  attachment_kind_source_counts: Record<string, Record<string, number>>
   links: LinkedVoucher[]
 }
 
@@ -1282,6 +1324,7 @@ export interface VoucherListItem {
   total_debit: string
   total_credit: string
   status: string
+  bank_transaction: boolean
   required_attachment_kinds: string[]
   missing_attachment_kinds: string[]
   workflow_instance_id: number | null
@@ -1289,6 +1332,7 @@ export interface VoucherListItem {
   attachment_count: number
   attachment_kind_counts: Record<string, number>
   attachment_source_counts: Record<string, number>
+  attachment_kind_source_counts: Record<string, Record<string, number>>
   link_count: number
   contract_link_count: number
 }

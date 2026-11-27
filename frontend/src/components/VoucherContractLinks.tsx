@@ -12,10 +12,11 @@ interface VoucherContractLink {
 }
 interface Props {
   voucherId: number
+  onChange?: () => void
 }
 
 // 凭证侧反向管理「关联合同」:选择合同建立关联,或解除已有关联。
-export default function VoucherContractLinks({ voucherId }: Props) {
+export default function VoucherContractLinks({ voucherId, onChange }: Props) {
   const navigate = useNavigate()
   const [contracts, setContracts] = useState<ContractOption[]>([])
   const [links, setLinks] = useState<VoucherContractLink[]>([])
@@ -34,11 +35,11 @@ export default function VoucherContractLinks({ voucherId }: Props) {
   const link = async () => {
     if (!selected) return
     await http.post(`/contracts/${selected}/link`, null, { params: { voucher_id: voucherId } })
-    message.success('已关联合同'); setSelected(undefined); loadLinks()
+    message.success('已关联合同'); setSelected(undefined); loadLinks(); onChange?.()
   }
   const unlink = async (linkId: number) => {
     await http.delete(`/contracts/link/${linkId}`)
-    loadLinks()
+    loadLinks(); onChange?.()
   }
 
   const linkedIds = new Set(links.map((l) => l.contract_id))

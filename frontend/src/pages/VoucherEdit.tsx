@@ -22,6 +22,7 @@ const emptyEntry = (): Entry => ({ summary: '', account_id: 0, sub_account: '', 
 // 金额格式化走共享实现
 
 const KIND_OPTIONS = Object.entries(ATTACHMENT_KIND_LABEL).map(([value, label]) => ({ value, label }))
+type RelatedAttachment = Attachment & { source: string; source_label: string }
 
 export default function VoucherEdit() {
   const { id } = useParams()
@@ -35,12 +36,14 @@ export default function VoucherEdit() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [entries, setEntries] = useState<Entry[]>([emptyEntry(), emptyEntry()])
   const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [relatedAttachments, setRelatedAttachments] = useState<RelatedAttachment[]>([])
   const [links, setLinks] = useState<LinkedVoucher[]>([])
   const [saving, setSaving] = useState(false)
   const [uploadKind, setUploadKind] = useState('invoice')
   const [previewing, setPreviewing] = useState<Attachment | null>(null)
   const [mergedAttachmentKindCounts, setMergedAttachmentKindCounts] = useState<Record<string, number>>({})
   const [attachmentSourceCounts, setAttachmentSourceCounts] = useState<Record<string, number>>({})
+  const [attachmentKindSourceCounts, setAttachmentKindSourceCounts] = useState<Record<string, Record<string, number>>>({})
 
   useEffect(() => {
     http.get<AccountTreeNode[]>('/accounts/tree').then((r) => {
@@ -68,11 +71,23 @@ export default function VoucherEdit() {
       })
       setEntries(v.entries.length ? v.entries : [emptyEntry(), emptyEntry()])
       setAttachments(v.attachments)
+      setRelatedAttachments(v.related_attachments || [])
       setMergedAttachmentKindCounts(v.attachment_kind_counts || {})
       setAttachmentSourceCounts(v.attachment_source_counts || {})
+      setAttachmentKindSourceCounts(v.attachment_kind_source_counts || {})
       setLinks(v.links)
     })
   }, [id, isEdit, form])
+
+  const refreshAttachmentContext = () => {
+    if (!isEdit) return
+    http.get<VoucherDetail>(`/vouchers/${id}`).then(({ data }) => {
+      setMergedAttachmentKindCounts(data.attachment_kind_counts || {})
+      setAttachmentSourceCounts(data.attachment_source_counts || {})
+      setAttachmentKindSourceCounts(data.attachment_kind_source_counts || {})
+      setRelatedAttachments(data.related_attachments || [])
+    })
+  }
 
   // 新建时若带 copyFrom:复制该凭证的摘要/科目/金额,生成一条新凭证(日期取今天、单号留空、不带附件/关联)
   useEffect(() => {
@@ -123,13 +138,16 @@ export default function VoucherEdit() {
   const directionWarning = (Boolean(note && /退款/.test(note)) && postingEffects.bank > 0)
     || (Boolean(note && /冲减收入|冲销收入/.test(note)) && postingEffects.revenue > 0)
   const watchedRequiredKinds = Form.useWatch('required_attachment_kinds', form) as string[] | undefined
+  const bankTransaction = entries.some((e) => accounts.some((a) => a.id === e.account_id && a.code === '1002')
+    && (toAmount(e.debit) !== 0 || toAmount(e.credit) !== 0))
+  const requiredKinds = Array.from(new Set([...(watchedRequiredKinds || []), ...(bankTransaction ? ['receipt'] : [])]))
   const selfAttachmentKindCounts = useMemo(() => attachments.reduce<Record<string, number>>((acc, att) => {
     acc[att.kind] = (acc[att.kind] || 0) + 1
     return acc
   }, {}), [attachments])
   const effectiveAttachmentKindCounts = isEdit ? mergedAttachmentKindCounts : selfAttachmentKindCounts
-  const missingAttachmentKinds = (watchedRequiredKinds || [])
-    .filter((kind) => !effectiveAttachmentKindCounts[kind])
+  const missingAttachmentKinds = requiredKinds.filter((kind) => !(kind === 'receipt' && bankTransaction
+    ? selfAttachmentKindCounts[kind] : effectiveAttachmentKindCounts[kind]))
   const sourceItems = [
     ['self', '本凭证'],
     ['linked_voucher', '关联凭证'],
@@ -210,7 +228,7 @@ export default function VoucherEdit() {
       note: values.note || '',
       customer_id: values.customer_id ?? null,
       status: 'posted',
-      required_attachment_kinds: values.required_attachment_kinds || [],
+      required_attachment_kinds: requiredKinds,
       entries: valid.map((e) => ({
         summary: e.summary, account_id: e.account_id, sub_account: e.sub_account,
         // 编辑态可能仍是接口读回的字符串,提交前统一成数字
@@ -377,11 +395,12 @@ export default function VoucherEdit() {
             style={{ minWidth: 360 }} options={KIND_OPTIONS} />
         </Form.Item>
         <Form.Item label="附件状态">
-          {watchedRequiredKinds?.length ? (
+          {requiredKinds.length ? (
             missingAttachmentKinds.length ? (
               <Space size={4} wrap>
                 {missingAttachmentKinds.map((kind) => (
-                  <Tag key={kind} color="warning">缺{ATTACHMENT_KIND_LABEL[kind] || kind}</Tag>
+                  <Tag key={kind} color="warning">缺{kind === 'receipt' && bankTransaction
+                    ? '本次银行回单' : (ATTACHMENT_KIND_LABEL[kind] || kind)}</Tag>
                 ))}
               </Space>
             ) : <Tag color="success">附件齐</Tag>
@@ -389,12 +408,19 @@ export default function VoucherEdit() {
         </Form.Item>
         <Form.Item label="统计来源">
           <Space size={4} wrap>
-            {sourceItems.map(([key, label]) => (
-              <Tag key={key}>{label} {attachmentSourceCounts[key] || 0}</Tag>
-            ))}
+            {sourceItems.map(([key, label]) => {
+              const counts = key === 'self' ? selfAttachmentKindCounts : (attachmentKindSourceCounts[key] || {})
+              return <Tag key={key}>{label} {key === 'self' ? attachments.length : (attachmentSourceCounts[key] || 0)}：
+                {Object.entries(counts).filter(([, count]) => count > 0)
+                  .map(([kind, count]) => `${ATTACHMENT_KIND_LABEL[kind] || kind} ${count}`).join('、') || '无'}
+              </Tag>
+            })}
           </Space>
         </Form.Item>
       </Form>
+      {bankTransaction && <Alert type={missingAttachmentKinds.includes('receipt') ? 'warning' : 'info'}
+        showIcon style={{ marginBottom: 12 }}
+        message="本凭证涉及银行存款：须上传本次交易的银行回单。关联凭证或合同的历史回单仅供查阅，不计作本次回单。" />}
       {!isEdit && <Text type="secondary">保存凭证后即可上传附件。</Text>}
       {isEdit && (
         <>
@@ -405,6 +431,7 @@ export default function VoucherEdit() {
               <Button icon={<UploadOutlined />}>上传附件</Button>
             </Upload>
           </Space>
+          <Divider orientation="left">本凭证附件（本次交易）</Divider>
           <Table rowKey="id" size="small" pagination={false} dataSource={attachments}
             locale={{ emptyText: '暂无附件' }}
             columns={[
@@ -434,6 +461,19 @@ export default function VoucherEdit() {
                 ),
               },
             ]} />
+          <Divider orientation="left">关联资料（仅供查阅）</Divider>
+          <Table<RelatedAttachment> rowKey={(r) => `${r.source}-${r.id}`} size="small" pagination={false}
+            dataSource={relatedAttachments} locale={{ emptyText: '暂无关联附件' }}
+            columns={[
+              { title: '来源', dataIndex: 'source_label', width: 210 },
+              { title: '类型', dataIndex: 'kind', width: 120,
+                render: (kind: string) => ATTACHMENT_KIND_LABEL[kind] || kind },
+              { title: '文件名', dataIndex: 'original_name',
+                render: (name: string, r: Attachment) => <a onClick={() => setPreviewing(r)}>{name}</a> },
+              { title: '操作', width: 100,
+                render: (_: unknown, r: Attachment) =>
+                  <Button type="text" icon={<EyeOutlined />} onClick={() => setPreviewing(r)}>预览</Button> },
+            ]} />
         </>
       )}
 
@@ -441,13 +481,15 @@ export default function VoucherEdit() {
       <h3>凭证关联(预收款 / 挂账 / 核销 / 应收款)</h3>
       {!isEdit && <Text type="secondary">保存凭证后即可添加关联。</Text>}
       {isEdit && (
-        <VoucherLinks voucherId={Number(id)} links={links} onChange={setLinks} />
+        <VoucherLinks voucherId={Number(id)} links={links} onChange={(next) => {
+          setLinks(next); refreshAttachmentContext()
+        }} />
       )}
 
       <Divider />
       <h3>关联合同</h3>
       {!isEdit && <Text type="secondary">保存凭证后即可关联合同。</Text>}
-      {isEdit && <VoucherContractLinks voucherId={Number(id)} />}
+      {isEdit && <VoucherContractLinks voucherId={Number(id)} onChange={refreshAttachmentContext} />}
 
       <AttachmentPreview attachment={previewing} open={Boolean(previewing)}
         onClose={() => setPreviewing(null)} />
