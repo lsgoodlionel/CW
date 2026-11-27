@@ -191,7 +191,7 @@ export default function Dashboard() {
           </Card>
         </Col>
         <Col xs={24} lg={10}>
-          <Card size="small" title={`支出构成(${lab})`} styles={{ body: { padding: '8px 16px', maxHeight: 232, overflowY: 'auto' } }}>
+          <Card size="small" title={`支出构成(${lab}，占比按净额绝对值)`} styles={{ body: { padding: '8px 16px', maxHeight: 232, overflowY: 'auto' } }}>
             {data.expense_breakdown.length === 0 ? <Empty description="本期无支出" /> : (
               data.expense_breakdown.map((e, i) => (
                 <div key={e.code} style={{ marginBottom: 8 }}>
