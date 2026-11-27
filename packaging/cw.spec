@@ -66,8 +66,8 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "小企业财务记账系统",
             "CFBundleDisplayName": "小企业财务记账系统",
-            "CFBundleShortVersionString": "1.0.14",
-            "CFBundleVersion": "1.0.14",
+            "CFBundleShortVersionString": "1.0.15",
+            "CFBundleVersion": "1.0.15",
             "NSHighResolutionCapable": True,
         },
     )

@@ -275,8 +275,8 @@ def dashboard_summary(
         voucher_stmt = voucher_stmt.where(models.Voucher.voucher_date <= end)
     voucher_count = db.scalar(voucher_stmt) or 0
 
-    # 总支出 = 营业收入 - 净利润(粗略,用于概览)
-    expense = revenue - income["net_profit"]
+    # 成本费用逐科目净发生额；营业外收入、投资收益不能冲减“总支出”。
+    expense = float(_expense_total(reports_cn.Balances(reports_cn._movement(db, start, end))))
 
     # 近 6 个月营业收入/净利润趋势
     trend = _monthly_trend(db, months=6)
@@ -304,7 +304,7 @@ def _monthly_trend(db: Session, months: int = 6):
         )
         .join(models.Voucher, models.Voucher.id == models.VoucherEntry.voucher_id)
         .join(models.Account, models.Account.id == models.VoucherEntry.account_id)
-        .where(models.Account.category == "profit",
+        .where(models.Account.code.in_(reports_cn.PERIOD_PROFIT_CODES),
                models.Voucher.status == "posted")
         .group_by(models.Voucher.voucher_date, models.Account.code)
     ).all()
@@ -332,6 +332,11 @@ _EXPENSE_CODES = {
     "6601": "销售费用", "6602": "管理费用", "6603": "财务费用",
     "6701": "资产减值损失", "6711": "营业外支出", "6801": "所得税费用",
 }
+
+
+def _expense_total(b: reports_cn.Balances) -> Decimal:
+    """已过账成本费用净额，红字在原科目内抵减。"""
+    return sum((b.net_debit(code) for code in _EXPENSE_CODES), ZERO)
 
 
 def _period_range(period_type: str, ref: date) -> tuple[date, date, str]:
@@ -375,7 +380,7 @@ def dashboard(
     b = reports_cn.Balances(mv)
     revenue = b.net_credit("6001", "6051")
     profit_net = reports_cn._profit_net(b)
-    expense = revenue - profit_net
+    expense = _expense_total(b)
 
     voucher_count = db.scalar(
         select(func.count(models.Voucher.id)).where(
@@ -391,10 +396,11 @@ def dashboard(
     ops = _ops_summary(db)
 
     # 财务状况分析(期末时点资产负债 + 本期盈利比率)
-    assets = sum((v for code, v in end_bal._d.items()
-                  if code.startswith("1") or code in ("5001", "5101", "5201")), Decimal("0"))
-    liabilities = -sum((v for code, v in end_bal._d.items() if code.startswith("2")), Decimal("0"))
-    equity = assets - liabilities
+    asset_lines = reports_cn._asset_lines(end_bal)
+    right_lines = reports_cn._right_lines(end_bal, reports_cn._profit_net(end_bal))
+    assets = asset_lines[30]
+    liabilities = right_lines[47]
+    equity = right_lines[52]
     cost = b.net_debit("6401", "6402")
     finance = {
         "assets": float(assets), "liabilities": float(liabilities), "equity": float(equity),

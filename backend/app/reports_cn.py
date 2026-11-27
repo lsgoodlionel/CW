@@ -180,12 +180,16 @@ def balance_sheet(db: Session, period: Period) -> dict:
     }
 
 
+PERIOD_PROFIT_CODES = (
+    "6001", "6051", "6101", "6111", "6301",
+    "6401", "6402", "6403", "6601", "6602", "6603",
+    "6701", "6711", "6801",
+)
+
+
 def _profit_net(bal: Balances) -> Decimal:
     """损益类科目累计净额(贷-借)= 未分配利润的当期来源。"""
-    codes = ["6001", "6051", "6101", "6111", "6301",
-             "6401", "6402", "6403", "6601", "6602", "6603",
-             "6701", "6711", "6801", "6901"]
-    return bal.net_credit(*codes)
+    return bal.net_credit(*PERIOD_PROFIT_CODES)
 
 
 def _asset_lines(b: Balances) -> dict[int, Decimal]:
@@ -249,7 +253,7 @@ def _right_lines(b: Balances, profit_net: Decimal) -> dict[int, Decimal]:
     v[48] = b.net_credit("4001")                           # 实收资本
     v[49] = b.net_credit("4002")                           # 资本公积
     v[50] = b.net_credit("4101")                           # 盈余公积
-    v[51] = b.net_credit("4103", "4104") + profit_net      # 未分配利润
+    v[51] = b.net_credit("4103", "4104", "6901") + profit_net  # 以前年度损益调整归入留存收益
     # 减:库存股(4201,权益借方,回购冲减所有者权益)
     v[52] = sum((v[i] for i in (48, 49, 50, 51)), ZERO) - b.net_debit("4201")
     v[53] = v[47] + v[52]                                  # 负债和所有者权益总计
