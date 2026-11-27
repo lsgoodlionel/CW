@@ -74,7 +74,8 @@ export default function VoucherList() {
       return (
         <Space size={4} wrap>
           {missing.map((k) => (
-            <Tag key={k} color="warning">缺{ATTACHMENT_KIND_LABEL[k] || k}</Tag>
+            <Tag key={k} color="warning">缺{k === 'receipt' && r.bank_transaction
+              ? '本次银行回单' : (ATTACHMENT_KIND_LABEL[k] || k)}</Tag>
           ))}
         </Space>
       )
@@ -109,13 +110,18 @@ export default function VoucherList() {
     { title: '分录', dataIndex: 'entry_count', width: 60 },
     {
       title: '附件', dataIndex: 'attachment_count', width: 170,
-      render: (n: number, r: VoucherListItem) => {
-        const counts = r.attachment_kind_counts || {}
-        const entries = Object.entries(counts).filter(([, count]) => count > 0)
-        return n > 0 ? (
+      render: (_n: number, r: VoucherListItem) => {
+        const sources = r.attachment_kind_source_counts || {}
+        const sourceLabels: Record<string, string> = { self: '本凭证', linked_voucher: '关联凭证', linked_contract: '关联合同' }
+        const entries = Object.entries(sources).flatMap(([source, kinds]) =>
+          Object.entries(kinds).filter(([, count]) => count > 0)
+            .map(([kind, count]) => ({ source, kind, count })))
+        return entries.length ? (
           <Space size={4} wrap>
-            {entries.map(([kind, count]) => (
-              <Tag key={kind} color="blue"><PaperClipOutlined /> {ATTACHMENT_KIND_LABEL[kind] || kind} {count}</Tag>
+            {entries.map(({ source, kind, count }) => (
+              <Tag key={`${source}-${kind}`} color={source === 'self' ? 'blue' : 'default'}>
+                <PaperClipOutlined /> {sourceLabels[source] || source}·{ATTACHMENT_KIND_LABEL[kind] || kind} {count}
+              </Tag>
             ))}
           </Space>
         ) : '-'

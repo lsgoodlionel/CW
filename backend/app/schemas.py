@@ -154,6 +154,11 @@ class AttachmentOut(BaseModel):
     uploaded_at: datetime
 
 
+class RelatedAttachmentOut(AttachmentOut):
+    source: str
+    source_label: str
+
+
 ATTACHMENT_KINDS = {"invoice", "receipt", "contract", "tax_payment", "approval", "other"}
 
 
@@ -549,6 +554,7 @@ class VoucherListItem(BaseModel):
     total_debit: Decimal
     total_credit: Decimal
     status: str
+    bank_transaction: bool = False
     required_attachment_kinds: list[str] = []
     missing_attachment_kinds: list[str] = []
     workflow_instance_id: int | None = None
@@ -556,6 +562,7 @@ class VoucherListItem(BaseModel):
     attachment_count: int = 0
     attachment_kind_counts: dict[str, int] = {}
     attachment_source_counts: dict[str, int] = {}
+    attachment_kind_source_counts: dict[str, dict[str, int]] = {}
     link_count: int = 0
     contract_link_count: int = 0
 
@@ -578,14 +585,17 @@ class VoucherDetail(BaseModel):
     total_debit: Decimal
     total_credit: Decimal
     status: str
+    bank_transaction: bool = False
     required_attachment_kinds: list[str] = []
     missing_attachment_kinds: list[str] = []
     workflow_instance_id: int | None = None
     created_at: datetime
     entries: list[EntryOut]
     attachments: list[AttachmentOut]
+    related_attachments: list[RelatedAttachmentOut] = []
     attachment_kind_counts: dict[str, int] = {}
     attachment_source_counts: dict[str, int] = {}
+    attachment_kind_source_counts: dict[str, dict[str, int]] = {}
     links: list[LinkedVoucher] = []
 
     @field_validator("required_attachment_kinds", mode="before")

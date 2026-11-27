@@ -12,7 +12,9 @@ from ..auth_mw import current_user
 from ..tenant import tenant_get
 from ..voucher_attachments import (
     attachment_context,
+    bank_transaction_ids,
     dump_required_attachment_kinds,
+    effective_required_kinds,
     missing_attachment_kinds,
     parse_required_attachment_kinds,
 )
@@ -57,6 +59,42 @@ def _linked_vouchers(db: Session, voucher_id: int) -> list[schemas.LinkedVoucher
     return out
 
 
+def _related_attachments(db: Session, voucher_id: int) -> list[schemas.RelatedAttachmentOut]:
+    links = db.execute(
+        select(models.VoucherLink.source_id, models.VoucherLink.target_id).where(or_(
+            models.VoucherLink.source_id == voucher_id,
+            models.VoucherLink.target_id == voucher_id,
+        ))
+    ).all()
+    other_ids = {target if source == voucher_id else source for source, target in links}
+    result: list[schemas.RelatedAttachmentOut] = []
+    if other_ids:
+        rows = db.execute(
+            select(models.Attachment, models.Voucher.voucher_no)
+            .join(models.Voucher, models.Attachment.voucher_id == models.Voucher.id)
+            .where(models.Attachment.voucher_id.in_(other_ids))
+        ).all()
+        result.extend(schemas.RelatedAttachmentOut(
+            **schemas.AttachmentOut.model_validate(att).model_dump(),
+            source="linked_voucher", source_label=f"关联凭证 {number}",
+        ) for att, number in rows)
+    contract_ids = db.scalars(
+        select(models.ContractVoucherLink.contract_id)
+        .where(models.ContractVoucherLink.voucher_id == voucher_id)
+    ).all()
+    if contract_ids:
+        rows = db.execute(
+            select(models.Attachment, models.Contract.contract_no)
+            .join(models.Contract, models.Attachment.contract_id == models.Contract.id)
+            .where(models.Attachment.contract_id.in_(contract_ids))
+        ).all()
+        result.extend(schemas.RelatedAttachmentOut(
+            **schemas.AttachmentOut.model_validate(att).model_dump(),
+            source="linked_contract", source_label=f"关联合同 {number}",
+        ) for att, number in rows)
+    return result
+
+
 def _to_detail(voucher: models.Voucher, db: Session) -> schemas.VoucherDetail:
     entries = []
     for e in voucher.entries:
@@ -64,8 +102,10 @@ def _to_detail(voucher: models.Voucher, db: Session) -> schemas.VoucherDetail:
         item.account_code = e.account.code if e.account else ""
         item.account_name = e.account.name if e.account else ""
         entries.append(item)
-    required = parse_required_attachment_kinds(voucher.required_attachment_kinds)
-    kind_counts, source_counts = attachment_context(db, [voucher.id]).get(voucher.id, ({}, {}))
+    bank_transaction = voucher.id in bank_transaction_ids(db, [voucher.id])
+    required = effective_required_kinds(voucher.required_attachment_kinds, bank_transaction)
+    kind_counts, source_counts, kind_sources = attachment_context(db, [voucher.id]).get(
+        voucher.id, ({}, {}, {"self": {}, "linked_voucher": {}, "linked_contract": {}}))
     return schemas.VoucherDetail(
         id=voucher.id,
         voucher_no=voucher.voucher_no,
@@ -77,13 +117,17 @@ def _to_detail(voucher: models.Voucher, db: Session) -> schemas.VoucherDetail:
         total_debit=voucher.total_debit,
         total_credit=voucher.total_credit,
         status=voucher.status,
+        bank_transaction=bank_transaction,
         required_attachment_kinds=required,
-        missing_attachment_kinds=missing_attachment_kinds(required, kind_counts),
+        missing_attachment_kinds=missing_attachment_kinds(
+            required, kind_counts, kind_sources["self"], bank_transaction),
         created_at=voucher.created_at,
         entries=entries,
         attachments=[schemas.AttachmentOut.model_validate(a) for a in voucher.attachments],
+        related_attachments=_related_attachments(db, voucher.id),
         attachment_kind_counts=kind_counts,
         attachment_source_counts=source_counts,
+        attachment_kind_source_counts=kind_sources,
         links=_linked_vouchers(db, voucher.id),
     )
 
@@ -138,10 +182,13 @@ def list_vouchers(
         # 缺件状态会合并关联凭证与合同附件,须沿用同一计算函数后分页。
         candidate_ids = db.scalars(stmt.with_only_columns(models.Voucher.id)).all()
         context = attachment_context(db, candidate_ids)
+        bank_ids = bank_transaction_ids(db, candidate_ids)
         candidates = db.scalars(select(models.Voucher).where(models.Voucher.id.in_(candidate_ids))).all()
         missing_ids = [v.id for v in candidates if missing_attachment_kinds(
-            parse_required_attachment_kinds(v.required_attachment_kinds),
-            context.get(v.id, ({}, {}))[0])]
+            effective_required_kinds(v.required_attachment_kinds, v.id in bank_ids),
+            context.get(v.id, ({}, {}, {}))[0],
+            context.get(v.id, ({}, {}, {"self": {}}))[2]["self"],
+            v.id in bank_ids)]
         stmt = stmt.where(models.Voucher.id.in_(missing_ids))
     if account_id or flow:
         # 该凭证的分录中存在满足条件的科目(费用类型=具体科目;收支类型=损益类科目方向)
@@ -168,15 +215,19 @@ def list_vouchers(
     link_counts = _link_counts(db, ids)
     contract_link_counts = _contract_link_counts(db, ids)
     attachment_context_by_id = attachment_context(db, ids)
+    bank_ids = bank_transaction_ids(db, ids)
     items = []
     for v in vouchers:
         item = schemas.VoucherListItem.model_validate(v)
         item.entry_count = len(v.entries)
         item.attachment_count = len(v.attachments)
-        item.attachment_kind_counts, item.attachment_source_counts = attachment_context_by_id.get(v.id, ({}, {}))
-        item.required_attachment_kinds = parse_required_attachment_kinds(v.required_attachment_kinds)
+        item.attachment_kind_counts, item.attachment_source_counts, item.attachment_kind_source_counts = (
+            attachment_context_by_id.get(v.id, ({}, {}, {"self": {}, "linked_voucher": {}, "linked_contract": {}})))
+        item.required_attachment_kinds = effective_required_kinds(v.required_attachment_kinds, v.id in bank_ids)
+        item.bank_transaction = v.id in bank_ids
         item.missing_attachment_kinds = missing_attachment_kinds(
-            item.required_attachment_kinds, item.attachment_kind_counts)
+            item.required_attachment_kinds, item.attachment_kind_counts,
+            item.attachment_kind_source_counts["self"], v.id in bank_ids)
         item.customer_name = (v.customer.short_name or v.customer.name) if v.customer else ""
         item.link_count = link_counts.get(v.id, 0)
         item.contract_link_count = contract_link_counts.get(v.id, 0)

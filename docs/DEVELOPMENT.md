@@ -2,7 +2,7 @@
 
 > 本文档面向**开发接力 / 团队移交 / 反向追溯**,全面记录已实现功能、需求来源、架构决策、数据模型、API、开发历程与待办规划。
 > 与 [README.md](../README.md)(面向使用者)互补;报表口径见 [REPORTS.md](REPORTS.md);架构蓝图见 [BLUEPRINT.md](BLUEPRINT.md)。
-> 最后更新:2026-11-27(v1.0.16:凭证入账影响预览与红字方向提示)。
+> 最后更新:2026-11-27(凭证附件来源区分与本次银行回单校验)。
 > 事项追踪:[Issues](https://github.com/lsgoodlionel/CW/issues)、[里程碑](https://github.com/lsgoodlionel/CW/milestones)、[Project](https://github.com/users/lsgoodlionel/projects/2)、[Wiki](https://github.com/lsgoodlionel/CW/wiki)。
 
 ---
@@ -215,6 +215,7 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 | v1.0.14 | 诊断页区分日志采集和外部上传状态;超管无需令牌可本地打包下载;新增服务器交互式专用 PAT 配置与测试上传工具。归档清单逐文件预览,附件类型中文命名,非费用凭证按主要业务科目归档并标注依据 |
 | v1.0.15 | 仪表盘红字分录回归核对收入、利润、银行、应交税费、资产、负债、权益、比率和已过账张数；总支出改为成本费用净发生额，避免营业外收入误抵减；资产/负债/权益复用资产负债表行次，覆盖开发支出；以前年度损益调整移出当期利润与趋势，归入未分配利润；支出构成占比标明按净额绝对值 |
 | v1.0.16 | 凭证编辑页预览收入、成本费用、银行存款和应交税费的实际入账增减；摘要为退款或冲减收入而分录效果相反时显示警示，避免将贷方负数误作银行支出。生产凭证记-202611-006 已发现误填方向，历史账务需单独按银行流水更正 |
+| v1.0.17 | 凭证附件按来源及类型标记；含银行存款分录的凭证自动要求本次交易回单，关联历史回单不再满足该项；列表、详情、筛选和仪表盘缺件数同步采用新规则 |
 
 完整阶段记录(按提交与 Issue)见 Wiki [开发历程](https://github.com/lsgoodlionel/CW/wiki/开发历程) 与 [版本发布记录](https://github.com/lsgoodlionel/CW/wiki/版本发布记录)。
 
@@ -247,7 +248,7 @@ personnel  CRUD /personnel/org-units ; CRUD /personnel/employees ; POST /org-uni
 - API `/api/expense-apply` CRUD + `/submit` + `/{id}/attachments` + `/active-workflow` + `/approved` + `/meta`;前端「费用申请」页(建单/明细/附件上传/提交/详情+审批轨迹)。
 - 备份 **v9**:新增 `expense_applications`(含明细)+ 附件改为**扁平附件表**统一导出(记录 voucher/application/claim 三种归属 ref),导入按 ref 还原多归属;兼容 v1–v8 老备份(旧版凭证内嵌附件仍可读)。
 - 备份 **v22**:凭证新增 `required_attachment_kinds`(必需附件类型),导出/恢复保留附件补齐状态。
-- 凭证附件补齐状态按“本凭证附件 + 双向关联凭证附件 + 关联合同附件”合并计算,不复制关联对象附件到当前凭证。
+- 凭证附件 API 分别返回本凭证、双向关联凭证和关联合同的各类型数量;不复制关联对象附件。一般必需附件可结合关联资料判断,但凭证只要含非零 `1002 银行存款` 分录就自动要求本凭证有银行回单;历史关联回单不满足本次交易。列表缺件筛选、详情和仪表盘缺附件数共用此规则,旧凭证也即时生效。
 - 凭证状态:`posted` 保持为“已入账/进入账簿与报表”的系统状态;前端显示为“已入账”。草稿或审批中凭证不进入报表。
 - 仪表盘运营待办新增“缺附件凭证”,复用同一套合并附件口径统计仍缺必需附件的凭证数量。
 

@@ -1,7 +1,4 @@
-"""凭证附件完成度统计。
-
-当前凭证的附件完成状态需要合并三类来源:本凭证、关联凭证、关联合同。
-"""
+"""凭证附件完成度统计，保留每种附件的来源。"""
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session
 
@@ -24,25 +21,46 @@ def dump_required_attachment_kinds(kinds: list[str]) -> str:
 
 
 def missing_attachment_kinds(
-    required: list[str], counts: dict[str, int]
+    required: list[str], counts: dict[str, int], own_counts: dict[str, int] | None = None,
+    bank_transaction: bool = False,
 ) -> list[str]:
-    return [kind for kind in required if counts.get(kind, 0) <= 0]
+    return [kind for kind in required if (
+        (own_counts or {}).get(kind, 0) if kind == "receipt" and bank_transaction
+        else counts.get(kind, 0)
+    ) <= 0]
+
+
+def bank_transaction_ids(db: Session, voucher_ids: list[int]) -> set[int]:
+    if not voucher_ids:
+        return set()
+    return set(db.scalars(
+        select(models.VoucherEntry.voucher_id)
+        .join(models.Account, models.VoucherEntry.account_id == models.Account.id)
+        .where(models.VoucherEntry.voucher_id.in_(voucher_ids),
+               models.Account.code == "1002",
+               or_(models.VoucherEntry.debit != 0, models.VoucherEntry.credit != 0))
+    ).all())
+
+
+def effective_required_kinds(raw: str | None, bank_transaction: bool) -> list[str]:
+    required = parse_required_attachment_kinds(raw)
+    if bank_transaction and "receipt" not in required:
+        required.append("receipt")
+    return required
 
 
 def count_missing_attachment_vouchers(db: Session) -> int:
-    rows = db.execute(
-        select(models.Voucher.id, models.Voucher.required_attachment_kinds)
-        .where(models.Voucher.required_attachment_kinds != "")
-    ).all()
+    rows = db.execute(select(models.Voucher.id, models.Voucher.required_attachment_kinds)).all()
     ids = [voucher_id for voucher_id, _ in rows]
     context = attachment_context(db, ids)
+    bank_ids = bank_transaction_ids(db, ids)
     missing_count = 0
     for voucher_id, raw_required in rows:
-        required = parse_required_attachment_kinds(raw_required)
+        required = effective_required_kinds(raw_required, voucher_id in bank_ids)
         if not required:
             continue
-        kind_counts, _ = context.get(voucher_id, ({}, {}))
-        if missing_attachment_kinds(required, kind_counts):
+        kind_counts, _, by_source = context.get(voucher_id, ({}, {}, {}))
+        if missing_attachment_kinds(required, kind_counts, by_source["self"], voucher_id in bank_ids):
             missing_count += 1
     return missing_count
 
@@ -57,7 +75,7 @@ def _merge_kind_counts(*parts: dict[str, int]) -> dict[str, int]:
 
 def attachment_context(
     db: Session, voucher_ids: list[int]
-) -> dict[int, tuple[dict[str, int], dict[str, int]]]:
+) -> dict[int, tuple[dict[str, int], dict[str, int], dict[str, dict[str, int]]]]:
     if not voucher_ids:
         return {}
     idset = set(voucher_ids)
@@ -132,6 +150,8 @@ def attachment_context(
 
     return {
         vid: (_merge_kind_counts(self_counts[vid], linked_counts[vid], contract_counts[vid]),
-              {k: v for k, v in source_counts[vid].items() if v > 0})
+              {k: v for k, v in source_counts[vid].items() if v > 0},
+              {"self": self_counts[vid], "linked_voucher": linked_counts[vid],
+               "linked_contract": contract_counts[vid]})
         for vid in voucher_ids
     }

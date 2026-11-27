@@ -106,6 +106,43 @@ def run():
     check("详情附件类型数量含关联来源",
           detail.attachment_kind_counts == {"invoice": 1, "receipt": 1, "contract": 1})
     check("详情关联来源补齐必需附件", detail.missing_attachment_kinds == [])
+    check("详情可追溯关联附件所属凭证和合同",
+          {(a.source_label, a.kind) for a in detail.related_attachments}
+          == {("关联凭证 记-202610-002", "receipt"), ("关联合同 HT-001", "contract")})
+
+    bank = models.Account(code="1002", name="银行存款", category="asset", direction="debit")
+    db.add(bank)
+    db.flush()
+    refund = models.Voucher(
+        voucher_no="记-202610-004", voucher_date=date(2026, 10, 8),
+        note="本次退款", total_debit=Decimal("-100.00"),
+        total_credit=Decimal("-100.00"), required_attachment_kinds="invoice",
+    )
+    db.add(refund)
+    db.flush()
+    db.add_all([
+        models.VoucherEntry(voucher_id=refund.id, line_no=1, summary="退款",
+                            account_id=bank.id, debit=Decimal("-100.00"), credit=Decimal("0")),
+        models.VoucherLink(source_id=refund.id, target_id=linked_voucher.id, relation_type="reversal"),
+    ])
+    db.commit()
+    refund_detail = vouchers.get_voucher(refund.id, db)
+    check("关联的旧回单有来源标记",
+          refund_detail.attachment_kind_source_counts["linked_voucher"] == {"receipt": 1})
+    check("银行交易自动要求本次回单",
+          refund_detail.bank_transaction
+          and refund_detail.required_attachment_kinds == ["invoice", "receipt"]
+          and refund_detail.missing_attachment_kinds == ["invoice", "receipt"])
+    before_upload = vouchers.list_vouchers(missing_attachments=True, page=1, page_size=20, db=db)
+    check("旧回单不能让退款凭证退出缺件筛选",
+          [item.id for item in before_upload.items] == [refund.id])
+    db.add(models.Attachment(
+        voucher_id=refund.id, kind="receipt", original_name="refund-receipt.pdf",
+        stored_path="/tmp/refund-receipt.pdf", mime_type="application/pdf", size_bytes=100,
+    ))
+    db.commit()
+    check("本次回单上传后只剩发票待补",
+          vouchers.get_voucher(refund.id, db).missing_attachment_kinds == ["invoice"])
 
     incomplete = models.Voucher(
         voucher_no="记-202610-003",
@@ -129,11 +166,11 @@ def run():
 
     ops = reports._ops_summary(db)
     check("仪表盘统计真正缺附件的凭证",
-          ops["vouchers_missing_attachments"] == 1)
+          ops["vouchers_missing_attachments"] == 2)
     filtered = vouchers.list_vouchers(missing_attachments=True, page=1, page_size=20, db=db)
     check("仪表盘跳转筛选与缺附件统计一致",
           filtered.total == ops["vouchers_missing_attachments"]
-          and [item.id for item in filtered.items] == [incomplete.id])
+          and {item.id for item in filtered.items} == {incomplete.id, refund.id})
 
     set_current_tenant(None)
     db.close()
