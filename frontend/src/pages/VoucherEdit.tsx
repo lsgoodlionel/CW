@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Card, Form, DatePicker, Input, Button, Table, Select, InputNumber, Space,
   message, Upload, Tag, Popconfirm, Divider, Typography, Modal, AutoComplete,
+  Alert,
 } from 'antd'
 import {
   DeleteOutlined, PlusOutlined, UploadOutlined, SaveOutlined, EyeOutlined, RollbackOutlined,
@@ -103,6 +104,24 @@ export default function VoucherEdit() {
 
   const totalDebit = entries.reduce((s, e) => s + toAmount(e.debit), 0)
   const totalCredit = entries.reduce((s, e) => s + toAmount(e.credit), 0)
+  const note = Form.useWatch('note', form) as string | undefined
+  const postingEffects = useMemo(() => {
+    const codes = new Map(accounts.map((a) => [a.id, a.code]))
+    const effects = { revenue: 0, expense: 0, bank: 0, tax: 0 }
+    for (const entry of entries) {
+      const code = codes.get(entry.account_id)
+      const debit = toAmount(entry.debit)
+      const credit = toAmount(entry.credit)
+      if (code === '6001' || code === '6051') effects.revenue += credit - debit
+      if (['6401', '6402', '6403', '6601', '6602', '6603', '6701', '6711', '6801'].includes(code || ''))
+        effects.expense += debit - credit
+      if (code === '1002') effects.bank += debit - credit
+      if (code === '2221') effects.tax += credit - debit
+    }
+    return effects
+  }, [accounts, entries])
+  const directionWarning = (Boolean(note && /退款/.test(note)) && postingEffects.bank > 0)
+    || (Boolean(note && /冲减收入|冲销收入/.test(note)) && postingEffects.revenue > 0)
   const watchedRequiredKinds = Form.useWatch('required_attachment_kinds', form) as string[] | undefined
   const selfAttachmentKindCounts = useMemo(() => attachments.reduce<Record<string, number>>((acc, att) => {
     acc[att.kind] = (acc[att.kind] || 0) + 1
@@ -325,6 +344,16 @@ export default function VoucherEdit() {
           </Table.Summary>
         )}
       />
+
+      <Alert style={{ marginTop: 12 }} type={directionWarning ? 'warning' : 'info'} showIcon
+        message={directionWarning ? '分录方向与摘要中的退款或冲减收入相反，请核对借贷栏及正负号' : '本凭证入账影响预览'}
+        description={<>
+          营业收入 {postingEffects.revenue >= 0 ? '+' : ''}{yuan(postingEffects.revenue)}；
+          成本费用 {postingEffects.expense >= 0 ? '+' : ''}{yuan(postingEffects.expense)}；
+          银行存款 {postingEffects.bank >= 0 ? '+' : ''}{yuan(postingEffects.bank)}；
+          应交税费 {postingEffects.tax >= 0 ? '+' : ''}{yuan(postingEffects.tax)}。
+          借方负数与贷方正数的方向相同；贷方负数与借方正数的方向相同。
+        </>} />
 
       <Space style={{ marginTop: 12 }}>
         <Button icon={<PlusOutlined />} onClick={() => setEntries((p) => [...p, emptyEntry()])}>
